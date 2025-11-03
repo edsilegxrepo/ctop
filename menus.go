@@ -225,7 +225,9 @@ func ContainerMenu() MenuFn {
 		items = append(items, menu.Item{Val: "stop", Label: "[s] stop"})
 		items = append(items, menu.Item{Val: "pause", Label: "[p] pause"})
 		items = append(items, menu.Item{Val: "restart", Label: "[r] restart"})
-		items = append(items, menu.Item{Val: "exec", Label: "[e] exec shell"})
+		if runtime.GOOS != "windows" {
+			items = append(items, menu.Item{Val: "exec", Label: "[e] exec shell"})
+		}
 		if c.Meta["Web Port"] != "" {
 			items = append(items, menu.Item{Val: "browser", Label: "[w] open in browser"})
 		}
@@ -238,6 +240,7 @@ func ContainerMenu() MenuFn {
 		items = append(items, menu.Item{Val: "unpause", Label: "[p] unpause"})
 	}
 	items = append(items, menu.Item{Val: "cancel", Label: "[c] cancel"})
+	items = append(items, menu.Item{Val: "quit", Label: "[q] quit"})
 
 	m.AddItems(items...)
 	ui.Render(m)
@@ -298,6 +301,10 @@ func ContainerMenu() MenuFn {
 	ui.Handle("/sys/kbd/c", func(ui.Event) {
 		ui.StopLoop()
 	})
+	ui.Handle("/sys/kbd/q", func(ui.Event) {
+		selected = "quit"
+		ui.StopLoop()
+	})
 
 	ui.Handle("/sys/kbd/<enter>", func(ui.Event) {
 		selected = m.SelectedValue()
@@ -330,6 +337,8 @@ func ContainerMenu() MenuFn {
 		nextMenu = Confirm(confirmTxt("unpause", c.GetMeta("name")), c.Unpause)
 	case "restart":
 		nextMenu = Confirm(confirmTxt("restart", c.GetMeta("name")), c.Restart)
+	case "quit":
+		ui.StopLoop()
 	}
 
 	return nextMenu
@@ -382,25 +391,10 @@ func ExecShell() MenuFn {
 	//  2. Find user's line in /etc/passwd by grep
 	//  3. Extract default user's shell by cutting seven's column separated by :
 	//  4. Execute the shell path with eval
-	var shell []string
-	if runtime.GOOS == "windows" {
-		shell = []string{"cmd.exe"}
-	} else {
-		shell = []string{"/bin/sh", "-c", "printf '\\e[0m\\e[?25h' && clear && eval `grep ^$(id -un): /etc/passwd | cut -d : -f 7-`"}
-	}
-
-	ui.Close()
-	if err := c.Exec(shell); err != nil {
+	if err := c.Exec([]string{"/bin/sh", "-c", "printf '\\e[0m\\e[?25h' && clear && eval `grep ^$(id -un): /etc/passwd | cut -d : -f 7-`"}); err != nil {
 		log.StatusErr(err)
 	}
 
-	if err := ui.Init(); err != nil {
-		panic(err)
-	}
-
-	if err := RefreshDisplay(); err != nil {
-		log.StatusErr(err)
-	}
 	return nil
 }
 
