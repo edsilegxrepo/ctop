@@ -1,7 +1,7 @@
 module github.com/bcicen/ctop
 
 require (
-	github.com/BurntSushi/toml v1.5.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/c9s/goprocinfo v0.0.0-20210130143923-c95fcf8c64a8
 	github.com/fsouza/go-dockerclient v1.12.2
 	github.com/gizak/termui v2.3.1-0.20180817033724-8d4faad06196+incompatible
