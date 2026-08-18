@@ -1,32 +1,41 @@
 package single
 
 import (
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 )
 
 type Cpu struct {
-	*ui.LineChart
+	*widgets.Plot
 	hist FloatHist
 }
 
 func NewCpu() *Cpu {
-	cpu := &Cpu{ui.NewLineChart(), NewFloatHist(55)}
-	cpu.Mode = "dot"
-	cpu.BorderLabel = "CPU"
-	cpu.Height = 12
-	cpu.Width = colWidth[0]
-	cpu.X = 0
-	cpu.DataLabels = cpu.hist.Labels
+	p := widgets.NewPlot()
+	p.Title = "CPU"
+	p.Marker = widgets.MarkerDot
+	p.MaxVal = 100
+	p.SetRect(0, 0, colWidth[0], 12)
+	p.LineColors = []ui.Color{theme.Color("status.ok")}
+	p.BorderStyle = theme.Style("border.fg")
+	p.TitleStyle = theme.Style("label.fg")
 
-	// hack to force the default minY scale to 0
-	tmpData := []float64{20}
-	cpu.Data["CPU"] = tmpData
-	_ = cpu.Buffer()
-
-	cpu.Data["CPU"] = cpu.hist.Data
+	cpu := &Cpu{p, NewFloatHist(colWidth[0] - 10)}
+	cpu.Data = [][]float64{cpu.hist.Data}
 	return cpu
+}
+
+func (w *Cpu) Align() {
+	plotW := (w.Max.X - w.Min.X) - 10
+	if plotW < 10 {
+		plotW = 10
+	}
+	w.hist.SetLimit(plotW)
+	w.Data = [][]float64{w.hist.Data}
 }
 
 func (w *Cpu) Update(val int) {
 	w.hist.Append(float64(val))
+	w.Data = [][]float64{w.hist.Data}
 }

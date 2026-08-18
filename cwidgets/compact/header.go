@@ -1,64 +1,68 @@
 package compact
 
 import (
-	ui "github.com/gizak/termui"
+	"image"
+
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 type CompactHeader struct {
-	X, Y   int
-	Width  int
-	Height int
-	pars   []*ui.Par
+	ui.Block
+	fields    []string
+	widths    []int
+	TextStyle ui.Style
 }
 
 func NewCompactHeader() *CompactHeader {
-	return &CompactHeader{
-		X:      rowPadding,
-		Height: 2,
+	ch := &CompactHeader{
+		Block:     *ui.NewBlock(),
+		TextStyle: theme.Style("fg"),
 	}
+	ch.Border = false
+	ch.SetRect(rowPadding, 0, rowPadding+100, 1)
+	return ch
 }
 
 func (row *CompactHeader) GetHeight() int {
-	return row.Height
+	return 1
+}
+
+func (row *CompactHeader) GetRect() image.Rectangle {
+	return row.Rectangle
 }
 
 func (row *CompactHeader) SetWidths(totalWidth int, widths []int) {
-	x := row.X
-
-	for n, w := range row.pars {
-		w.SetX(x)
-		w.SetWidth(widths[n])
-		x += widths[n] + colSpacing
-	}
-	row.Width = totalWidth
-}
-
-func (row *CompactHeader) SetX(x int) {
-	row.X = x
+	row.widths = widths
+	row.SetRect(rowPadding, row.Min.Y, rowPadding+totalWidth, row.Min.Y+1)
 }
 
 func (row *CompactHeader) SetY(y int) {
-	for _, p := range row.pars {
-		p.SetY(y)
-	}
-	row.Y = y
+	row.SetRect(row.Min.X, y, row.Max.X, y+1)
 }
 
-func (row *CompactHeader) Buffer() ui.Buffer {
-	buf := ui.NewBuffer()
-	for _, p := range row.pars {
-		buf.Merge(p.Buffer())
+func (row *CompactHeader) Draw(buf *ui.Buffer) {
+	row.Block.Draw(buf)
+	x := rowPadding
+	y := row.Min.Y
+
+	for n, field := range row.fields {
+		w := 0
+		if n < len(row.widths) {
+			w = row.widths[n]
+		}
+		if w > 0 && len(field) > w {
+			field = field[:w]
+		}
+		buf.SetString(field, row.TextStyle, image.Pt(x, y))
+		x += w + colSpacing
 	}
-	return buf
 }
 
 func (row *CompactHeader) clearFieldPars() {
-	row.pars = []*ui.Par{}
+	row.fields = []string{}
 }
 
 func (row *CompactHeader) addFieldPar(s string) {
-	p := ui.NewPar(s)
-	p.Height = row.Height
-	p.Border = false
-	row.pars = append(row.pars, p)
+	row.fields = append(row.fields, s)
 }

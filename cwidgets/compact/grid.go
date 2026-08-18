@@ -1,27 +1,42 @@
 package compact
 
 import (
-	ui "github.com/gizak/termui"
+	"image"
+
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
+const rowSpacing = 1
+
 type CompactGrid struct {
-	ui.GridBufferer
+	ui.Block
 	header *CompactHeader
 	cols   []CompactCol // reference columns
 	Rows   []RowBufferer
-	X, Y   int
 	Width  int
-	Height int
+	Y      int
 	Offset int // starting row offset
 }
 
 func NewCompactGrid() *CompactGrid {
-	cg := &CompactGrid{header: NewCompactHeader()}
+	w, h := theme.TermDimensions()
+	cg := &CompactGrid{
+		Block:  *ui.NewBlock(),
+		header: NewCompactHeader(),
+		Width:  w,
+	}
+	cg.Border = false
+	cg.SetRect(0, 0, w, h)
 	cg.rebuildHeader()
 	return cg
 }
 
 func (cg *CompactGrid) Align() {
+	termW, termH := theme.TermDimensions()
+	cg.SetRect(0, cg.Y, termW, termH)
+	cg.Width = termW
+
 	y := cg.Y
 
 	if cg.Offset >= len(cg.Rows) || cg.Offset < 0 {
@@ -30,10 +45,14 @@ func (cg *CompactGrid) Align() {
 
 	// update row ypos, width recursively
 	colWidths := cg.calcWidths()
-	for _, r := range cg.pageRows() {
+	cg.header.SetY(y)
+	cg.header.SetWidths(cg.Width, colWidths)
+	y += cg.header.GetHeight() + 1 // blank separator line between header and container rows
+
+	for _, r := range cg.visibleRows() {
 		r.SetY(y)
-		y += r.GetHeight()
 		r.SetWidths(cg.Width, colWidths)
+		y += r.GetHeight() + rowSpacing
 	}
 }
 
@@ -42,11 +61,24 @@ func (cg *CompactGrid) Clear() {
 	cg.rebuildHeader()
 }
 
-func (cg *CompactGrid) GetHeight() int { return len(cg.Rows) + cg.header.Height }
-func (cg *CompactGrid) SetX(x int)     { cg.X = x }
+func (cg *CompactGrid) GetHeight() int {
+	if len(cg.Rows) == 0 {
+		return cg.header.GetHeight() + 1
+	}
+	return len(cg.Rows)*(1+rowSpacing) + cg.header.GetHeight() + 1
+}
+
 func (cg *CompactGrid) SetY(y int)     { cg.Y = y }
 func (cg *CompactGrid) SetWidth(w int) { cg.Width = w }
-func (cg *CompactGrid) MaxRows() int   { return ui.TermHeight() - cg.header.Height - cg.Y }
+
+func (cg *CompactGrid) MaxRows() int {
+	_, termH := theme.TermDimensions()
+	avail := termH - cg.header.GetHeight() - 1 - cg.Y
+	if avail <= 0 {
+		return 0
+	}
+	return avail / (1 + rowSpacing)
+}
 
 // calculate and return per-column width
 func (cg *CompactGrid) calcWidths() []int {
@@ -63,7 +95,10 @@ func (cg *CompactGrid) calcWidths() []int {
 	}
 
 	spacing := colSpacing * len(cg.cols)
-	autoWidth := (width - spacing) / autoCols
+	autoWidth := 10
+	if autoCols > 0 && (width-spacing) > 0 {
+		autoWidth = (width - spacing) / autoCols
+	}
 	for n, val := range colWidths {
 		if val == 0 {
 			colWidths[n] = autoWidth
@@ -72,18 +107,38 @@ func (cg *CompactGrid) calcWidths() []int {
 	return colWidths
 }
 
-func (cg *CompactGrid) pageRows() (rows []RowBufferer) {
-	rows = append(rows, cg.header)
-	rows = append(rows, cg.Rows[cg.Offset:]...)
+func (cg *CompactGrid) visibleRows() (rows []RowBufferer) {
+	max := cg.MaxRows()
+	if max <= 0 {
+		return nil
+	}
+	end := cg.Offset + max
+	if end > len(cg.Rows) {
+		end = len(cg.Rows)
+	}
+	if cg.Offset < len(cg.Rows) {
+		rows = append(rows, cg.Rows[cg.Offset:end]...)
+	}
 	return rows
 }
 
-func (cg *CompactGrid) Buffer() ui.Buffer {
-	buf := ui.NewBuffer()
-	for _, r := range cg.pageRows() {
-		buf.Merge(r.Buffer())
+func (cg *CompactGrid) Draw(buf *ui.Buffer) {
+	cg.Block.Draw(buf)
+	blank := ui.NewCell(' ', theme.Style("bg"))
+	buf.Fill(blank, cg.Rectangle)
+	cg.header.Draw(buf)
+
+	divStyle := ui.NewStyle(ui.Color(238), theme.Color("bg"))
+	divCell := ui.NewCell('─', divStyle)
+
+	vRows := cg.visibleRows()
+	for i, r := range vRows {
+		r.Draw(buf)
+		divY := r.GetRect().Max.Y
+		if divY < cg.Max.Y && i < len(vRows)-1 {
+			buf.Fill(divCell, image.Rect(rowPadding, divY, cg.Width-rowPadding, divY+1))
+		}
 	}
-	return buf
 }
 
 func (cg *CompactGrid) AddRows(rows ...RowBufferer) {

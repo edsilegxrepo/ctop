@@ -4,7 +4,9 @@ import (
 	"time"
 
 	"github.com/bcicen/ctop/models"
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 )
 
 type LogLines struct {
@@ -21,7 +23,10 @@ func NewLogLines(max int) *LogLines {
 }
 
 func (ll *LogLines) getLines(start, end int) []string {
-	if end < 0 {
+	if start < 0 {
+		start = 0
+	}
+	if end < 0 || end > len(ll.data) {
 		return ll.data[start:]
 	}
 	return ll.data[start:end]
@@ -38,18 +43,19 @@ func (ll *LogLines) add(l models.Log) {
 }
 
 type Logs struct {
-	*ui.List
+	*widgets.List
 	lines *LogLines
 }
 
 func NewLogs(stream chan models.Log) *Logs {
-	p := ui.NewList()
-	p.Y = ui.TermHeight() / 2
-	p.X = 0
-	p.Height = ui.TermHeight() - p.Y
-	p.Width = ui.TermWidth()
-	//p.Overflow = "wrap"
-	p.ItemFgColor = ui.ThemeAttr("par.text.fg")
+	w, h := theme.TermDimensions()
+	p := widgets.NewList()
+	p.TextStyle = theme.Style("par.text.fg")
+	p.BorderStyle = theme.Style("border.fg")
+	p.TitleStyle = theme.Style("label.fg")
+	p.Title = "LOGS"
+	p.SetRect(0, h/2, w, h)
+
 	i := &Logs{p, NewLogLines(4098)}
 	go func() {
 		for line := range stream {
@@ -61,13 +67,20 @@ func NewLogs(stream chan models.Log) *Logs {
 }
 
 func (w *Logs) Align() {
-	w.X = colWidth[0]
-	w.List.Align()
+	termW, termH := theme.TermDimensions()
+	w.SetRect(colWidth[0], 0, termW, termH)
 }
 
-func (w *Logs) Buffer() ui.Buffer {
-	maxLines := w.Height - 2
+func (w *Logs) Draw(buf *ui.Buffer) {
+	height := w.Max.Y - w.Min.Y
+	maxLines := height - 2
+	if maxLines < 0 {
+		maxLines = 0
+	}
 	offset := len(w.lines.data) - maxLines
-	w.Items = w.lines.getLines(offset, -1)
-	return w.List.Buffer()
+	if offset < 0 {
+		offset = 0
+	}
+	w.Rows = w.lines.getLines(offset, -1)
+	w.List.Draw(buf)
 }

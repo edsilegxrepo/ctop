@@ -1,41 +1,45 @@
 package main
 
-import (
-	ui "github.com/gizak/termui"
-)
-
-// Common action keybindings
+// Common action keybindings for termui v3 event IDs
 var keyMap = map[string][]string{
-	"up": []string{
-		"/sys/kbd/<up>",
-		"/sys/kbd/k",
+	"up": {
+		"<Up>",
+		"k",
 	},
-	"down": []string{
-		"/sys/kbd/<down>",
-		"/sys/kbd/j",
+	"down": {
+		"<Down>",
+		"j",
 	},
-	"pgup": []string{
-		"/sys/kbd/<previous>",
-		"/sys/kbd/C-<up>",
+	"pgup": {
+		"<PageUp>",
+		"<C-u>",
+		"<Previous>",
 	},
-	"pgdown": []string{
-		"/sys/kbd/<next>",
-		"/sys/kbd/C-<down>",
+	"pgdown": {
+		"<PageDown>",
+		"<C-d>",
+		"<Next>",
 	},
-	"exit": []string{
-		"/sys/kbd/q",
-		"/sys/kbd/C-c",
-		"/sys/kbd/<escape>",
+	"exit": {
+		"q",
+		"<C-c>",
+		"<Escape>",
 	},
-	"help": []string{
-		"/sys/kbd/h",
-		"/sys/kbd/?",
+	"help": {
+		"h",
+		"?",
+	},
+	"enter": {
+		"<Enter>",
 	},
 }
 
-// Apply a common handler function to all given keys
-func HandleKeys(i string, f func()) {
-	for _, k := range keyMap[i] {
-		ui.Handle(k, func(ui.Event) { f() })
+// IsKeyMatch checks if a key ID matches one of the mapped actions
+func IsKeyMatch(action, keyID string) bool {
+	for _, k := range keyMap[action] {
+		if k == keyID {
+			return true
+		}
 	}
+	return false
 }

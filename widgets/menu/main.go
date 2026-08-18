@@ -1,45 +1,45 @@
 package menu
 
 import (
+	"image"
 	"sort"
 
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 type Padding [2]int // x,y padding
 
 type Menu struct {
 	ui.Block
-	SortItems   bool   // enable automatic sorting of menu items
-	Selectable  bool   // whether menu is navigable
-	SubText     string // optional text to display before items
-	TextFgColor ui.Attribute
-	TextBgColor ui.Attribute
-	cursorPos   int
-	items       Items
-	padding     Padding
-	toolTip     *ToolTip
+	SortItems    bool   // enable automatic sorting of menu items
+	Selectable   bool   // whether menu is navigable
+	SubText      string // optional text to display before items
+	TextStyle    ui.Style
+	SelectedText ui.Style
+	cursorPos    int
+	items        Items
+	padding      Padding
+	toolTip      *ToolTip
 }
 
 func NewMenu() *Menu {
 	m := &Menu{
-		Block:       *ui.NewBlock(),
-		TextFgColor: ui.ThemeAttr("menu.text.fg"),
-		TextBgColor: ui.ThemeAttr("menu.text.bg"),
-		cursorPos:   0,
-		padding:     Padding{4, 2},
+		Block:        *ui.NewBlock(),
+		TextStyle:    theme.Style2("menu.text.fg", "menu.text.bg"),
+		SelectedText: theme.Style2("par.text.hi", "menu.text.fg"),
+		cursorPos:    0,
+		padding:      Padding{3, 1},
 	}
-	m.BorderFg = ui.ThemeAttr("menu.border.fg")
-	m.BorderLabelFg = ui.ThemeAttr("menu.label.fg")
-	m.X = 1
+	m.BorderStyle = theme.Style("menu.border.fg")
+	m.TitleStyle = theme.Style("menu.label.fg")
+	m.calcSize()
 	return m
 }
 
-// Append Item to Menu
+// AddItems appends items to Menu
 func (m *Menu) AddItems(items ...Item) {
-	for _, i := range items {
-		m.items = append(m.items, i)
-	}
+	m.items = append(m.items, items...)
 	m.refresh()
 }
 
@@ -61,10 +61,10 @@ func (m *Menu) ClearItems() {
 	m.items = m.items[:0]
 }
 
-// Move cursor to an position by Item value or label
+// SetCursor moves cursor to a position by Item value or label
 func (m *Menu) SetCursor(s string) (success bool) {
 	for n, i := range m.items {
-		if i.Val == s || i.Label == s {
+		if !i.Separator && (i.Val == s || i.Label == s) {
 			m.cursorPos = n
 			return true
 		}
@@ -78,52 +78,64 @@ func (m *Menu) SetToolTip(lines ...string) {
 }
 
 func (m *Menu) SelectedItem() Item {
+	if len(m.items) == 0 {
+		return Item{}
+	}
+	if m.cursorPos >= len(m.items) {
+		m.cursorPos = len(m.items) - 1
+	}
+	for m.cursorPos < len(m.items) && m.items[m.cursorPos].Separator {
+		m.cursorPos++
+	}
+	if m.cursorPos >= len(m.items) {
+		for m.cursorPos > 0 && m.items[m.cursorPos].Separator {
+			m.cursorPos--
+		}
+	}
 	return m.items[m.cursorPos]
 }
 
 func (m *Menu) SelectedValue() string {
-	return m.items[m.cursorPos].Val
+	return m.SelectedItem().Val
 }
 
-func (m *Menu) Buffer() ui.Buffer {
-	var cell ui.Cell
-	buf := m.Block.Buffer()
+func (m *Menu) Draw(buf *ui.Buffer) {
+	m.Block.Draw(buf)
 
-	y := m.Y + m.padding[1]
+	y := m.Inner.Min.Y + m.padding[1]
 
 	if m.SubText != "" {
-		x := m.X + m.padding[0]
-		for i, ch := range m.SubText {
-			cell = ui.Cell{Ch: ch, Fg: m.TextFgColor, Bg: m.TextBgColor}
-			buf.Set(x+i, y, cell)
-		}
+		x := m.Inner.Min.X + m.padding[0]
+		buf.SetString(m.SubText, m.TextStyle, image.Pt(x, y))
 		y += 2
 	}
 
 	for n, item := range m.items {
-		x := m.X + m.padding[0]
-		for _, ch := range item.Text() {
-			// invert bg/fg colors on currently selected row
-			if m.Selectable && n == m.cursorPos {
-				cell = ui.Cell{Ch: ch, Fg: ui.ColorBlack, Bg: m.TextFgColor}
-			} else {
-				cell = ui.Cell{Ch: ch, Fg: m.TextFgColor, Bg: m.TextBgColor}
-			}
-			buf.Set(x, y+n, cell)
-			x++
+		if item.Separator {
+			continue
 		}
+		x := m.Inner.Min.X + m.padding[0]
+		style := m.TextStyle
+		if m.Selectable && n == m.cursorPos {
+			style = m.SelectedText
+		}
+		buf.SetString(item.Text(), style, image.Pt(x, y+n))
 	}
 
 	if m.toolTip != nil {
-		buf.Merge(m.toolTip.Buffer())
+		m.toolTip.Draw(buf)
 	}
-
-	return buf
 }
 
 func (m *Menu) Up() {
 	if m.cursorPos > 0 {
 		m.cursorPos--
+		for m.cursorPos > 0 && m.items[m.cursorPos].Separator {
+			m.cursorPos--
+		}
+		if m.items[m.cursorPos].Separator {
+			m.cursorPos = 0
+		}
 		ui.Render(m)
 	}
 }
@@ -131,11 +143,17 @@ func (m *Menu) Up() {
 func (m *Menu) Down() {
 	if m.cursorPos < (len(m.items) - 1) {
 		m.cursorPos++
+		for m.cursorPos < len(m.items)-1 && m.items[m.cursorPos].Separator {
+			m.cursorPos++
+		}
+		if m.items[m.cursorPos].Separator {
+			m.cursorPos = len(m.items) - 1
+		}
 		ui.Render(m)
 	}
 }
 
-// Sort menu items(if enabled) and re-calculate window size
+// Sort menu items (if enabled) and re-calculate window size
 func (m *Menu) refresh() {
 	if m.SortItems {
 		sort.Sort(m.items)
@@ -146,24 +164,35 @@ func (m *Menu) refresh() {
 
 // Set width and height based on menu items
 func (m *Menu) calcSize() {
-	m.Width = 7 // minimum width
-
-	var height int
+	minWidth := 7
 	for _, i := range m.items {
-		s := i.Text()
-		if len(s) > m.Width {
-			m.Width = len(s)
+		if i.Separator {
+			continue
 		}
-		height++
+		s := i.Text()
+		if len(s) > minWidth {
+			minWidth = len(s)
+		}
 	}
 
+	height := len(m.items)
 	if m.SubText != "" {
-		if len(m.SubText) > m.Width {
-			m.Width = len(m.SubText)
+		if len(m.SubText) > minWidth {
+			minWidth = len(m.SubText)
 		}
 		height += 2
 	}
 
-	m.Width += (m.padding[0] * 2)
-	m.Height = height + (m.padding[1] * 2)
+	totalWidth := minWidth + (m.padding[0] * 2) + 2
+	totalHeight := height + (m.padding[1] * 2) + 2
+
+	termW, termH := theme.TermDimensions()
+	if totalWidth > termW {
+		totalWidth = termW
+	}
+	if totalHeight > termH {
+		totalHeight = termH
+	}
+
+	m.SetRect(1, 1, 1+totalWidth, 1+totalHeight)
 }

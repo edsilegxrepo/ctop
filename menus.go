@@ -8,14 +8,18 @@ import (
 
 	"github.com/bcicen/ctop/config"
 	"github.com/bcicen/ctop/container"
+	"github.com/bcicen/ctop/theme"
 	"github.com/bcicen/ctop/widgets"
 	"github.com/bcicen/ctop/widgets/menu"
-	ui "github.com/gizak/termui"
+	ui "github.com/gizak/termui/v3"
+	tb "github.com/nsf/termbox-go"
 	"github.com/pkg/browser"
 )
 
 // MenuFn executes a menu window, returning the next menu or nil
 type MenuFn func() MenuFn
+
+var shouldExitApp bool
 
 var helpDialog = []menu.Item{
 	{Val: "<enter> - open container menu", Label: ""},
@@ -37,67 +41,61 @@ var helpDialog = []menu.Item{
 
 func HelpMenu() MenuFn {
 	ui.Clear()
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
 	m := menu.NewMenu()
-	m.BorderLabel = "Help"
+	m.Title = "Help"
 	m.AddItems(helpDialog...)
-	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
-		ui.Clear()
-		ui.Render(m)
-	})
-	ui.Handle("/sys/kbd/", func(ui.Event) {
-		ui.StopLoop()
-	})
-	ui.Loop()
-	return nil
+	ui.Render(m)
+
+	for {
+		e := <-uiEvents
+		switch e.Type {
+		case ui.ResizeEvent:
+			ui.Clear()
+			ui.Render(m)
+		case ui.KeyboardEvent:
+			return nil
+		}
+	}
 }
 
 func FilterMenu() MenuFn {
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
 	i := widgets.NewInput()
-	i.BorderLabel = "Filter"
-	i.SetY(ui.TermHeight() - i.Height)
+	i.Title = "Filter"
 	i.Data = config.GetVal("filterStr")
 	ui.Render(i)
 
-	// refresh container rows on input
-	stream := i.Stream()
-	go func() {
-		for s := range stream {
-			config.Update("filterStr", s)
-			if err := RefreshDisplay(); err != nil {
-				log.Errorf("failed to refresh display: %s", err)
-			}
+	for {
+		e := <-uiEvents
+		switch e.Type {
+		case ui.ResizeEvent:
+			ui.Clear()
 			ui.Render(i)
+		case ui.KeyboardEvent:
+			switch e.ID {
+			case "<Escape>":
+				config.Update("filterStr", "")
+				_ = RefreshDisplay()
+				return nil
+			case "<Enter>":
+				config.Update("filterStr", i.Data)
+				_ = RefreshDisplay()
+				return nil
+			default:
+				i.KeyPress(e.ID)
+				config.Update("filterStr", i.Data)
+				_ = RefreshDisplay()
+				ui.Render(i)
+			}
 		}
-	}()
-
-	i.InputHandlers()
-	ui.Handle("/sys/kbd/<escape>", func(ui.Event) {
-		config.Update("filterStr", "")
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/<enter>", func(ui.Event) {
-		config.Update("filterStr", i.Data)
-		ui.StopLoop()
-	})
-	ui.Loop()
-	return nil
+	}
 }
 
 func SortMenu() MenuFn {
 	ui.Clear()
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
 	m := menu.NewMenu()
 	m.Selectable = true
 	m.SortItems = true
-	m.BorderLabel = "Sort Field"
+	m.Title = "Sort Field"
 
 	for _, field := range container.SortFields() {
 		m.AddItems(menu.Item{Val: field, Label: ""})
@@ -105,19 +103,27 @@ func SortMenu() MenuFn {
 
 	// set cursor position to current sort field
 	m.SetCursor(config.GetVal("sortField"))
-
-	HandleKeys("up", m.Up)
-	HandleKeys("down", m.Down)
-	HandleKeys("exit", ui.StopLoop)
-
-	ui.Handle("/sys/kbd/<enter>", func(ui.Event) {
-		config.Update("sortField", m.SelectedValue())
-		ui.StopLoop()
-	})
-
 	ui.Render(m)
-	ui.Loop()
-	return nil
+
+	for {
+		e := <-uiEvents
+		switch e.Type {
+		case ui.ResizeEvent:
+			ui.Clear()
+			ui.Render(m)
+		case ui.KeyboardEvent:
+			if IsKeyMatch("up", e.ID) {
+				m.Up()
+			} else if IsKeyMatch("down", e.ID) {
+				m.Down()
+			} else if IsKeyMatch("exit", e.ID) {
+				return nil
+			} else if e.ID == "<Enter>" {
+				config.Update("sortField", m.SelectedValue())
+				return nil
+			}
+		}
+	}
 }
 
 func ColumnsMenu() MenuFn {
@@ -128,17 +134,13 @@ func ColumnsMenu() MenuFn {
 	)
 
 	ui.Clear()
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
 	m := menu.NewMenu()
 	m.Selectable = true
 	m.SortItems = false
-	m.BorderLabel = "Columns"
+	m.Title = "Columns"
 	m.SubText = "Re-order: <Page Up> / <Page Down>"
 
 	rebuild := func() {
-		// get padding for right alignment of enabled status
 		var maxLen int
 		for _, col := range config.GlobalColumns {
 			if len(col.Label) > maxLen {
@@ -147,7 +149,6 @@ func ColumnsMenu() MenuFn {
 		}
 		maxLen += padding
 
-		// rebuild menu items
 		m.ClearItems()
 		for _, col := range config.GlobalColumns {
 			txt := col.Label + strings.Repeat(" ", maxLen-len(col.Label))
@@ -178,29 +179,36 @@ func ColumnsMenu() MenuFn {
 	}
 
 	rebuild()
+	ui.Render(m)
 
-	HandleKeys("up", m.Up)
-	HandleKeys("down", m.Down)
-	HandleKeys("enter", toggleFn)
-	HandleKeys("pgup", upFn)
-	HandleKeys("pgdown", downFn)
-
-	ui.Handle("/sys/kbd/x", func(ui.Event) { toggleFn() })
-	ui.Handle("/sys/kbd/<enter>", func(ui.Event) { toggleFn() })
-
-	HandleKeys("exit", func() {
-		cSource, err := cursor.cSuper.Get()
-		if err == nil {
-			for _, c := range cSource.All() {
-				c.RecreateWidgets()
+	for {
+		e := <-uiEvents
+		switch e.Type {
+		case ui.ResizeEvent:
+			ui.Clear()
+			ui.Render(m)
+		case ui.KeyboardEvent:
+			if IsKeyMatch("up", e.ID) {
+				m.Up()
+			} else if IsKeyMatch("down", e.ID) {
+				m.Down()
+			} else if IsKeyMatch("pgup", e.ID) {
+				upFn()
+			} else if IsKeyMatch("pgdown", e.ID) {
+				downFn()
+			} else if IsKeyMatch("exit", e.ID) {
+				cSource, err := cursor.cSuper.Get()
+				if err == nil {
+					for _, c := range cSource.All() {
+						c.RecreateWidgets()
+					}
+				}
+				return nil
+			} else if e.ID == "<Enter>" || e.ID == "x" {
+				toggleFn()
 			}
 		}
-		ui.StopLoop()
-	})
-
-	ui.Render(m)
-	ui.Loop()
-	return nil
+	}
 }
 
 func ContainerMenu() MenuFn {
@@ -209,112 +217,120 @@ func ContainerMenu() MenuFn {
 		return nil
 	}
 
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
 	m := menu.NewMenu()
 	m.Selectable = true
-	m.BorderLabel = "Menu"
+	m.Title = "Menu"
 
 	items := []menu.Item{
-		menu.Item{Val: "single", Label: "[o] single view"},
-		menu.Item{Val: "logs", Label: "[l] log view"},
+		// Group 1: Viewers
+		{Val: "single", Label: "[o] single view"},
+		{Val: "logs", Label: "[l] log view"},
+		menu.NewSeparator(),
 	}
 
 	if c.Meta["state"] == "running" {
+		// Group 2: Lifecycle controls
 		items = append(items, menu.Item{Val: "stop", Label: "[s] stop"})
 		items = append(items, menu.Item{Val: "pause", Label: "[p] pause"})
 		items = append(items, menu.Item{Val: "restart", Label: "[r] restart"})
+		if runtime.GOOS != "windows" || c.Meta["Web Port"] != "" {
+			items = append(items, menu.NewSeparator())
+		}
+		// Group 3: Tools
 		if runtime.GOOS != "windows" {
 			items = append(items, menu.Item{Val: "exec", Label: "[e] exec shell"})
 		}
 		if c.Meta["Web Port"] != "" {
 			items = append(items, menu.Item{Val: "browser", Label: "[w] open in browser"})
 		}
+		items = append(items, menu.NewSeparator())
 	}
 	if c.Meta["state"] == "exited" || c.Meta["state"] == "created" {
 		items = append(items, menu.Item{Val: "start", Label: "[s] start"})
 		items = append(items, menu.Item{Val: "remove", Label: "[R] remove"})
+		items = append(items, menu.NewSeparator())
 	}
 	if c.Meta["state"] == "paused" {
 		items = append(items, menu.Item{Val: "unpause", Label: "[p] unpause"})
+		items = append(items, menu.NewSeparator())
 	}
+
+	// Group 4: Actions
 	items = append(items, menu.Item{Val: "cancel", Label: "[c] cancel"})
 	items = append(items, menu.Item{Val: "quit", Label: "[q] quit"})
 
 	m.AddItems(items...)
 	ui.Render(m)
 
-	HandleKeys("up", m.Up)
-	HandleKeys("down", m.Down)
-
 	var selected string
 
-	// shortcuts
-	ui.Handle("/sys/kbd/o", func(ui.Event) {
-		selected = "single"
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/l", func(ui.Event) {
-		selected = "logs"
-		ui.StopLoop()
-	})
-	if c.Meta["state"] != "paused" {
-		ui.Handle("/sys/kbd/s", func(ui.Event) {
-			if c.Meta["state"] == "running" {
-				selected = "stop"
+	for {
+		e := <-uiEvents
+		switch e.Type {
+		case ui.ResizeEvent:
+			ui.Clear()
+			ui.Render(m)
+		case ui.KeyboardEvent:
+			if IsKeyMatch("up", e.ID) {
+				m.Up()
+			} else if IsKeyMatch("down", e.ID) {
+				m.Down()
+			} else if e.ID == "<Enter>" {
+				selected = m.SelectedValue()
+				goto Handled
 			} else {
-				selected = "start"
+				switch e.ID {
+				case "o":
+					selected = "single"
+					goto Handled
+				case "l":
+					selected = "logs"
+					goto Handled
+				case "s":
+					if c.Meta["state"] == "running" {
+						selected = "stop"
+					} else {
+						selected = "start"
+					}
+					goto Handled
+				case "p":
+					if c.Meta["state"] == "paused" {
+						selected = "unpause"
+					} else {
+						selected = "pause"
+					}
+					goto Handled
+				case "e":
+					if c.Meta["state"] == "running" {
+						selected = "exec"
+						goto Handled
+					}
+				case "r":
+					if c.Meta["state"] == "running" {
+						selected = "restart"
+						goto Handled
+					}
+				case "w":
+					if c.Meta["Web Port"] != "" {
+						selected = "browser"
+						goto Handled
+					}
+				case "R":
+					selected = "remove"
+					goto Handled
+				case "c", "<Escape>":
+					return nil
+				case "q":
+					selected = "quit"
+					goto Handled
+				default:
+					return nil
+				}
 			}
-			ui.StopLoop()
-		})
-	}
-	if c.Meta["state"] != "exited" && c.Meta["state"] != "created" {
-		ui.Handle("/sys/kbd/p", func(ui.Event) {
-			if c.Meta["state"] == "paused" {
-				selected = "unpause"
-			} else {
-				selected = "pause"
-			}
-			ui.StopLoop()
-		})
-	}
-	if c.Meta["state"] == "running" {
-		ui.Handle("/sys/kbd/e", func(ui.Event) {
-			selected = "exec"
-			ui.StopLoop()
-		})
-		ui.Handle("/sys/kbd/r", func(ui.Event) {
-			selected = "restart"
-			ui.StopLoop()
-		})
-		if c.Meta["Web Port"] != "" {
-			ui.Handle("/sys/kbd/w", func(ui.Event) {
-				selected = "browser"
-			})
 		}
 	}
-	ui.Handle("/sys/kbd/R", func(ui.Event) {
-		selected = "remove"
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/c", func(ui.Event) {
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/q", func(ui.Event) {
-		selected = "quit"
-		ui.StopLoop()
-	})
 
-	ui.Handle("/sys/kbd/<enter>", func(ui.Event) {
-		selected = m.SelectedValue()
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/", func(ui.Event) {
-		ui.StopLoop()
-	})
-	ui.Loop()
-
+Handled:
 	var nextMenu MenuFn
 	switch selected {
 	case "single":
@@ -338,39 +354,126 @@ func ContainerMenu() MenuFn {
 	case "restart":
 		nextMenu = Confirm(confirmTxt("restart", c.GetMeta("name")), c.Restart)
 	case "quit":
-		ui.StopLoop()
+		shouldExitApp = true
+		return nil
 	}
 
 	return nextMenu
 }
 
 func LogMenu() MenuFn {
-
 	c := cursor.Selected()
 	if c == nil {
 		return nil
 	}
 
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
+	ui.Clear()
 	logs, quit := logReader(c)
 	m := widgets.NewTextView(logs)
-	m.BorderLabel = fmt.Sprintf("Logs [%s]", c.GetMeta("name"))
-	ui.Render(m)
 
-	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
-		m.Resize()
-	})
-	ui.Handle("/sys/kbd/t", func(ui.Event) {
-		m.Toggle()
-	})
-	ui.Handle("/sys/kbd/", func(ui.Event) {
-		quit <- true
-		ui.StopLoop()
-	})
-	ui.Loop()
-	return nil
+	updateTitle := func() {
+		filterInfo := ""
+		if m.Filter() != "" {
+			filterInfo = fmt.Sprintf(" [filter: %s]", m.Filter())
+		}
+		m.Title = fmt.Sprintf("Logs [%s]%s (t: time, /: filter, q: close)", c.GetMeta("name"), filterInfo)
+	}
+	updateTitle()
+
+	input := widgets.NewInput()
+	input.Title = "Filter Logs"
+	filtering := false
+
+	renderAll := func() {
+		if filtering {
+			ui.Render(m, input)
+		} else {
+			ui.Render(m)
+		}
+	}
+	renderAll()
+
+	// Inactivity timer to resume background refresh after typing pause
+	inactivityTimer := time.NewTimer(0)
+	if !inactivityTimer.Stop() {
+		select {
+		case <-inactivityTimer.C:
+		default:
+		}
+	}
+
+	resetInactivity := func() {
+		m.Pause()
+		inactivityTimer.Reset(1200 * time.Millisecond)
+	}
+
+	for {
+		select {
+		case e := <-uiEvents:
+			switch e.Type {
+			case ui.ResizeEvent:
+				m.Resize()
+				if filtering {
+					w, h := theme.TermDimensions()
+					input.SetRect(0, h-3, w, h)
+				}
+				renderAll()
+			case ui.KeyboardEvent:
+				if filtering {
+					resetInactivity()
+					switch e.ID {
+					case "<Escape>":
+						filtering = false
+						inactivityTimer.Stop()
+						m.SetFilter("")
+						updateTitle()
+						m.Resume()
+						ui.Clear()
+						renderAll()
+					case "<Enter>":
+						filtering = false
+						inactivityTimer.Stop()
+						m.SetFilter(input.Data)
+						updateTitle()
+						m.Resume()
+						ui.Clear()
+						renderAll()
+					default:
+						input.KeyPress(e.ID)
+						m.SetFilter(input.Data)
+						updateTitle()
+						renderAll()
+					}
+				} else {
+					switch e.ID {
+					case "t", "T":
+						m.Toggle()
+					case "/", "f", "F":
+						filtering = true
+						resetInactivity()
+						input.Data = m.Filter()
+						w, h := theme.TermDimensions()
+						input.SetRect(0, h-3, w, h)
+						m.RecomputeTextOut()
+						renderAll()
+					case "q", "Q", "<Escape>", "<C-c>":
+						quit <- true
+						inactivityTimer.Stop()
+						return nil
+					default:
+						quit <- true
+						inactivityTimer.Stop()
+						return nil
+					}
+				}
+			}
+		case <-inactivityTimer.C:
+			if filtering {
+				m.Resume()
+				renderAll()
+			}
+		}
+	}
 }
 
 func ExecShell() MenuFn {
@@ -380,21 +483,13 @@ func ExecShell() MenuFn {
 		return nil
 	}
 
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-	// Detect and execute default shell in container.
-	// Execute Ash shell command: /bin/sh -c
-	// Reset colors: printf '\e[0m\e[?25h'
-	// Clear screen
-	// Run default shell for the user. It's configured in /etc/passwd and looks like root:x:0:0:root:/root:/bin/bash:
-	//  1. Get current user id: id -un
-	//  2. Find user's line in /etc/passwd by grep
-	//  3. Extract default user's shell by cutting seven's column separated by :
-	//  4. Execute the shell path with eval
 	if err := c.Exec([]string{"/bin/sh", "-c", "printf '\\e[0m\\e[?25h' && clear && eval `grep ^$(id -un): /etc/passwd | cut -d : -f 7-`"}); err != nil {
 		log.StatusErr(err)
 	}
 
+	tb.HideCursor()
+	_ = tb.Sync()
+	RedrawRows(true)
 	return nil
 }
 
@@ -415,16 +510,12 @@ func OpenInBrowser() MenuFn {
 	return nil
 }
 
-// Create a confirmation dialog with a given description string and
-// func to perform if confirmed
+// Confirm creates a confirmation dialog with a given description string and func to perform if confirmed
 func Confirm(txt string, fn func()) MenuFn {
-	menu := func() MenuFn {
-		ui.DefaultEvtStream.ResetHandlers()
-		defer ui.DefaultEvtStream.ResetHandlers()
-
+	return func() MenuFn {
 		m := menu.NewMenu()
 		m.Selectable = true
-		m.BorderLabel = "Confirm"
+		m.Title = "Confirm"
 		m.SubText = txt
 
 		items := []menu.Item{
@@ -432,43 +523,34 @@ func Confirm(txt string, fn func()) MenuFn {
 			{Val: "yes", Label: "[y]es"},
 		}
 
-		var response bool
-
 		m.AddItems(items...)
 		ui.Render(m)
 
-		yes := func() {
-			response = true
-			ui.StopLoop()
-		}
-
-		no := func() {
-			response = false
-			ui.StopLoop()
-		}
-
-		HandleKeys("up", m.Up)
-		HandleKeys("down", m.Down)
-		HandleKeys("exit", no)
-		ui.Handle("/sys/kbd/c", func(ui.Event) { no() })
-		ui.Handle("/sys/kbd/y", func(ui.Event) { yes() })
-
-		ui.Handle("/sys/kbd/<enter>", func(ui.Event) {
-			switch m.SelectedValue() {
-			case "cancel":
-				no()
-			case "yes":
-				yes()
+		for {
+			e := <-uiEvents
+			switch e.Type {
+			case ui.ResizeEvent:
+				ui.Clear()
+				ui.Render(m)
+			case ui.KeyboardEvent:
+				if IsKeyMatch("up", e.ID) {
+					m.Up()
+				} else if IsKeyMatch("down", e.ID) {
+					m.Down()
+				} else if IsKeyMatch("exit", e.ID) || e.ID == "c" {
+					return nil
+				} else if e.ID == "y" {
+					fn()
+					return nil
+				} else if e.ID == "<Enter>" {
+					if m.SelectedValue() == "yes" {
+						fn()
+					}
+					return nil
+				}
 			}
-		})
-
-		ui.Loop()
-		if response {
-			fn()
 		}
-		return nil
 	}
-	return menu
 }
 
 type toggleLog struct {
@@ -478,14 +560,19 @@ type toggleLog struct {
 
 func (t *toggleLog) Toggle(on bool) string {
 	if on {
-		return fmt.Sprintf("%s %s", t.timestamp.Format("2006-01-02T15:04:05.999Z07:00"), t.message)
+		return fmt.Sprintf("%s  %s", t.timestamp.Local().Format("2006-01-02 15:04:05.000"), t.message)
 	}
 	return t.message
 }
 
 func logReader(container *container.Container) (logs chan widgets.ToggleText, quit chan bool) {
-
 	logCollector := container.Logs()
+	if logCollector == nil {
+		logs = make(chan widgets.ToggleText)
+		quit = make(chan bool)
+		close(logs)
+		return
+	}
 	stream := logCollector.Stream()
 	logs = make(chan widgets.ToggleText)
 	quit = make(chan bool)

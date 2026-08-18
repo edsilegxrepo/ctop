@@ -34,20 +34,23 @@ func (l *DockerLogs) Stream() chan models.Log {
 		Context:      ctx,
 		Container:    l.id,
 		OutputStream: w,
-		//ErrorStream:  w,
-		Stdout:      true,
-		Stderr:      true,
-		Tail:        "20",
-		Follow:      true,
-		Timestamps:  true,
-		RawTerminal: true,
+		ErrorStream:  w,
+		Stdout:       true,
+		Stderr:       true,
+		Tail:         "100",
+		Follow:       true,
+		Timestamps:   true,
+		RawTerminal:  false,
 	}
 
 	// read io pipe into channel
 	go func() {
+		defer close(logCh)
+		defer func() { _ = r.Close() }()
 		scanner := bufio.NewScanner(r)
 		for scanner.Scan() {
-			parts := strings.SplitN(scanner.Text(), " ", 2)
+			text := l.stripPfx(scanner.Text())
+			parts := strings.SplitN(text, " ", 2)
 			if len(parts) == 0 {
 				continue
 			}
@@ -61,6 +64,7 @@ func (l *DockerLogs) Stream() chan models.Log {
 
 	// connect to container log stream
 	go func() {
+		defer func() { _ = w.Close() }()
 		err := l.client.Logs(opts)
 		if err != nil {
 			log.Errorf("error reading container logs: %s", err)
@@ -77,7 +81,12 @@ func (l *DockerLogs) Stream() chan models.Log {
 	return logCh
 }
 
-func (l *DockerLogs) Stop() { l.done <- true }
+func (l *DockerLogs) Stop() {
+	select {
+	case l.done <- true:
+	default:
+	}
+}
 
 func (l *DockerLogs) parseTime(s string) time.Time {
 	ts, err := time.Parse(time.RFC3339Nano, s)
@@ -90,15 +99,13 @@ func (l *DockerLogs) parseTime(s string) time.Time {
 		return ts
 	}
 
-	log.Errorf("failed to parse container log: %s", err)
-	log.Errorf("failed to parse container log2: %s", err2)
 	return time.Now()
 }
 
 // attempt to strip message header prefix from a given raw docker log string
 func (l *DockerLogs) stripPfx(s string) string {
 	b := []byte(s)
-	if len(b) > 8 {
+	if len(b) > 8 && (b[0] == 1 || b[0] == 2) && b[1] == 0 && b[2] == 0 && b[3] == 0 {
 		return string(b[8:])
 	}
 	return s

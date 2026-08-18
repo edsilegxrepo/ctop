@@ -55,6 +55,7 @@ func (c *Container) RecreateWidgets() {
 func (c *Container) SetUpdater(u cwidgets.WidgetUpdater) {
 	c.updater = u
 	c.updater.SetMeta(c.Meta)
+	c.updater.SetMetrics(c.Metrics)
 }
 
 func (c *Container) SetMeta(k, v string) {

@@ -1,11 +1,13 @@
 package compact
 
 import (
+	"image"
+
 	"github.com/bcicen/ctop/config"
 	"github.com/bcicen/ctop/logging"
 	"github.com/bcicen/ctop/models"
-
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 const rowPadding = 1
@@ -16,24 +18,23 @@ type RowBufferer interface {
 	SetY(int)
 	SetWidths(int, []int)
 	GetHeight() int
-	Buffer() ui.Buffer
+	GetRect() image.Rectangle
+	Draw(buf *ui.Buffer)
 }
 
 type CompactRow struct {
-	Bg     *RowBg
+	ui.Block
 	Cols   []CompactCol
-	X, Y   int
 	Height int
 }
 
 func NewCompactRow() *CompactRow {
 	row := &CompactRow{
-		Bg:     NewRowBg(),
+		Block:  *ui.NewBlock(),
 		Cols:   newRowWidgets(),
-		X:      rowPadding,
 		Height: 1,
 	}
-
+	row.Border = false
 	return row
 }
 
@@ -49,7 +50,7 @@ func (row *CompactRow) SetMetrics(m models.Metrics) {
 	}
 }
 
-// Set gauges, counters, etc. to default unread values
+// Reset gauges, counters, etc. to default unread values
 func (row *CompactRow) Reset() {
 	for _, w := range row.Cols {
 		w.Reset()
@@ -58,71 +59,64 @@ func (row *CompactRow) Reset() {
 
 func (row *CompactRow) GetHeight() int { return row.Height }
 
-//func (row *CompactRow) SetX(x int)     { row.X = x }
+func (row *CompactRow) GetRect() image.Rectangle { return row.Rectangle }
 
 func (row *CompactRow) SetY(y int) {
-	if y == row.Y {
-		return
-	}
-
-	row.Bg.Y = y
+	row.SetRect(row.Min.X, y, row.Max.X, y+row.Height)
 	for _, w := range row.Cols {
-		w.SetY(y)
+		rect := w.GetRect()
+		w.SetRect(rect.Min.X, y, rect.Max.X, y+row.Height)
 	}
-	row.Y = y
 }
 
 func (row *CompactRow) SetWidths(totalWidth int, widths []int) {
-	x := row.X
-
-	row.Bg.SetX(x)
-	row.Bg.SetWidth(totalWidth)
+	x := rowPadding
+	y := row.Min.Y
+	row.SetRect(x, y, x+totalWidth, y+row.Height)
 
 	for n, w := range row.Cols {
-		w.SetX(x)
-		w.SetWidth(widths[n])
-		x += widths[n] + colSpacing
+		wWidth := 0
+		if n < len(widths) {
+			wWidth = widths[n]
+		}
+		w.SetRect(x, y, x+wWidth, y+row.Height)
+		x += wWidth + colSpacing
 	}
 }
 
-func (row *CompactRow) Buffer() ui.Buffer {
-	buf := ui.NewBuffer()
-	buf.Merge(row.Bg.Buffer())
+func (row *CompactRow) Draw(buf *ui.Buffer) {
+	row.Block.Draw(buf)
 	for _, w := range row.Cols {
-		buf.Merge(w.Buffer())
+		w.Draw(buf)
 	}
-	return buf
 }
 
 func (row *CompactRow) Highlight() {
-	row.Cols[1].Highlight()
 	if config.GetSwitchVal("fullRowCursor") {
-		for _, w := range row.Cols {
-			w.Highlight()
+		for i := 1; i < len(row.Cols); i++ {
+			row.Cols[i].Highlight()
 		}
+	} else if len(row.Cols) > 1 {
+		row.Cols[1].Highlight()
 	}
 }
 
 func (row *CompactRow) UnHighlight() {
-	row.Cols[1].UnHighlight()
-	if config.GetSwitchVal("fullRowCursor") {
-		for _, w := range row.Cols {
-			w.UnHighlight()
-		}
+	for i := 1; i < len(row.Cols); i++ {
+		row.Cols[i].UnHighlight()
 	}
 }
 
 type RowBg struct {
-	*ui.Par
+	ui.Block
+	BgStyle ui.Style
 }
 
 func NewRowBg() *RowBg {
-	bg := ui.NewPar("")
-	bg.Height = 1
+	bg := &RowBg{
+		Block:   *ui.NewBlock(),
+		BgStyle: theme.Style("par.text.bg"),
+	}
 	bg.Border = false
-	bg.Bg = ui.ThemeAttr("par.text.bg")
-	return &RowBg{bg}
+	return bg
 }
-
-func (w *RowBg) Highlight()   { w.Bg = ui.ThemeAttr("par.text.fg") }
-func (w *RowBg) UnHighlight() { w.Bg = ui.ThemeAttr("par.text.bg") }

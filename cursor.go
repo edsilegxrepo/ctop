@@ -5,7 +5,6 @@ import (
 
 	"github.com/bcicen/ctop/connector"
 	"github.com/bcicen/ctop/container"
-	ui "github.com/gizak/termui"
 )
 
 type GridCursor struct {
@@ -25,7 +24,7 @@ func (gc *GridCursor) Selected() *container.Container {
 	return nil
 }
 
-// Refresh containers from source, returning whether the quantity of
+// RefreshContainers refreshes containers from source, returning whether the quantity of
 // containers has changed and any error
 func (gc *GridCursor) RefreshContainers() (bool, error) {
 	oldLen := gc.Len()
@@ -54,7 +53,7 @@ func (gc *GridCursor) RefreshContainers() (bool, error) {
 	return oldLen != gc.Len(), nil
 }
 
-// Set an initial cursor position, if possible
+// Reset sets an initial cursor position, if possible
 func (gc *GridCursor) Reset() {
 	cSource, err := gc.cSuper.Get()
 	if err != nil {
@@ -100,7 +99,6 @@ func (gc *GridCursor) ScrollPage() {
 		cGrid.Offset--
 		cGrid.Align()
 	}
-
 }
 
 func (gc *GridCursor) Up() {
@@ -119,7 +117,7 @@ func (gc *GridCursor) Up() {
 	next.Widgets.Highlight()
 
 	gc.ScrollPage()
-	ui.Render(cGrid)
+	RedrawRows(false)
 }
 
 func (gc *GridCursor) Down() {
@@ -138,7 +136,7 @@ func (gc *GridCursor) Down() {
 	next.Widgets.Highlight()
 
 	gc.ScrollPage()
-	ui.Render(cGrid)
+	RedrawRows(false)
 }
 
 func (gc *GridCursor) PgUp() {
@@ -161,7 +159,7 @@ func (gc *GridCursor) PgUp() {
 	next.Widgets.Highlight()
 
 	cGrid.Align()
-	ui.Render(cGrid)
+	RedrawRows(false)
 }
 
 func (gc *GridCursor) PgDown() {
@@ -184,13 +182,17 @@ func (gc *GridCursor) PgDown() {
 	next.Widgets.Highlight()
 
 	cGrid.Align()
-	ui.Render(cGrid)
+	RedrawRows(false)
 }
 
 // number of pages at current row count and term height
 func (gc *GridCursor) pgCount() int {
-	pages := gc.Len() / cGrid.MaxRows()
-	if gc.Len()%cGrid.MaxRows() > 0 {
+	maxRows := cGrid.MaxRows()
+	if maxRows <= 0 {
+		return 1
+	}
+	pages := gc.Len() / maxRows
+	if gc.Len()%maxRows > 0 {
 		pages++
 	}
 	return pages

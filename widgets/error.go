@@ -2,38 +2,31 @@ package widgets
 
 import (
 	"fmt"
-	"strings"
+	"image"
 	"time"
 
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 type ErrorView struct {
-	*ui.Par
-	lines []string
+	ui.Block
+	lines     []string
+	TextStyle ui.Style
 }
 
 func NewErrorView() *ErrorView {
-	const yPad = 1
-	const xPad = 2
-
-	p := ui.NewPar("")
-	p.X = xPad
-	p.Y = yPad
-	p.Border = true
-	p.Height = 10
-	p.Width = 20
-	p.PaddingTop = yPad
-	p.PaddingBottom = yPad
-	p.PaddingLeft = xPad
-	p.PaddingRight = xPad
-	p.BorderLabel = " ctop - error "
-	p.Bg = ui.ThemeAttr("bg")
-	p.TextFgColor = ui.ThemeAttr("status.warn")
-	p.TextBgColor = ui.ThemeAttr("menu.text.bg")
-	p.BorderFg = ui.ThemeAttr("status.warn")
-	p.BorderLabelFg = ui.ThemeAttr("status.warn")
-	return &ErrorView{p, make([]string, 0, 50)}
+	w, h := theme.TermDimensions()
+	ev := &ErrorView{
+		Block:     *ui.NewBlock(),
+		lines:     make([]string, 0, 50),
+		TextStyle: theme.Style("status.warn"),
+	}
+	ev.Title = " ctop - error "
+	ev.BorderStyle = theme.Style("status.warn")
+	ev.TitleStyle = theme.Style("status.warn")
+	ev.SetRect(2, 1, w-2, h-1)
+	return ev
 }
 
 func (w *ErrorView) Append(s string) {
@@ -45,16 +38,30 @@ func (w *ErrorView) Append(s string) {
 	w.lines = append(w.lines, "")
 }
 
-func (w *ErrorView) Buffer() ui.Buffer {
-	offset := len(w.lines) - w.InnerHeight()
+func (w *ErrorView) Draw(buf *ui.Buffer) {
+	w.Block.Draw(buf)
+
+	innerHeight := w.Inner.Max.Y - w.Inner.Min.Y
+	if innerHeight <= 0 {
+		return
+	}
+
+	offset := len(w.lines) - innerHeight
 	if offset < 0 {
 		offset = 0
 	}
-	w.Text = strings.Join(w.lines[offset:len(w.lines)], "\n")
-	return w.Par.Buffer()
+
+	visibleLines := w.lines[offset:]
+	for i, line := range visibleLines {
+		y := w.Inner.Min.Y + i
+		if y >= w.Inner.Max.Y {
+			break
+		}
+		buf.SetString(line, w.TextStyle, image.Pt(w.Inner.Min.X+1, y))
+	}
 }
 
 func (w *ErrorView) Resize() {
-	w.Height = ui.TermHeight() - (w.PaddingTop + w.PaddingBottom)
-	w.SetWidth(ui.TermWidth() - (w.PaddingLeft + w.PaddingRight))
+	termW, termH := theme.TermDimensions()
+	w.SetRect(2, 1, termW-2, termH-1)
 }

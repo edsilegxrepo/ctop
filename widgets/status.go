@@ -1,87 +1,62 @@
 package widgets
 
 import (
-	ui "github.com/gizak/termui"
+	"image"
+
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 var (
 	statusHeight = 1
-	statusIter   = 3
 )
 
 type StatusLine struct {
-	Message *ui.Par
-	bg      *ui.Par
+	ui.Block
+	Message string
+	Style   ui.Style
+	isErr   bool
 }
 
 func NewStatusLine() *StatusLine {
-	p := ui.NewPar("")
-	p.X = 2
-	p.Border = false
-	p.Height = statusHeight
-	p.Bg = ui.ThemeAttr("header.bg")
-	p.TextFgColor = ui.ThemeAttr("header.fg")
-	p.TextBgColor = ui.ThemeAttr("header.bg")
-	return &StatusLine{
-		Message: p,
-		bg:      statusBg(),
+	sl := &StatusLine{
+		Block: *ui.NewBlock(),
+		Style: theme.Style2("header.fg", "header.bg"),
 	}
+	sl.Border = false
+	sl.Align()
+	return sl
 }
 
-func (sl *StatusLine) Display() {
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
-	iter := statusIter
-	ui.Handle("/sys/kbd/", func(ui.Event) {
-		ui.StopLoop()
-	})
-	ui.Handle("/timer/1s", func(ui.Event) {
-		iter--
-		if iter <= 0 {
-			ui.StopLoop()
-		}
-	})
-
-	ui.Render(sl)
-	ui.Loop()
-}
-
-// change given message on the status line
 func (sl *StatusLine) Show(s string) {
-	sl.Message.TextFgColor = ui.ThemeAttr("header.fg")
-	sl.Message.Text = s
-	sl.Display()
+	sl.isErr = false
+	sl.Style = theme.Style2("header.fg", "header.bg")
+	sl.Message = s
+	sl.display()
 }
 
 func (sl *StatusLine) ShowErr(s string) {
-	sl.Message.TextFgColor = ui.ThemeAttr("status.danger")
-	sl.Message.Text = s
-	sl.Display()
+	sl.isErr = true
+	sl.Style = theme.Style2("status.danger", "header.bg")
+	sl.Message = s
+	sl.display()
 }
 
-func (sl *StatusLine) Buffer() ui.Buffer {
-	buf := ui.NewBuffer()
-	buf.Merge(sl.bg.Buffer())
-	buf.Merge(sl.Message.Buffer())
-	return buf
+func (sl *StatusLine) display() {
+	sl.Align()
+}
+
+func (sl *StatusLine) Draw(buf *ui.Buffer) {
+	bgStyle := theme.Style2("header.fg", "header.bg")
+	buf.Fill(ui.NewCell(' ', bgStyle), sl.Rectangle)
+	if sl.Message != "" {
+		buf.SetString(sl.Message, sl.Style, image.Pt(sl.Min.X+2, sl.Min.Y))
+	}
 }
 
 func (sl *StatusLine) Align() {
-	sl.bg.SetWidth(ui.TermWidth() - 1)
-	sl.Message.SetWidth(ui.TermWidth() - 2)
-
-	sl.bg.Y = ui.TermHeight() - 1
-	sl.Message.Y = ui.TermHeight() - 1
+	w, h := theme.TermDimensions()
+	sl.SetRect(0, h-statusHeight, w, h)
 }
 
 func (sl *StatusLine) Height() int { return statusHeight }
-
-func statusBg() *ui.Par {
-	bg := ui.NewPar("")
-	bg.X = 1
-	bg.Height = statusHeight
-	bg.Border = false
-	bg.Bg = ui.ThemeAttr("header.bg")
-	return bg
-}

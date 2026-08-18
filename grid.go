@@ -1,47 +1,49 @@
 package main
 
 import (
+	"time"
+
 	"github.com/bcicen/ctop/config"
 	"github.com/bcicen/ctop/cwidgets/single"
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 func ShowConnError(err error) (exit bool) {
 	ui.Clear()
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
 	setErr := func(err error) {
 		errView.Append(err.Error())
 		errView.Append("attempting to reconnect...")
 		ui.Render(errView)
 	}
 
-	HandleKeys("exit", func() {
-		exit = true
-		ui.StopLoop()
-	})
-
-	ui.Handle("/timer/1s", func(ui.Event) {
-		_, err := cursor.RefreshContainers()
-		if err == nil {
-			ui.StopLoop()
-			return
-		}
-		setErr(err)
-	})
-
-	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
-		errView.Resize()
-		ui.Clear()
-		ui.Render(errView)
-		log.Infof("RESIZE")
-	})
-
 	errView.Resize()
 	setErr(err)
-	ui.Loop()
-	return exit
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case e := <-uiEvents:
+			switch e.Type {
+			case ui.KeyboardEvent:
+				if IsKeyMatch("exit", e.ID) {
+					return true
+				}
+			case ui.ResizeEvent:
+				errView.Resize()
+				ui.Clear()
+				ui.Render(errView)
+			}
+		case <-ticker.C:
+			_, refreshErr := cursor.RefreshContainers()
+			if refreshErr == nil {
+				return false
+			}
+			setErr(refreshErr)
+		}
+	}
 }
 
 func RedrawRows(clr bool) {
@@ -49,14 +51,17 @@ func RedrawRows(clr bool) {
 	cGrid.Clear()
 
 	// build layout
-	y := 1
+	y := 0
 	if config.GetSwitchVal("enableHeader") {
 		header.SetCount(cursor.Len())
 		header.SetFilter(config.GetVal("filterStr"))
-		y += header.Height()
+		y += header.Height() + 1
 	}
 
+	termW, termH := theme.TermDimensions()
+	cGrid.SetWidth(termW)
 	cGrid.SetY(y)
+	cGrid.SetRect(0, y, termW, termH)
 
 	for _, c := range cursor.filtered {
 		cGrid.AddRows(c.Widgets)
@@ -66,11 +71,20 @@ func RedrawRows(clr bool) {
 		ui.Clear()
 		log.Debugf("screen cleared")
 	}
-	if config.GetSwitchVal("enableHeader") {
-		ui.Render(header)
-	}
+
 	cGrid.Align()
-	ui.Render(cGrid)
+
+	var drawables []ui.Drawable
+	if config.GetSwitchVal("enableHeader") {
+		drawables = append(drawables, header)
+	}
+	drawables = append(drawables, cGrid)
+	if status.Message != "" {
+		status.Align()
+		drawables = append(drawables, status)
+	}
+
+	ui.Render(drawables...)
 }
 
 func SingleView() MenuFn {
@@ -80,29 +94,42 @@ func SingleView() MenuFn {
 	}
 
 	ui.Clear()
-	ui.DefaultEvtStream.ResetHandlers()
-	defer ui.DefaultEvtStream.ResetHandlers()
-
 	ex := single.NewSingle()
 	c.SetUpdater(ex)
+	defer c.SetUpdater(c.Widgets)
 
+	termW, _ := theme.TermDimensions()
+	ex.SetWidth(termW)
 	ex.Align()
 	ui.Render(ex)
 
-	HandleKeys("up", ex.Up)
-	HandleKeys("down", ex.Down)
-	ui.Handle("/sys/kbd/", func(ui.Event) { ui.StopLoop() })
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-	ui.Handle("/timer/1s", func(ui.Event) { ui.Render(ex) })
-	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
-		ex.SetWidth(ui.TermWidth())
-		ex.Align()
-		log.Infof("resize: width=%v max-rows=%v", ex.Width, cGrid.MaxRows())
-	})
-
-	ui.Loop()
-	c.SetUpdater(c.Widgets)
-	return nil
+	for {
+		select {
+		case e := <-uiEvents:
+			switch e.Type {
+			case ui.KeyboardEvent:
+				if IsKeyMatch("up", e.ID) {
+					ex.Up()
+				} else if IsKeyMatch("down", e.ID) {
+					ex.Down()
+				} else {
+					return nil
+				}
+			case ui.ResizeEvent:
+				theme.SyncTerm()
+				tw, _ := theme.TermDimensions()
+				ex.SetWidth(tw)
+				ex.Align()
+				ui.Clear()
+				ui.Render(ex)
+			}
+		case <-ticker.C:
+			ui.Render(ex)
+		}
+	}
 }
 
 func RefreshDisplay() error {
@@ -118,11 +145,12 @@ func RefreshDisplay() error {
 }
 
 func Display() bool {
+	shouldExitApp = false
 	var menu MenuFn
 	var connErr error
 
-	cGrid.SetWidth(ui.TermWidth())
-	ui.DefaultEvtStream.Hook(logEvent)
+	termW, _ := theme.TermDimensions()
+	cGrid.SetWidth(termW)
 
 	// initial draw
 	header.Align()
@@ -132,126 +160,121 @@ func Display() bool {
 	}
 	RedrawRows(true)
 
-	HandleKeys("up", cursor.Up)
-	HandleKeys("down", cursor.Down)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-	HandleKeys("pgup", cursor.PgUp)
-	HandleKeys("pgdown", cursor.PgDown)
-
-	HandleKeys("exit", ui.StopLoop)
-	HandleKeys("help", func() {
-		menu = HelpMenu
-		ui.StopLoop()
-	})
-
-	ui.Handle("/sys/kbd/<enter>", func(ui.Event) {
-		menu = ContainerMenu
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/<left>", func(ui.Event) {
-		menu = LogMenu
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/<right>", func(ui.Event) {
-		menu = SingleView
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/l", func(ui.Event) {
-		menu = LogMenu
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/e", func(ui.Event) {
-		menu = ExecShell
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/w", func(ui.Event) {
-		menu = OpenInBrowser()
-	})
-	ui.Handle("/sys/kbd/o", func(ui.Event) {
-		menu = SingleView
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/a", func(ui.Event) {
-		config.Toggle("allContainers")
-		connErr = RefreshDisplay()
-		if connErr != nil {
-			ui.StopLoop()
+	for {
+		select {
+		case e := <-uiEvents:
+			logEvent(e)
+			switch e.Type {
+			case ui.ResizeEvent:
+				theme.SyncTerm()
+				header.Align()
+				status.Align()
+				cursor.ScrollPage()
+				tw, _ := theme.TermDimensions()
+				cGrid.SetWidth(tw)
+				RedrawRows(true)
+			case ui.KeyboardEvent:
+				if IsKeyMatch("up", e.ID) {
+					cursor.Up()
+				} else if IsKeyMatch("down", e.ID) {
+					cursor.Down()
+				} else if IsKeyMatch("pgup", e.ID) {
+					cursor.PgUp()
+				} else if IsKeyMatch("pgdown", e.ID) {
+					cursor.PgDown()
+				} else if IsKeyMatch("exit", e.ID) {
+					return true
+				} else if IsKeyMatch("help", e.ID) {
+					menu = HelpMenu
+					goto RunMenu
+				} else {
+					switch e.ID {
+					case "<Enter>":
+						menu = ContainerMenu
+						goto RunMenu
+					case "<Left>", "l":
+						menu = LogMenu
+						goto RunMenu
+					case "<Right>", "o":
+						menu = SingleView
+						goto RunMenu
+					case "e":
+						menu = ExecShell
+						goto RunMenu
+					case "w":
+						menu = OpenInBrowser()
+						if menu != nil {
+							goto RunMenu
+						}
+					case "a":
+						config.Toggle("allContainers")
+						connErr = RefreshDisplay()
+						if connErr != nil {
+							goto HandleErr
+						}
+					case "D":
+						dumpContainer(cursor.Selected())
+					case "f":
+						menu = FilterMenu
+						goto RunMenu
+					case "H":
+						config.Toggle("enableHeader")
+						RedrawRows(true)
+					case "r":
+						config.Toggle("sortReversed")
+						_ = RefreshDisplay()
+					case "s":
+						menu = SortMenu
+						goto RunMenu
+					case "c":
+						menu = ColumnsMenu
+						goto RunMenu
+					case "S":
+						path, err := config.Write()
+						if err == nil {
+							log.Statusf("wrote config to %s", path)
+						} else {
+							log.StatusErr(err)
+						}
+						_ = RefreshDisplay()
+					}
+				}
+			}
+		case <-ticker.C:
+			if log.StatusQueued() {
+				for sm := range log.FlushStatus() {
+					if sm.IsError {
+						status.ShowErr(sm.Text)
+					} else {
+						status.Show(sm.Text)
+					}
+				}
+			}
+			connErr = RefreshDisplay()
+			if connErr != nil {
+				goto HandleErr
+			}
 		}
-	})
-	ui.Handle("/sys/kbd/D", func(ui.Event) {
-		dumpContainer(cursor.Selected())
-	})
-	ui.Handle("/sys/kbd/f", func(ui.Event) {
-		menu = FilterMenu
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/H", func(ui.Event) {
-		config.Toggle("enableHeader")
-		RedrawRows(true)
-	})
-	ui.Handle("/sys/kbd/r", func(e ui.Event) {
-		config.Toggle("sortReversed")
-	})
-	ui.Handle("/sys/kbd/s", func(ui.Event) {
-		menu = SortMenu
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/c", func(ui.Event) {
-		menu = ColumnsMenu
-		ui.StopLoop()
-	})
-	ui.Handle("/sys/kbd/S", func(ui.Event) {
-		path, err := config.Write()
-		if err == nil {
-			log.Statusf("wrote config to %s", path)
-		} else {
-			log.StatusErr(err)
-		}
-		ui.StopLoop()
-	})
+	}
 
-	ui.Handle("/timer/1s", func(e ui.Event) {
-		if log.StatusQueued() {
-			ui.StopLoop()
-		}
-		connErr = RefreshDisplay()
-		if connErr != nil {
-			ui.StopLoop()
-		}
-	})
-
-	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
-		header.Align()
-		status.Align()
-		cursor.ScrollPage()
-		cGrid.SetWidth(ui.TermWidth())
-		log.Infof("resize: width=%v max-rows=%v", cGrid.Width, cGrid.MaxRows())
-		RedrawRows(true)
-	})
-
-	ui.Loop()
-
+HandleErr:
 	if connErr != nil {
 		return ShowConnError(connErr)
 	}
 
-	if log.StatusQueued() {
-		for sm := range log.FlushStatus() {
-			if sm.IsError {
-				status.ShowErr(sm.Text)
-			} else {
-				status.Show(sm.Text)
-			}
-		}
-		return false
-	}
-
+RunMenu:
 	if menu != nil {
 		for menu != nil {
 			menu = menu()
+			if shouldExitApp {
+				return true
+			}
 		}
-		return false
+		return shouldExitApp
 	}
 
-	return true
+	return false
 }

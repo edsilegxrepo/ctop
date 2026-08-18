@@ -2,79 +2,72 @@ package widgets
 
 import (
 	"fmt"
+	"image"
 	"time"
 
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 type CTopHeader struct {
-	Time   *ui.Par
-	Count  *ui.Par
-	Filter *ui.Par
-	bg     *ui.Par
+	ui.Block
+	TimeText   string
+	CountText  string
+	FilterText string
+	Style      ui.Style
 }
 
 func NewCTopHeader() *CTopHeader {
-	return &CTopHeader{
-		Time:   headerPar(2, ""),
-		Count:  headerPar(24, "-"),
-		Filter: headerPar(40, ""),
-		bg:     headerBg(),
+	h := &CTopHeader{
+		Block:     *ui.NewBlock(),
+		CountText: "-",
+		Style:     theme.Style2("header.fg", "header.bg"),
+	}
+	h.Border = false
+	h.Align()
+	return h
+}
+
+func (c *CTopHeader) Draw(buf *ui.Buffer) {
+	c.TimeText = timeStr()
+	buf.Fill(ui.NewCell(' ', c.Style), c.Rectangle)
+
+	// Draw Time
+	buf.SetString(c.TimeText, c.Style, image.Pt(c.Min.X+2, c.Min.Y))
+
+	// Draw Count
+	if c.CountText != "" {
+		buf.SetString(c.CountText, c.Style, image.Pt(c.Min.X+24, c.Min.Y))
+	}
+
+	// Draw Filter
+	if c.FilterText != "" {
+		buf.SetString(c.FilterText, c.Style, image.Pt(c.Min.X+40, c.Min.Y))
 	}
 }
 
-func (c *CTopHeader) Buffer() ui.Buffer {
-	buf := ui.NewBuffer()
-	c.Time.Text = timeStr()
-	buf.Merge(c.bg.Buffer())
-	buf.Merge(c.Time.Buffer())
-	buf.Merge(c.Count.Buffer())
-	buf.Merge(c.Filter.Buffer())
-	return buf
-}
-
 func (c *CTopHeader) Align() {
-	c.bg.SetWidth(ui.TermWidth() - 1)
+	w, _ := theme.TermDimensions()
+	c.SetRect(0, 0, w, 1)
 }
 
 func (c *CTopHeader) Height() int {
-	return c.bg.Height
-}
-
-func headerBg() *ui.Par {
-	bg := ui.NewPar("")
-	bg.X = 1
-	bg.Height = 1
-	bg.Border = false
-	bg.Bg = ui.ThemeAttr("header.bg")
-	return bg
+	return 1
 }
 
 func (c *CTopHeader) SetCount(val int) {
-	c.Count.Text = fmt.Sprintf("%d containers", val)
+	c.CountText = fmt.Sprintf("%d containers", val)
 }
 
 func (c *CTopHeader) SetFilter(val string) {
 	if val == "" {
-		c.Filter.Text = ""
+		c.FilterText = ""
 	} else {
-		c.Filter.Text = fmt.Sprintf("filter: %s", val)
+		c.FilterText = fmt.Sprintf("filter: %s", val)
 	}
 }
 
 func timeStr() string {
 	ts := time.Now().Local().Format("15:04:05 MST")
 	return fmt.Sprintf("ctop - %s", ts)
-}
-
-func headerPar(x int, s string) *ui.Par {
-	p := ui.NewPar(fmt.Sprintf(" %s", s))
-	p.X = x
-	p.Border = false
-	p.Height = 1
-	p.Width = 20
-	p.Bg = ui.ThemeAttr("header.bg")
-	p.TextFgColor = ui.ThemeAttr("header.fg")
-	p.TextBgColor = ui.ThemeAttr("header.bg")
-	return p
 }

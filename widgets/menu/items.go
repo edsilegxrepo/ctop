@@ -1,8 +1,13 @@
 package menu
 
 type Item struct {
-	Val   string
-	Label string
+	Val       string
+	Label     string
+	Separator bool
+}
+
+func NewSeparator() Item {
+	return Item{Separator: true}
 }
 
 // Use label as display text of item, if given

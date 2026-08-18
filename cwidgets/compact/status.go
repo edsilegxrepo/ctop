@@ -1,39 +1,62 @@
 package compact
 
 import (
-	"github.com/bcicen/ctop/models"
+	"image"
 
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/models"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 // Status indicator
 type Status struct {
-	*ui.Block
-	status []ui.Cell
-	health []ui.Cell
+	ui.Block
+	statusRune  rune
+	statusStyle ui.Style
+	healthRune  rune
+	healthStyle ui.Style
 }
 
 func NewStatus() CompactCol {
 	s := &Status{
-		Block:  ui.NewBlock(),
-		status: []ui.Cell{{Ch: ' '}},
-		health: []ui.Cell{{Ch: ' '}},
+		Block:       *ui.NewBlock(),
+		statusRune:  ' ',
+		statusStyle: theme.Style("fg"),
+		healthRune:  ' ',
+		healthStyle: theme.Style("fg"),
 	}
-	s.Height = 1
 	s.Border = false
 	return s
 }
 
-func (s *Status) Buffer() ui.Buffer {
-	buf := s.Block.Buffer()
-	buf.Set(s.InnerX(), s.InnerY(), s.health[0])
-	buf.Set(s.InnerX()+2, s.InnerY(), s.status[0])
-	return buf
+func (s *Status) Draw(buf *ui.Buffer) {
+	s.Block.Draw(buf)
+	x := s.Min.X
+	y := s.Min.Y
+
+	if s.statusRune != 0 && s.statusRune != ' ' {
+		buf.SetCell(ui.NewCell(s.statusRune, s.statusStyle), image.Pt(x, y))
+	}
+	if s.healthRune != 0 && s.healthRune != ' ' {
+		buf.SetCell(ui.NewCell(s.healthRune, s.healthStyle), image.Pt(x+1, y))
+	}
 }
 
 func (s *Status) SetMeta(m models.Meta) {
 	s.setState(m.Get("state"))
 	s.setHealth(m.Get("health"))
+}
+
+func (s *Status) SetX(x int) {
+	s.SetRect(x, s.Min.Y, x+s.FixedWidth(), s.Min.Y+1)
+}
+
+func (s *Status) SetY(y int) {
+	s.SetRect(s.Min.X, y, s.Min.X+s.FixedWidth(), y+1)
+}
+
+func (s *Status) SetWidth(w int) {
+	s.SetRect(s.Min.X, s.Min.Y, s.Min.X+w, s.Min.Y+1)
 }
 
 // Status implements CompactCol
@@ -42,53 +65,60 @@ func (s *Status) SetMetrics(models.Metrics) {}
 func (s *Status) Highlight()                {}
 func (s *Status) UnHighlight()              {}
 func (s *Status) Header() string            { return "" }
-func (s *Status) FixedWidth() int           { return 3 }
+func (s *Status) FixedWidth() int           { return 2 }
 
 func (s *Status) setState(val string) {
-	color := ui.ColorDefault
-	var mark string
+	if val == "" {
+		return
+	}
+
+	style := theme.Style("fg")
+	var mark rune
 
 	switch val {
-	case "":
-		return
 	case "created":
-		mark = "◉"
+		mark = '◉'
 	case "running":
-		mark = "▶"
-		color = ui.ThemeAttr("status.ok")
+		mark = '►'
+		style = theme.Style("status.ok")
 	case "exited":
-		mark = "⏹"
-		color = ui.ThemeAttr("status.danger")
+		mark = '■'
+		style = theme.Style("status.danger")
 	case "paused":
-		mark = "⏸"
+		mark = '❚'
+		style = theme.Style("status.warn")
 	default:
-		mark = " "
+		mark = ' '
 		log.Warningf("unknown status string: \"%v\"", val)
 	}
 
-	s.status = ui.TextCells(mark, color, ui.ColorDefault)
+	s.statusRune = mark
+	s.statusStyle = style
 }
 
 func (s *Status) setHealth(val string) {
-	color := ui.ColorDefault
-	var mark string
+	if val == "" {
+		return
+	}
+
+	style := theme.Style("fg")
+	var mark rune
 
 	switch val {
-	case "":
-		return
 	case "healthy":
-		mark = "☼"
-		color = ui.ThemeAttr("status.ok")
+		mark = '☼'
+		style = theme.Style("status.ok")
 	case "unhealthy":
-		mark = "⚠"
-		color = ui.ThemeAttr("status.danger")
+		mark = '⚠'
+		style = theme.Style("status.danger")
 	case "starting":
-		mark = "◌"
-		color = ui.ThemeAttr("status.warn")
+		mark = '◌'
+		style = theme.Style("status.warn")
 	default:
-		mark = " "
+		mark = ' '
 		log.Warningf("unknown health state string: \"%v\"", val)
 	}
 
-	s.health = ui.TextCells(mark, color, ui.ColorDefault)
+	s.healthRune = mark
+	s.healthStyle = style
 }

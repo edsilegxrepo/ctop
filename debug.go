@@ -5,26 +5,19 @@ import (
 	"reflect"
 
 	"github.com/bcicen/ctop/container"
-	ui "github.com/gizak/termui"
+	ui "github.com/gizak/termui/v3"
 )
 
 func logEvent(e ui.Event) {
-	// skip timer events e.g. /timer/1s
-	if e.From == "timer" {
-		return
-	}
-	var s string
-	s += fmt.Sprintf("Type=%s", quote(e.Type))
-	s += fmt.Sprintf(" Path=%s", quote(e.Path))
-	s += fmt.Sprintf(" From=%s", quote(e.From))
-	if e.To != "" {
-		s += fmt.Sprintf(" To=%s", quote(e.To))
-	}
+	s := fmt.Sprintf("Type=%v ID=%s", e.Type, quote(e.ID))
 	log.Debugf("new event: %s", s)
 }
 
 // log container, metrics, and widget state
 func dumpContainer(c *container.Container) {
+	if c == nil {
+		return
+	}
 	msg := fmt.Sprintf("logging state for container: %s\n", c.Id)
 	for k, v := range c.Meta {
 		msg += fmt.Sprintf("Meta.%s = %s\n", k, v)

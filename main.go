@@ -13,8 +13,8 @@ import (
 	"github.com/bcicen/ctop/cwidgets/compact"
 	"github.com/bcicen/ctop/logging"
 	"github.com/bcicen/ctop/widgets"
-	ui "github.com/gizak/termui"
-	tm "github.com/nsf/termbox-go"
+	ui "github.com/gizak/termui/v3"
+	tb "github.com/nsf/termbox-go"
 )
 
 var (
@@ -22,12 +22,13 @@ var (
 	version   = "dev-build"
 	goVersion = runtime.Version()
 
-	log     *logging.CTopLogger
-	cursor  *GridCursor
-	cGrid   *compact.CompactGrid
-	header  *widgets.CTopHeader
-	status  *widgets.StatusLine
-	errView *widgets.ErrorView
+	log      *logging.CTopLogger
+	cursor   *GridCursor
+	cGrid    *compact.CompactGrid
+	header   *widgets.CTopHeader
+	status   *widgets.StatusLine
+	errView  *widgets.ErrorView
+	uiEvents <-chan ui.Event
 
 	versionStr = fmt.Sprintf("ctop version %v, build %v %v", version, build, goVersion)
 )
@@ -89,11 +90,13 @@ func main() {
 	if *invertFlag {
 		InvertColorMap()
 	}
-	ui.ColorMap = ColorMap // override default colormap
+	initTheme()
 	if err := ui.Init(); err != nil {
 		panic(err)
 	}
-	tm.SetInputMode(tm.InputAlt)
+	tb.SetInputMode(tb.InputEsc)
+	tb.HideCursor()
+	uiEvents = ui.PollEvents()
 
 	defer Shutdown()
 	// init grid, cursor, header
@@ -118,9 +121,7 @@ func main() {
 func Shutdown() {
 	log.Notice("shutting down")
 	log.Exit()
-	if tm.IsInit {
-		ui.Close()
-	}
+	ui.Close()
 }
 
 // ensure a given sort field is valid

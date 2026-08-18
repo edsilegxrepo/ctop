@@ -2,11 +2,12 @@ package compact
 
 import (
 	"fmt"
+	"image"
 
 	"github.com/bcicen/ctop/cwidgets"
 	"github.com/bcicen/ctop/models"
-
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 type CPUCol struct {
@@ -15,11 +16,15 @@ type CPUCol struct {
 }
 
 func NewCPUCol() CompactCol {
-	return &CPUCol{NewGaugeCol("CPU"), false}
+	c := &CPUCol{NewGaugeCol("CPU"), false}
+	c.rightAlign = true
+	return c
 }
 
 func NewCpuScaledCol() CompactCol {
-	return &CPUCol{NewGaugeCol("CPUS"), true}
+	c := &CPUCol{NewGaugeCol("CPUS"), true}
+	c.rightAlign = true
+	return c
 }
 
 func (w *CPUCol) SetMetrics(m models.Metrics) {
@@ -45,22 +50,32 @@ func NewMemCol() CompactCol {
 }
 
 func (w *MemCol) SetMetrics(m models.Metrics) {
-	w.BarColor = ui.ThemeAttr("gauge.bar.bg")
+	w.BarColor = theme.Color("gauge.bar.bg")
 	w.Label = fmt.Sprintf("%s / %s", cwidgets.ByteFormat64Short(m.MemUsage), cwidgets.ByteFormat64Short(m.MemLimit))
 	w.Percent = m.MemPercent
 }
 
 type GaugeCol struct {
-	*ui.Gauge
-	header string
-	fWidth int
+	ui.Block
+	Percent     int
+	Label       string
+	header      string
+	fWidth      int
+	BarColor    ui.Color
+	LabelStyle  ui.Style
+	highlighted bool
+	rightAlign  bool
 }
 
 func NewGaugeCol(header string) *GaugeCol {
-	g := &GaugeCol{ui.NewGauge(), header, 0}
-	g.Height = 1
+	g := &GaugeCol{
+		Block:      *ui.NewBlock(),
+		header:     header,
+		fWidth:     0,
+		BarColor:   theme.Color("gauge.bar.bg"),
+		LabelStyle: theme.Style2("par.text.fg", "par.text.bg"),
+	}
 	g.Border = false
-	g.PaddingBottom = 0
 	g.Reset()
 	return g
 }
@@ -70,15 +85,52 @@ func (w *GaugeCol) Reset() {
 	w.Percent = 0
 }
 
-func (w *GaugeCol) Buffer() ui.Buffer {
-	// if bar would not otherwise be visible, set a minimum
-	// percentage value and low-contrast color for structure
-	if w.Percent < 5 {
-		w.Percent = 5
-		w.BarColor = ui.ColorBlack
+func (w *GaugeCol) Highlight() {
+	w.highlighted = true
+	w.LabelStyle = ui.NewStyle(ui.ColorBlack, ui.ColorWhite)
+}
+
+func (w *GaugeCol) UnHighlight() {
+	w.highlighted = false
+	w.LabelStyle = theme.Style2("par.text.fg", "par.text.bg")
+}
+
+func (w *GaugeCol) Draw(buf *ui.Buffer) {
+	w.Block.Draw(buf)
+
+	width := w.Max.X - w.Min.X
+	if width <= 0 {
+		return
 	}
 
-	return w.Gauge.Buffer()
+	if w.highlighted {
+		hiCell := ui.NewCell(' ', ui.NewStyle(ui.ColorBlack, ui.ColorWhite))
+		buf.Fill(hiCell, w.Rectangle)
+	}
+
+	label := w.Label
+	if len(label) > width {
+		label = label[:width]
+	}
+
+	pt := image.Pt(w.Min.X, w.Min.Y)
+	if w.rightAlign && len(label) < width {
+		pt = image.Pt(w.Min.X+(width-len(label)), w.Min.Y)
+	}
+
+	buf.SetString(label, w.LabelStyle, pt)
+}
+
+func (w *GaugeCol) SetX(x int) {
+	w.SetRect(x, w.Min.Y, x+(w.Max.X-w.Min.X), w.Min.Y+1)
+}
+
+func (w *GaugeCol) SetY(y int) {
+	w.SetRect(w.Min.X, y, w.Max.X, y+1)
+}
+
+func (w *GaugeCol) SetWidth(width int) {
+	w.SetRect(w.Min.X, w.Min.Y, w.Min.X+width, w.Min.Y+1)
 }
 
 // GaugeCol implements CompactCol
@@ -87,24 +139,12 @@ func (w *GaugeCol) SetMetrics(models.Metrics) {}
 func (w *GaugeCol) Header() string            { return w.header }
 func (w *GaugeCol) FixedWidth() int           { return w.fWidth }
 
-// GaugeCol implements CompactCol
-func (w *GaugeCol) Highlight() {
-	w.Bg = ui.ThemeAttr("par.text.fg")
-	w.PercentColor = ui.ThemeAttr("par.text.hi")
-}
-
-// GaugeCol implements CompactCol
-func (w *GaugeCol) UnHighlight() {
-	w.Bg = ui.ThemeAttr("par.text.bg")
-	w.PercentColor = ui.ThemeAttr("par.text.bg")
-}
-
-func colorScale(n int) ui.Attribute {
+func colorScale(n int) ui.Color {
 	if n <= 70 {
-		return ui.ThemeAttr("status.ok")
+		return theme.Color("status.ok")
 	}
 	if n <= 90 {
-		return ui.ThemeAttr("status.warn")
+		return theme.Color("status.warn")
 	}
-	return ui.ThemeAttr("status.danger")
+	return theme.Color("status.danger")
 }

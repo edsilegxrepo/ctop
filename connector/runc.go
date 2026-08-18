@@ -49,9 +49,8 @@ func NewRuncOpts() (RuncOpts, error) {
 
 type Runc struct {
 	opts          RuncOpts
-	factory       libcontainer.Factory
 	containers    map[string]*container.Container
-	libContainers map[string]libcontainer.Container
+	libContainers map[string]*libcontainer.Container
 	closed        chan struct{}
 	needsRefresh  chan string // container IDs requiring refresh
 	lock          sync.RWMutex
@@ -63,16 +62,10 @@ func NewRunc() (Connector, error) {
 		return nil, err
 	}
 
-	factory, err := libcontainer.New(opts.root)
-	if err != nil {
-		return nil, err
-	}
-
 	cm := &Runc{
 		opts:          opts,
-		factory:       factory,
 		containers:    make(map[string]*container.Container),
-		libContainers: make(map[string]libcontainer.Container),
+		libContainers: make(map[string]*libcontainer.Container),
 		closed:        make(chan struct{}),
 		lock:          sync.RWMutex{},
 	}
@@ -92,14 +85,14 @@ func NewRunc() (Connector, error) {
 	return cm, nil
 }
 
-func (cm *Runc) GetLibc(id string) libcontainer.Container {
+func (cm *Runc) GetLibc(id string) *libcontainer.Container {
 	// return previously loaded container
 	libc, ok := cm.libContainers[id]
 	if ok {
 		return libc
 	}
 	// load container
-	libc, err := cm.factory.Load(id)
+	libc, err := libcontainer.Load(cm.opts.root, id)
 	if err != nil {
 		// remove container if no longer exists
 		if errors.Is(err, libcontainer.ErrNotExist) {

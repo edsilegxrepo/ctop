@@ -2,14 +2,15 @@ package compact
 
 import (
 	"fmt"
+	"image"
 
 	"github.com/bcicen/ctop/cwidgets"
 	"github.com/bcicen/ctop/models"
-
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
-// Column that shows container's meta property i.e. name, id, image tc.
+// Column that shows container's meta property i.e. name, id, image etc.
 type MetaCol struct {
 	*TextCol
 	metaName string
@@ -20,9 +21,7 @@ func (w *MetaCol) SetMeta(m models.Meta) {
 }
 
 func NewNameCol() CompactCol {
-	c := &MetaCol{NewTextCol("NAME"), "name"}
-	c.fWidth = 30
-	return c
+	return &MetaCol{NewTextCol("NAME"), "name"}
 }
 
 func NewCIDCol() CompactCol {
@@ -45,7 +44,7 @@ func NewIpsCol() CompactCol {
 
 func NewCreatedCol() CompactCol {
 	c := &MetaCol{NewTextCol("CREATED"), "created"}
-	c.fWidth = 19 // Year will be stripped e.g. "Thu Nov 26 07:44:03" without 2020 at end
+	c.fWidth = 19
 	return c
 }
 
@@ -81,7 +80,8 @@ type PIDCol struct {
 
 func NewPIDCol() CompactCol {
 	w := &PIDCol{NewTextCol("PIDS")}
-	w.fWidth = 4
+	w.fWidth = 5
+	w.rightAlign = true
 	return w
 }
 
@@ -98,38 +98,76 @@ func NewUptimeCol() CompactCol {
 }
 
 func (w *UptimeCol) SetMeta(m models.Meta) {
-	w.Text = m.Get("uptime")
+	w.setText(m.Get("uptime"))
 }
 
 type TextCol struct {
-	*ui.Par
-	header string
-	fWidth int
+	ui.Block
+	Text        string
+	header      string
+	fWidth      int
+	TextStyle   ui.Style
+	highlighted bool
+	rightAlign  bool
 }
 
 func NewTextCol(header string) *TextCol {
-	p := ui.NewPar("-")
-	p.Border = false
-	p.Height = 1
-	p.Width = 20
-
-	return &TextCol{
-		Par:    p,
-		header: header,
-		fWidth: 0,
+	t := &TextCol{
+		Block:     *ui.NewBlock(),
+		Text:      "-",
+		header:    header,
+		fWidth:    0,
+		TextStyle: theme.Style2("par.text.fg", "par.text.bg"),
 	}
+	t.Border = false
+	return t
+}
+
+func (w *TextCol) Draw(buf *ui.Buffer) {
+	w.Block.Draw(buf)
+	width := w.Max.X - w.Min.X
+	if width <= 0 {
+		return
+	}
+
+	if w.highlighted {
+		hiCell := ui.NewCell(' ', ui.NewStyle(ui.ColorBlack, ui.ColorWhite))
+		buf.Fill(hiCell, w.Rectangle)
+	}
+
+	s := w.Text
+	if len(s) > width {
+		s = s[:width]
+	}
+
+	pt := image.Pt(w.Min.X, w.Min.Y)
+	if w.rightAlign && len(s) < width {
+		pt = image.Pt(w.Min.X+(width-len(s)), w.Min.Y)
+	}
+
+	buf.SetString(s, w.TextStyle, pt)
+}
+
+func (w *TextCol) SetX(x int) {
+	w.SetRect(x, w.Min.Y, x+(w.Max.X-w.Min.X), w.Min.Y+1)
+}
+
+func (w *TextCol) SetY(y int) {
+	w.SetRect(w.Min.X, y, w.Max.X, y+1)
+}
+
+func (w *TextCol) SetWidth(width int) {
+	w.SetRect(w.Min.X, w.Min.Y, w.Min.X+width, w.Min.Y+1)
 }
 
 func (w *TextCol) Highlight() {
-	w.Bg = ui.ThemeAttr("par.text.fg")
-	w.TextFgColor = ui.ThemeAttr("par.text.hi")
-	w.TextBgColor = ui.ThemeAttr("par.text.fg")
+	w.highlighted = true
+	w.TextStyle = ui.NewStyle(ui.ColorBlack, ui.ColorWhite)
 }
 
 func (w *TextCol) UnHighlight() {
-	w.Bg = ui.ThemeAttr("par.text.bg")
-	w.TextFgColor = ui.ThemeAttr("par.text.fg")
-	w.TextBgColor = ui.ThemeAttr("par.text.bg")
+	w.highlighted = false
+	w.TextStyle = theme.Style2("par.text.fg", "par.text.bg")
 }
 
 // TextCol implements CompactCol
@@ -140,6 +178,9 @@ func (w *TextCol) Header() string            { return w.header }
 func (w *TextCol) FixedWidth() int           { return w.fWidth }
 
 func (w *TextCol) setText(s string) {
+	if s == "" {
+		s = "-"
+	}
 	if w.fWidth > 0 && len(s) > w.fWidth {
 		s = s[0:w.fWidth]
 	}

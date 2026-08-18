@@ -1,61 +1,61 @@
 package widgets
 
 import (
+	"image"
 	"strings"
 
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 var (
-	input_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_."
+	input_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_./:"
 )
 
 type Padding [2]int // x,y padding
 
 type Input struct {
 	ui.Block
-	Label       string
-	Data        string
-	MaxLen      int
-	TextFgColor ui.Attribute
-	TextBgColor ui.Attribute
-	stream      chan string // stream text as it changes
-	padding     Padding
+	Data      string
+	MaxLen    int
+	TextStyle ui.Style
+	stream    chan string // stream text as it changes
+	padding   Padding
 }
 
 func NewInput() *Input {
+	w, h := theme.TermDimensions()
 	i := &Input{
-		Block:       *ui.NewBlock(),
-		Label:       "input",
-		MaxLen:      20,
-		TextFgColor: ui.ThemeAttr("menu.text.fg"),
-		TextBgColor: ui.ThemeAttr("menu.text.bg"),
-		padding:     Padding{4, 2},
+		Block:     *ui.NewBlock(),
+		MaxLen:    30,
+		TextStyle: theme.Style2("menu.text.fg", "menu.text.bg"),
+		padding:   Padding{2, 1},
 	}
-	i.BorderFg = ui.ThemeAttr("menu.border.fg")
-	i.BorderLabelFg = ui.ThemeAttr("menu.label.fg")
-	i.calcSize()
+	i.Title = "Filter"
+	i.BorderStyle = theme.Style("menu.border.fg")
+	i.TitleStyle = theme.Style("menu.label.fg")
+	i.calcSize(w, h)
 	return i
 }
 
-func (i *Input) calcSize() {
-	i.Height = 3 // minimum height
-	i.Width = i.MaxLen + (i.padding[0] * 2)
+func (i *Input) calcSize(termW, termH int) {
+	width := i.MaxLen + (i.padding[0] * 2) + 2
+	height := 3
+	if width > termW {
+		width = termW
+	}
+	y1 := termH - height
+	if y1 < 0 {
+		y1 = 0
+	}
+	i.SetRect(0, y1, width, termH)
 }
 
-func (i *Input) Buffer() ui.Buffer {
-	var cell ui.Cell
-	buf := i.Block.Buffer()
-
-	x := i.X + i.padding[0]
-	y := i.Y + 1
-	for _, ch := range i.Data {
-		cell = ui.Cell{Ch: ch, Fg: i.TextFgColor, Bg: i.TextBgColor}
-		buf.Set(x, y, cell)
-		x++
-	}
-
-	return buf
+func (i *Input) Draw(buf *ui.Buffer) {
+	i.Block.Draw(buf)
+	x := i.Inner.Min.X + i.padding[0]
+	y := i.Inner.Min.Y
+	buf.SetString(i.Data, i.TextStyle, image.Pt(x, y))
 }
 
 func (i *Input) Stream() chan string {
@@ -63,13 +63,13 @@ func (i *Input) Stream() chan string {
 	return i.stream
 }
 
-func (i *Input) KeyPress(e ui.Event) {
-	ch := strings.ReplaceAll(e.Path, "/sys/kbd/", "")
-	if ch == "C-8" {
-		idx := len(i.Data) - 1
-		if idx > -1 {
-			i.Data = i.Data[0:idx]
-			i.stream <- i.Data
+func (i *Input) KeyPress(keyID string) {
+	if keyID == "<Backspace>" || keyID == "<C-<Backspace>>" || keyID == "<C-h>" {
+		if len(i.Data) > 0 {
+			i.Data = i.Data[:len(i.Data)-1]
+			if i.stream != nil {
+				i.stream <- i.Data
+			}
 		}
 		ui.Render(i)
 		return
@@ -77,14 +77,11 @@ func (i *Input) KeyPress(e ui.Event) {
 	if len(i.Data) >= i.MaxLen {
 		return
 	}
-	if strings.Contains(input_chars, ch) {
-		i.Data += ch
-		i.stream <- i.Data
+	if len(keyID) == 1 && strings.Contains(input_chars, keyID) {
+		i.Data += keyID
+		if i.stream != nil {
+			i.stream <- i.Data
+		}
 		ui.Render(i)
 	}
-}
-
-// Setup some default handlers for menu navigation
-func (i *Input) InputHandlers() {
-	ui.Handle("/sys/kbd/", i.KeyPress)
 }

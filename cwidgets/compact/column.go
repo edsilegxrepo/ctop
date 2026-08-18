@@ -3,8 +3,7 @@ package compact
 import (
 	"github.com/bcicen/ctop/config"
 	"github.com/bcicen/ctop/models"
-
-	ui "github.com/gizak/termui"
+	ui "github.com/gizak/termui/v3"
 )
 
 var (
@@ -35,7 +34,7 @@ func newRowWidgets() []CompactCol {
 	for n, name := range enabled {
 		wFn, ok := allCols[name]
 		if !ok {
-			panic("no such widget name: %s" + name)
+			panic("no such widget name: " + name)
 		}
 		cols[n] = wFn()
 	}
@@ -44,7 +43,7 @@ func newRowWidgets() []CompactCol {
 }
 
 type CompactCol interface {
-	ui.GridBufferer
+	ui.Drawable
 	Reset()
 	Header() string  // header text to display for column
 	FixedWidth() int // fixed width size. if == 0, width is automatically calculated
@@ -52,4 +51,7 @@ type CompactCol interface {
 	UnHighlight()
 	SetMeta(models.Meta)
 	SetMetrics(models.Metrics)
+	SetY(y int)
+	SetX(x int)
+	SetWidth(w int)
 }

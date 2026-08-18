@@ -1,6 +1,8 @@
 package collector
 
 import (
+	"strings"
+
 	"github.com/bcicen/ctop/models"
 	api "github.com/fsouza/go-dockerclient"
 )
@@ -103,9 +105,14 @@ func (c *Docker) ReadMem(stats *api.Stats) {
 
 func (c *Docker) ReadNet(stats *api.Stats) {
 	var rx, tx int64
-	for _, network := range stats.Networks {
-		rx += int64(network.RxBytes)
-		tx += int64(network.TxBytes)
+	if len(stats.Networks) > 0 {
+		for _, network := range stats.Networks {
+			rx += int64(network.RxBytes)
+			tx += int64(network.TxBytes)
+		}
+	} else {
+		rx = int64(stats.Network.RxBytes)
+		tx = int64(stats.Network.TxBytes)
 	}
 	c.NetRx, c.NetTx = rx, tx
 }
@@ -113,10 +120,10 @@ func (c *Docker) ReadNet(stats *api.Stats) {
 func (c *Docker) ReadIO(stats *api.Stats) {
 	var read, write int64
 	for _, blk := range stats.BlkioStats.IOServiceBytesRecursive {
-		if blk.Op == "Read" {
+		if strings.EqualFold(blk.Op, "read") {
 			read += int64(blk.Value)
 		}
-		if blk.Op == "Write" {
+		if strings.EqualFold(blk.Op, "write") {
 			write += int64(blk.Value)
 		}
 	}

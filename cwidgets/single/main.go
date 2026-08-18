@@ -1,38 +1,46 @@
 package single
 
 import (
+	"image"
+
 	"github.com/bcicen/ctop/logging"
 	"github.com/bcicen/ctop/models"
-	ui "github.com/gizak/termui"
+	"github.com/bcicen/ctop/theme"
+	ui "github.com/gizak/termui/v3"
 )
 
 var (
-	log       = logging.Init()
-	sizeError = termSizeError()
-	colWidth  = [2]int{65, 0} // left,right column width
+	log      = logging.Init()
+	colWidth = [2]int{65, 0} // left,right column width
 )
 
 type Single struct {
+	ui.Block
 	Info  *Info
 	Net   *Net
 	Cpu   *Cpu
 	Mem   *Mem
 	IO    *IO
 	Env   *Env
-	X, Y  int
+	Y     int
 	Width int
 }
 
 func NewSingle() *Single {
-	return &Single{
+	termW, termH := theme.TermDimensions()
+	s := &Single{
+		Block: *ui.NewBlock(),
 		Info:  NewInfo(),
 		Net:   NewNet(),
 		Cpu:   NewCpu(),
 		Mem:   NewMem(),
 		IO:    NewIO(),
 		Env:   NewEnv(),
-		Width: ui.TermWidth(),
+		Width: termW,
 	}
+	s.Border = false
+	s.SetRect(0, 0, termW, termH)
+	return s
 }
 
 func (e *Single) Up() {
@@ -44,7 +52,8 @@ func (e *Single) Up() {
 }
 
 func (e *Single) Down() {
-	if e.Y > (ui.TermHeight() - e.GetHeight()) {
+	_, termH := theme.TermDimensions()
+	if e.Y > (termH - e.GetHeight()) {
 		e.Y--
 		e.Align()
 		ui.Render(e)
@@ -52,6 +61,7 @@ func (e *Single) Down() {
 }
 
 func (e *Single) SetWidth(w int) { e.Width = w }
+
 func (e *Single) SetMeta(m models.Meta) {
 	for k, v := range m {
 		if k == "[ENV-VAR]" {
@@ -71,65 +81,68 @@ func (e *Single) SetMetrics(m models.Metrics) {
 
 // GetHeight returns total column height
 func (e *Single) GetHeight() (h int) {
-	h += e.Info.Height
-	h += e.Net.Height
-	h += e.Cpu.Height
-	h += e.Mem.Height
-	h += e.IO.Height
-	h += e.Env.Height
+	h += e.Info.GetHeight()
+	h += 12 // Cpu
+	h += 12 // Mem
+	h += 12 // Net
+	h += 12 // IO
+	h += e.Env.GetHeight()
 	return h
 }
 
 func (e *Single) Align() {
-	// reset offset if needed
-	if e.GetHeight() <= ui.TermHeight() {
+	termW, termH := theme.TermDimensions()
+	e.SetRect(0, 0, termW, termH)
+
+	if e.GetHeight() <= termH {
 		e.Y = 0
 	}
 
 	y := e.Y
-	for _, i := range e.all() {
-		i.SetY(y)
-		y += i.GetHeight()
-	}
+	leftW := termW
 
-	if e.Width > colWidth[0] {
-		colWidth[1] = e.Width - (colWidth[0] + 1)
-	}
+	// Info
+	infoH := e.Info.GetHeight()
+	e.Info.SetRect(0, y, leftW, y+infoH)
+	y += infoH
+
+	// Cpu
+	e.Cpu.SetRect(0, y, leftW, y+12)
+	e.Cpu.Align()
+	y += 12
+
+	// Mem
+	e.Mem.SetRect(0, y, leftW, y+12)
 	e.Mem.Align()
-	log.Debugf("align: width=%v left-col=%v right-col=%v", e.Width, colWidth[0], colWidth[1])
+	y += 12
+
+	// Net
+	e.Net.SetRect(0, y, leftW, y+12)
+	e.Net.Align()
+	y += 12
+
+	// IO
+	e.IO.SetRect(0, y, leftW, y+12)
+	e.IO.Align()
+	y += 12
+
+	// Env
+	envH := e.Env.GetHeight()
+	e.Env.SetRect(0, y, leftW, y+envH)
 }
 
-func (e *Single) Buffer() ui.Buffer {
-	buf := ui.NewBuffer()
-	if e.Width < (colWidth[0] + colWidth[1]) {
-		ui.Clear()
-		buf.Merge(sizeError.Buffer())
-		return buf
+func (e *Single) Draw(buf *ui.Buffer) {
+	e.Block.Draw(buf)
+	termW, _ := theme.TermDimensions()
+	if termW < 30 {
+		buf.SetString("screen too small!", theme.Style("status.danger"), image.Pt(1, 1))
+		return
 	}
-	buf.Merge(e.Info.Buffer())
-	buf.Merge(e.Cpu.Buffer())
-	buf.Merge(e.Mem.Buffer())
-	buf.Merge(e.Net.Buffer())
-	buf.Merge(e.IO.Buffer())
-	buf.Merge(e.Env.Buffer())
-	return buf
-}
 
-func (e *Single) all() []ui.GridBufferer {
-	return []ui.GridBufferer{
-		e.Info,
-		e.Cpu,
-		e.Mem,
-		e.Net,
-		e.IO,
-		e.Env,
-	}
-}
-
-func termSizeError() *ui.Par {
-	p := ui.NewPar("screen too small!")
-	p.Height = 1
-	p.Width = 20
-	p.Border = false
-	return p
+	e.Info.Draw(buf)
+	e.Cpu.Draw(buf)
+	e.Mem.Draw(buf)
+	e.Net.Draw(buf)
+	e.IO.Draw(buf)
+	e.Env.Draw(buf)
 }

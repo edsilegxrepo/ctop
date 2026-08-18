@@ -1,6 +1,7 @@
 package single
 
 type IntHist struct {
+	limit  int
 	Val    int   // most current data point
 	Data   []int // historical data points
 	Labels []string
@@ -8,17 +9,32 @@ type IntHist struct {
 
 func NewIntHist(max int) *IntHist {
 	return &IntHist{
+		limit:  max,
 		Data:   make([]int, max),
 		Labels: make([]string, max),
 	}
 }
 
+func (h *IntHist) SetLimit(limit int) {
+	if limit <= 0 {
+		return
+	}
+	h.limit = limit
+	if len(h.Data) > limit {
+		h.Data = h.Data[len(h.Data)-limit:]
+	} else if len(h.Data) < limit {
+		padded := make([]int, limit-len(h.Data))
+		h.Data = append(padded, h.Data...)
+	}
+}
+
 func (h *IntHist) Append(val int) {
-	if len(h.Data) == cap(h.Data) {
-		h.Data = append(h.Data[:0], h.Data[1:]...)
+	if len(h.Data) >= h.limit && h.limit > 0 {
+		h.Data = append(h.Data[len(h.Data)-h.limit+1:], val)
+	} else {
+		h.Data = append(h.Data, val)
 	}
 	h.Val = val
-	h.Data = append(h.Data, val)
 }
 
 type DiffHist struct {
@@ -39,6 +55,7 @@ func (h *DiffHist) Append(val int) {
 }
 
 type FloatHist struct {
+	limit  int
 	Val    float64   // most current data point
 	Data   []float64 // historical data points
 	Labels []string
@@ -46,15 +63,30 @@ type FloatHist struct {
 
 func NewFloatHist(max int) FloatHist {
 	return FloatHist{
+		limit:  max,
 		Data:   make([]float64, max),
 		Labels: make([]string, max),
 	}
 }
 
+func (h *FloatHist) SetLimit(limit int) {
+	if limit <= 0 {
+		return
+	}
+	h.limit = limit
+	if len(h.Data) > limit {
+		h.Data = h.Data[len(h.Data)-limit:]
+	} else if len(h.Data) < limit {
+		padded := make([]float64, limit-len(h.Data))
+		h.Data = append(padded, h.Data...)
+	}
+}
+
 func (h *FloatHist) Append(val float64) {
-	if len(h.Data) == cap(h.Data) {
-		h.Data = append(h.Data[:0], h.Data[1:]...)
+	if len(h.Data) >= h.limit && h.limit > 0 {
+		h.Data = append(h.Data[len(h.Data)-h.limit+1:], val)
+	} else {
+		h.Data = append(h.Data, val)
 	}
 	h.Val = val
-	h.Data = append(h.Data, val)
 }
