@@ -43,16 +43,30 @@ func TestSingleViewNavigation(t *testing.T) {
 	}
 	cursor = gc
 
-	mockEvents := make(chan ui.Event, 10)
-	mockEvents <- ui.Event{Type: ui.ResizeEvent}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "k"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
-	uiEvents = mockEvents
+	testViews := []struct {
+		name string
+		fn   func() MenuFn
+		keys []string
+	}{
+		{"Metrics", SingleView, []string{"j", "k", "<Tab>", "<BackTab>", "1", "2", "3", "4", "5", "q"}},
+		{"Volumes", SingleViewVolumes, []string{"j", "k", "v", "<Tab>", "q"}},
+		{"Network", SingleViewNetwork, []string{"j", "k", "n", "<Tab>", "q"}},
+		{"Process", SingleViewProcess, []string{"j", "k", "E", "<Tab>", "q"}},
+		{"Labels", SingleViewLabels, []string{"j", "k", "L", "<Tab>", "q"}},
+	}
 
-	fn := SingleView()
-	if fn != nil {
-		t.Fatal("expected SingleView to return nil on 'q'")
+	for _, tv := range testViews {
+		mockEvents := make(chan ui.Event, 20)
+		mockEvents <- ui.Event{Type: ui.ResizeEvent}
+		for _, k := range tv.keys {
+			mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: k}
+		}
+		uiEvents = mockEvents
+
+		fn := tv.fn()
+		if fn != nil {
+			t.Fatalf("expected view %s to return nil on 'q'", tv.name)
+		}
 	}
 
 	cursor = nil

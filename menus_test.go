@@ -157,6 +157,10 @@ func TestContainerMenuNavigation(t *testing.T) {
 		{"j", 0},
 		{"k", 0},
 		{"o", 0},
+		{"v", 0},
+		{"n", 0},
+		{"E", 0},
+		{"L", 0},
 		{"l", 0},
 		{"s", 0}, // stop
 		{"p", 0}, // pause

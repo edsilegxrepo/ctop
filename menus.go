@@ -31,7 +31,7 @@ var helpDialog = []menu.Item{
 	{Val: "[H] - toggle ctop header", Label: ""},
 	{Val: "[s] - select container sort field", Label: ""},
 	{Val: "[r] - reverse container sort order", Label: ""},
-	{Val: "[o] - open single view", Label: ""},
+	{Val: "[o] - open container inspector (metrics, volumes, network, process, labels)", Label: ""},
 	{Val: "[l] - view container logs ([t] to toggle timestamp when open)", Label: ""},
 	{Val: "[e] - exec shell", Label: ""},
 	{Val: "[w] - open browser (first port is http)", Label: ""},
@@ -228,8 +228,12 @@ func ContainerMenu() MenuFn {
 	m.Title = "Menu"
 
 	items := []menu.Item{
-		// Group 1: Viewers
-		{Val: "single", Label: "[o] single view"},
+		// Group 1: Viewers & Inspectors
+		{Val: "single", Label: "[o] overview & metrics"},
+		{Val: "single_volumes", Label: "[v] volumes & mounts"},
+		{Val: "single_network", Label: "[n] networking & ports"},
+		{Val: "single_process", Label: "[E] process & env"},
+		{Val: "single_labels", Label: "[L] labels & compose"},
 		{Val: "logs", Label: "[l] log view"},
 		menu.NewSeparator(),
 	}
@@ -286,6 +290,18 @@ func ContainerMenu() MenuFn {
 				case "o":
 					selected = "single"
 					goto Handled
+				case "v":
+					selected = "single_volumes"
+					goto Handled
+				case "n":
+					selected = "single_network"
+					goto Handled
+				case "E":
+					selected = "single_process"
+					goto Handled
+				case "L":
+					selected = "single_labels"
+					goto Handled
 				case "l":
 					selected = "logs"
 					goto Handled
@@ -336,8 +352,16 @@ func ContainerMenu() MenuFn {
 Handled:
 	var nextMenu MenuFn
 	switch selected {
-	case "single":
+	case "single", "single_metrics":
 		nextMenu = SingleView
+	case "single_volumes":
+		nextMenu = SingleViewVolumes
+	case "single_network":
+		nextMenu = SingleViewNetwork
+	case "single_process":
+		nextMenu = SingleViewProcess
+	case "single_labels":
+		nextMenu = SingleViewLabels
 	case "logs":
 		nextMenu = LogMenu
 	case "exec":

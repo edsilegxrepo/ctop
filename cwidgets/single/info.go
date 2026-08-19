@@ -8,7 +8,7 @@ import (
 	ui "github.com/gizak/termui/v3"
 )
 
-var displayInfo = []string{"id", "name", "image", "ports", "IPs", "state", "created", "uptime", "health"}
+var displayInfo = []string{"id", "name", "image", "ports", "IPs", "state", "created", "uptime", "health", "restartPolicy", "exitCode", "oomKilled"}
 
 type Info struct {
 	ui.Block

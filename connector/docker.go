@@ -174,6 +174,38 @@ func ipsFormat(networks map[string]api.ContainerNetwork) string {
 	return strings.Join(ips, "\n")
 }
 
+func mountsFormat(mounts []api.Mount) string {
+	var ms []string
+	for _, m := range mounts {
+		mode := "rw"
+		if !m.RW || m.Mode == "ro" {
+			mode = "ro"
+		}
+		mType := "volume"
+		if m.Driver == "" && strings.HasPrefix(m.Source, "/") {
+			mType = "bind"
+		}
+		ms = append(ms, fmt.Sprintf("%s:::%s:::%s:::%s:::%s", m.Destination, m.Source, mType, mode, m.Driver))
+	}
+	return strings.Join(ms, ";;")
+}
+
+func labelsFormat(labels map[string]string) string {
+	var ls []string
+	for k, v := range labels {
+		ls = append(ls, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(ls, ";;")
+}
+
+func networksFormat(networks map[string]api.ContainerNetwork) string {
+	var ns []string
+	for name, net := range networks {
+		ns = append(ns, fmt.Sprintf("%s:::%s:::%s:::%s:::%d", name, net.IPAddress, net.Gateway, net.MacAddress, net.IPPrefixLen))
+	}
+	return strings.Join(ns, ";;")
+}
+
 func (cm *Docker) refresh(c *container.Container) {
 	insp, found, failed := cm.inspect(c.Id)
 	if failed {
@@ -196,6 +228,42 @@ func (cm *Docker) refresh(c *container.Container) {
 	c.SetMeta("uptime", calcUptime(insp))
 	c.SetMeta("health", insp.State.Health.Status)
 	c.SetMeta("[ENV-VAR]", strings.Join(insp.Config.Env, ";"))
+	c.SetMeta("[MOUNTS]", mountsFormat(insp.Mounts))
+	c.SetMeta("[LABELS]", labelsFormat(insp.Config.Labels))
+	c.SetMeta("[NETWORKS]", networksFormat(insp.NetworkSettings.Networks))
+
+	if len(insp.Config.Entrypoint) > 0 {
+		c.SetMeta("entrypoint", strings.Join(insp.Config.Entrypoint, " "))
+	}
+	if len(insp.Config.Cmd) > 0 {
+		c.SetMeta("cmd", strings.Join(insp.Config.Cmd, " "))
+	}
+	if insp.Config.WorkingDir != "" {
+		c.SetMeta("workdir", insp.Config.WorkingDir)
+	}
+	if insp.Config.User != "" {
+		c.SetMeta("user", insp.Config.User)
+	}
+	if insp.HostConfig != nil {
+		if insp.HostConfig.RestartPolicy.Name != "" {
+			c.SetMeta("restartPolicy", insp.HostConfig.RestartPolicy.Name)
+		}
+		if insp.HostConfig.Memory > 0 {
+			c.SetMeta("memLimit", fmt.Sprintf("%d MB", insp.HostConfig.Memory/(1024*1024)))
+		}
+		if insp.HostConfig.NanoCPUs > 0 {
+			c.SetMeta("cpuLimit", fmt.Sprintf("%.2f CPUs", float64(insp.HostConfig.NanoCPUs)/1e9))
+		}
+		if insp.HostConfig.PidsLimit != nil && *insp.HostConfig.PidsLimit > 0 {
+			c.SetMeta("pidsLimit", fmt.Sprintf("%d", *insp.HostConfig.PidsLimit))
+		}
+		c.SetMeta("privileged", fmt.Sprintf("%t", insp.HostConfig.Privileged))
+		c.SetMeta("readonlyRootfs", fmt.Sprintf("%t", insp.HostConfig.ReadonlyRootfs))
+	}
+	if insp.State.Status != "running" {
+		c.SetMeta("exitCode", fmt.Sprintf("%d", insp.State.ExitCode))
+		c.SetMeta("oomKilled", fmt.Sprintf("%t", insp.State.OOMKilled))
+	}
 	c.SetState(insp.State.Status)
 }
 

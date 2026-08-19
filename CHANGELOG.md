@@ -8,7 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [v0.9.0] - 2026-08-18
 
-### Added
+- **Multi-Class Container Inspector**: Categorized container inspection with dedicated views for **Overview & Metrics** (`[o]`), **Volumes & Mounts** (`[v]`), **Networking & Ports** (`[n]`), **Process & Environment** (`[E]`), and **Labels & Compose** (`[L]`).
+- **Interactive Tab Navigation**: Instant tab switching via `<Tab>`, `<Shift+Tab>`, number keys `1-5`, or class hotkeys (`o`, `v`, `n`, `E`, `L`) inside the single view.
+- **Enhanced Storage & Runtime Inspection**: Full tabular view of host-to-container mount destinations, source volumes/binds, access modes (`rw`/`ro`), command entrypoints, working directory, user/UID, exit codes, restart policies, and resource limits.
 - **High-Coverage Test Suite**: Comprehensive unit, integration, and mock test coverage across all 17 packages achieving **80.7% total repository statement coverage**.
 - **Modern Theme Subsystem**: Dedicated `theme` package with safe terminal dimension detection and light/dark palette abstraction.
 - **Portability Support**: Native Windows console and Linux (RHEL & Ubuntu) support with zero root/sudo privilege requirements.

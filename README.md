@@ -192,6 +192,16 @@ ENVIRONMENT                            METADATA
   LOG_LEVEL=info                         Ports: 0.0.0.0:8080->8080/tcp
 ```
 
+#### 2. Multi-Class Container Inspector (`[o]` key)
+The detailed container inspector provides categorized inspection with dedicated views accessible via top tabs:
+- **`[1]` Overview & Metrics**: Real-time telemetry sparklines (CPU, Memory, Net Rx/Tx, Disk I/O) and container metadata.
+- **`[2]` Volumes & Mounts**: Storage bindings table showing Destination path, Source path, Mount Type (`volume`/`bind`/`tmpfs`), and Access Mode (`rw`/`ro`).
+- **`[3]` Networking & Ports**: Network interface table (Name, IP, Gateway, MAC, Subnet) and published host port bindings (`0.0.0.0:8080 -> 80/tcp`).
+- **`[4]` Process & Env**: Runtime execution parameters (Entrypoint, Command, Working Directory, User/UID, Exit Code, Restart Policy, Resource Limits) and Environment Variables.
+- **`[5]` Labels & Compose**: Docker Compose orchestration tags and container labels.
+
+*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-5`, or class hotkeys (`o`, `v`, `n`, `E`, `L`) to switch views. Use `↑`/`↓` to scroll.
+
 #### 3. Log Stream Drawer (`[l]` key)
 ```text
 Logs: web-frontend (c8a412f10a8b) ───────────────────────── [t] timestamps [q] exit
@@ -212,13 +222,15 @@ Logs: web-frontend (c8a412f10a8b) ───────────────�
 | `↓` / `j` | Move cursor down |
 | `PageUp` / `Ctrl+u` | Jump up one page |
 | `PageDown` / `Ctrl+d` | Jump down one page |
-| `<Enter>` | Open container action menu (Start, Stop, Pause, Exec, Logs) |
+| `<Enter>` | Open container action menu (Start, Stop, Pause, Exec, Inspectors, Logs) |
 | `a` | Toggle display of inactive / stopped containers |
 | `f` | Open interactive filter prompt |
 | `s` | Open sort selection menu |
 | `r` | Reverse active sort order |
 | `c` | Open column configuration menu |
-| `o` | Open single container detailed inspection view |
+| `o` | Open container inspector (Metrics, Volumes, Network, Process, Labels) |
+| `v` | Open volumes & mounts inspector directly |
+| `n` | Open networking & ports inspector directly |
 | `l` | Open live container log drawer (`t` to toggle RFC3339 timestamps) |
 | `e` | Open interactive shell inside selected container |
 | `w` | Open web port in default browser (first mapped HTTP port) |

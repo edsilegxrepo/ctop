@@ -95,7 +95,7 @@ func RedrawRows(clr bool) {
 	ui.Render(drawables...)
 }
 
-func SingleView() MenuFn {
+func SingleViewWithTab(initialTab int) MenuFn {
 	c := cursor.Selected()
 	if c == nil {
 		return nil
@@ -103,6 +103,7 @@ func SingleView() MenuFn {
 
 	ui.Clear()
 	ex := single.NewSingle()
+	ex.SetTab(initialTab)
 	c.SetUpdater(ex)
 	defer c.SetUpdater(c.Widgets)
 
@@ -123,6 +124,22 @@ func SingleView() MenuFn {
 					ex.Up()
 				} else if IsKeyMatch("down", e.ID) {
 					ex.Down()
+				} else if e.ID == "<Tab>" || e.ID == "<Right>" || e.ID == "l" {
+					ex.NextTab()
+				} else if e.ID == "<BackTab>" || e.ID == "<Left>" || e.ID == "h" {
+					ex.PrevTab()
+				} else if e.ID == "1" || e.ID == "o" {
+					ex.SetTab(single.TabMetrics)
+				} else if e.ID == "2" || e.ID == "v" {
+					ex.SetTab(single.TabVolumes)
+				} else if e.ID == "3" || e.ID == "n" {
+					ex.SetTab(single.TabNetwork)
+				} else if e.ID == "4" || e.ID == "E" || e.ID == "e" || e.ID == "p" {
+					ex.SetTab(single.TabProcess)
+				} else if e.ID == "5" || e.ID == "L" {
+					ex.SetTab(single.TabLabels)
+				} else if e.ID == "q" || e.ID == "Q" || e.ID == "<Escape>" {
+					return nil
 				} else {
 					return nil
 				}
@@ -138,6 +155,26 @@ func SingleView() MenuFn {
 			ui.Render(ex)
 		}
 	}
+}
+
+func SingleView() MenuFn {
+	return SingleViewWithTab(single.TabMetrics)
+}
+
+func SingleViewVolumes() MenuFn {
+	return SingleViewWithTab(single.TabVolumes)
+}
+
+func SingleViewNetwork() MenuFn {
+	return SingleViewWithTab(single.TabNetwork)
+}
+
+func SingleViewProcess() MenuFn {
+	return SingleViewWithTab(single.TabProcess)
+}
+
+func SingleViewLabels() MenuFn {
+	return SingleViewWithTab(single.TabLabels)
 }
 
 func RefreshDisplay() error {

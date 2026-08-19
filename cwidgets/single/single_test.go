@@ -161,3 +161,142 @@ func TestLogsWidget(t *testing.T) {
 	logsWidget.Draw(buf)
 	close(stream)
 }
+
+func TestMountsWidget(t *testing.T) {
+	m := NewMounts()
+	if m.GetHeight() != 5 {
+		t.Fatalf("expected empty mounts height 5, got %d", m.GetHeight())
+	}
+
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	m.SetRect(0, 0, 100, 10)
+	m.Draw(buf)
+
+	// Set valid mounts
+	m.Set("/var/lib/data:::/opt/volumes/data:::volume:::rw:::;;/etc/app/config.yaml:::/etc/app/config.yaml:::bind:::ro:::")
+	if len(m.Rows) != 2 {
+		t.Fatalf("expected 2 mount rows, got %d", len(m.Rows))
+	}
+	if m.Rows[0].Destination != "/var/lib/data" || m.Rows[0].Type != "volume" || m.Rows[0].Mode != "rw" {
+		t.Errorf("unexpected first mount row: %+v", m.Rows[0])
+	}
+	if m.Rows[1].Destination != "/etc/app/config.yaml" || m.Rows[1].Type != "bind" || m.Rows[1].Mode != "ro" {
+		t.Errorf("unexpected second mount row: %+v", m.Rows[1])
+	}
+
+	m.SetRect(0, 0, 100, 15)
+	m.Draw(buf)
+}
+
+func TestNetworkWidget(t *testing.T) {
+	nw := NewNetwork()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	// Empty draw
+	nw.SetRect(0, 0, 100, 10)
+	nw.Draw(buf)
+
+	// Set valid network and ports
+	nw.Set("bridge:::172.17.0.2:::172.17.0.1:::02:42:ac:11:00:02:::16", "0.0.0.0:8080 -> 80/tcp", "bridge:172.17.0.2")
+	if len(nw.Networks) != 1 {
+		t.Fatalf("expected 1 network interface, got %d", len(nw.Networks))
+	}
+	if nw.Networks[0].Name != "bridge" || nw.Networks[0].IP != "172.17.0.2" {
+		t.Errorf("unexpected network interface: %+v", nw.Networks[0])
+	}
+	if nw.GetHeight() <= 0 {
+		t.Errorf("expected positive height, got %d", nw.GetHeight())
+	}
+
+	nw.SetRect(0, 0, 100, 15)
+	nw.Draw(buf)
+}
+
+func TestProcessWidget(t *testing.T) {
+	proc := NewProcess()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	// Empty draw
+	proc.SetRect(0, 0, 100, 10)
+	proc.Draw(buf)
+
+	proc.Set("cmd", "postgres -c shared_buffers=256MB")
+	proc.Set("entrypoint", "/docker-entrypoint.sh")
+	proc.Set("workdir", "/app")
+	proc.Set("user", "1000:1000")
+	proc.Set("restartPolicy", "unless-stopped")
+	proc.Set("exitCode", "0")
+	proc.Set("memLimit", "1024 MB")
+	proc.Set("cpuLimit", "2.00 CPUs")
+	proc.Set("pidsLimit", "256")
+	proc.Set("privileged", "false")
+
+	if len(proc.Rows) == 0 {
+		t.Fatalf("expected populated process rows, got 0")
+	}
+	if proc.GetHeight() <= 0 {
+		t.Errorf("expected positive process height, got %d", proc.GetHeight())
+	}
+
+	proc.SetRect(0, 0, 100, 20)
+	proc.Draw(buf)
+}
+
+func TestLabelsWidget(t *testing.T) {
+	lbl := NewLabels()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	// Empty draw
+	lbl.SetRect(0, 0, 100, 10)
+	lbl.Draw(buf)
+
+	lbl.Set("com.docker.compose.project=myapp;;com.docker.compose.service=db;;version=1.0.0;;maintainer=ops")
+	if len(lbl.ComposeRows) != 2 {
+		t.Fatalf("expected 2 compose rows, got %d", len(lbl.ComposeRows))
+	}
+	if len(lbl.GeneralRows) != 2 {
+		t.Fatalf("expected 2 general label rows, got %d", len(lbl.GeneralRows))
+	}
+	if lbl.GetHeight() <= 0 {
+		t.Errorf("expected positive labels height, got %d", lbl.GetHeight())
+	}
+
+	lbl.SetRect(0, 0, 100, 15)
+	lbl.Draw(buf)
+}
+
+func TestSingleTabNavigation(t *testing.T) {
+	s := NewSingle()
+	meta := models.NewMeta("name", "postgres-db", "state", "running")
+	meta["[ENV-VAR]"] = "POSTGRES_DB=appdb;POSTGRES_USER=admin"
+	meta["[MOUNTS]"] = "/var/lib/data:::/opt/volumes/data:::volume:::rw:::"
+	meta["[LABELS]"] = "com.docker.compose.project=webapp;;service=db"
+	meta["[NETWORKS]"] = "bridge:::172.17.0.2:::172.17.0.1:::02:42:ac:11:00:02:::16"
+	meta["cmd"] = "postgres"
+	meta["workdir"] = "/var/lib/postgresql"
+	s.SetMeta(meta)
+
+	buf := ui.NewBuffer(image.Rect(0, 0, 120, 40))
+
+	// Iterate through each tab
+	for tab := 0; tab < TotalTabs; tab++ {
+		s.SetTab(tab)
+		if s.ActiveTab != tab {
+			t.Fatalf("expected ActiveTab %d, got %d", tab, s.ActiveTab)
+		}
+		s.Align()
+		s.Draw(buf)
+	}
+
+	// Test NextTab and PrevTab cycling
+	s.SetTab(TabLabels)
+	s.NextTab()
+	if s.ActiveTab != TabMetrics {
+		t.Errorf("expected NextTab from TabLabels to cycle to TabMetrics, got %d", s.ActiveTab)
+	}
+
+	s.PrevTab()
+	if s.ActiveTab != TabLabels {
+		t.Errorf("expected PrevTab from TabMetrics to cycle to TabLabels, got %d", s.ActiveTab)
+	}
+}
