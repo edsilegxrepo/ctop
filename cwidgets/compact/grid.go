@@ -67,11 +67,19 @@ func (cg *CompactGrid) Clear() {
 	cg.rebuildHeader()
 }
 
+func (cg *CompactGrid) rowHeight() int {
+	if len(cg.Rows) > 0 {
+		return cg.Rows[0].GetHeight()
+	}
+	return 2
+}
+
 func (cg *CompactGrid) GetHeight() int {
+	rowH := cg.rowHeight()
 	if len(cg.Rows) == 0 {
 		return cg.header.GetHeight() + 1
 	}
-	return len(cg.Rows)*(1+rowSpacing) + cg.header.GetHeight() + 1
+	return len(cg.Rows)*(rowH+rowSpacing) + cg.header.GetHeight() + 1
 }
 
 func (cg *CompactGrid) SetY(y int)     { cg.Y = y }
@@ -83,7 +91,7 @@ func (cg *CompactGrid) MaxRows() int {
 	if avail <= 0 {
 		return 0
 	}
-	return avail / (1 + rowSpacing)
+	return avail / (cg.rowHeight() + rowSpacing)
 }
 
 // calculate and return per-column width

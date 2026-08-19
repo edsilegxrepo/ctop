@@ -35,7 +35,7 @@ func NewCompactRow() *CompactRow {
 	row := &CompactRow{
 		Block:  *ui.NewBlock(),
 		Cols:   newRowWidgets(),
-		Height: 1,
+		Height: 2,
 	}
 	row.Border = false
 	return row
