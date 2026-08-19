@@ -25,9 +25,10 @@ type RowBufferer interface {
 
 type CompactRow struct {
 	ui.Block
-	Cols   []CompactCol
-	Height int
-	mu     sync.Mutex
+	Cols        []CompactCol
+	Height      int
+	highlighted bool
+	mu          sync.Mutex
 }
 
 func NewCompactRow() *CompactRow {
@@ -104,6 +105,10 @@ func (row *CompactRow) Draw(buf *ui.Buffer) {
 	row.mu.Lock()
 	defer row.mu.Unlock()
 	row.Block.Draw(buf)
+	if row.highlighted && config.GetSwitchVal("fullRowCursor") {
+		hiCell := ui.NewCell(' ', ui.NewStyle(theme.Color("cursor.fg"), theme.Color("cursor.bg")))
+		buf.Fill(hiCell, image.Rect(row.Min.X, row.Min.Y, row.Max.X, row.Max.Y))
+	}
 	for _, w := range row.Cols {
 		w.Draw(buf)
 	}
@@ -112,8 +117,9 @@ func (row *CompactRow) Draw(buf *ui.Buffer) {
 func (row *CompactRow) Highlight() {
 	row.mu.Lock()
 	defer row.mu.Unlock()
+	row.highlighted = true
 	if config.GetSwitchVal("fullRowCursor") {
-		for i := 1; i < len(row.Cols); i++ {
+		for i := 0; i < len(row.Cols); i++ {
 			row.Cols[i].Highlight()
 		}
 	} else if len(row.Cols) > 1 {
@@ -124,6 +130,7 @@ func (row *CompactRow) Highlight() {
 func (row *CompactRow) UnHighlight() {
 	row.mu.Lock()
 	defer row.mu.Unlock()
+	row.highlighted = false
 	for _, w := range row.Cols {
 		w.UnHighlight()
 	}

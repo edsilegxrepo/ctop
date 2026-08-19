@@ -44,6 +44,8 @@ var (
 		"status.warn":        ui.ColorYellow,
 		"status.danger":      ui.ColorRed,
 		"grid.header.fg":     ui.ColorCyan,
+		"cursor.bg":          ui.Color(24),
+		"cursor.fg":          ui.ColorWhite,
 	}
 )
 
@@ -81,6 +83,8 @@ func InvertColorMap() {
 		}
 	}
 	ColorMap["grid.header.fg"] = ui.ColorBlue
+	ColorMap["cursor.bg"] = ui.Color(153)
+	ColorMap["cursor.fg"] = ui.ColorBlack
 	ColorMap["par.text.hi"] = ui.ColorWhite
 	ColorMap["header.fg"] = ui.ColorWhite
 	ColorMap["header.bg"] = ui.ColorBlack

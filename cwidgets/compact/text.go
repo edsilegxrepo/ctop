@@ -131,7 +131,7 @@ func (w *TextCol) Draw(buf *ui.Buffer) {
 	}
 
 	if w.highlighted {
-		hiCell := ui.NewCell(' ', ui.NewStyle(ui.ColorBlack, ui.ColorWhite))
+		hiCell := ui.NewCell(' ', ui.NewStyle(theme.Color("cursor.fg"), theme.Color("cursor.bg")))
 		buf.Fill(hiCell, w.Rectangle)
 	}
 
@@ -162,7 +162,7 @@ func (w *TextCol) SetWidth(width int) {
 
 func (w *TextCol) Highlight() {
 	w.highlighted = true
-	w.TextStyle = ui.NewStyle(ui.ColorBlack, ui.ColorWhite)
+	w.TextStyle = ui.NewStyle(theme.Color("cursor.fg"), theme.Color("cursor.bg"), ui.ModifierBold)
 }
 
 func (w *TextCol) UnHighlight() {

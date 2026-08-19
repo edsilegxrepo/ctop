@@ -87,7 +87,7 @@ func (w *GaugeCol) Reset() {
 
 func (w *GaugeCol) Highlight() {
 	w.highlighted = true
-	w.LabelStyle = ui.NewStyle(ui.ColorBlack, ui.ColorWhite)
+	w.LabelStyle = ui.NewStyle(theme.Color("cursor.fg"), theme.Color("cursor.bg"), ui.ModifierBold)
 }
 
 func (w *GaugeCol) UnHighlight() {
@@ -104,7 +104,7 @@ func (w *GaugeCol) Draw(buf *ui.Buffer) {
 	}
 
 	if w.highlighted {
-		hiCell := ui.NewCell(' ', ui.NewStyle(ui.ColorBlack, ui.ColorWhite))
+		hiCell := ui.NewCell(' ', ui.NewStyle(theme.Color("cursor.fg"), theme.Color("cursor.bg")))
 		buf.Fill(hiCell, w.Rectangle)
 	}
 

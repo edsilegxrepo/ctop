@@ -15,6 +15,7 @@ type Status struct {
 	statusStyle ui.Style
 	healthRune  rune
 	healthStyle ui.Style
+	highlighted bool
 }
 
 func NewStatus() CompactCol {
@@ -34,11 +35,24 @@ func (s *Status) Draw(buf *ui.Buffer) {
 	x := s.Min.X
 	y := s.Min.Y
 
+	if s.highlighted {
+		hiCell := ui.NewCell(' ', ui.NewStyle(theme.Color("cursor.fg"), theme.Color("cursor.bg")))
+		buf.Fill(hiCell, s.Rectangle)
+	}
+
 	if s.statusRune != 0 && s.statusRune != ' ' {
-		buf.SetCell(ui.NewCell(s.statusRune, s.statusStyle), image.Pt(x, y))
+		st := s.statusStyle
+		if s.highlighted {
+			st.Bg = theme.Color("cursor.bg")
+		}
+		buf.SetCell(ui.NewCell(s.statusRune, st), image.Pt(x, y))
 	}
 	if s.healthRune != 0 && s.healthRune != ' ' {
-		buf.SetCell(ui.NewCell(s.healthRune, s.healthStyle), image.Pt(x+1, y))
+		ht := s.healthStyle
+		if s.highlighted {
+			ht.Bg = theme.Color("cursor.bg")
+		}
+		buf.SetCell(ui.NewCell(s.healthRune, ht), image.Pt(x+1, y))
 	}
 }
 
@@ -62,8 +76,8 @@ func (s *Status) SetWidth(w int) {
 // Status implements CompactCol
 func (s *Status) Reset()                    {}
 func (s *Status) SetMetrics(models.Metrics) {}
-func (s *Status) Highlight()                {}
-func (s *Status) UnHighlight()              {}
+func (s *Status) Highlight()                { s.highlighted = true }
+func (s *Status) UnHighlight()              { s.highlighted = false }
 func (s *Status) Header() string            { return "" }
 func (s *Status) FixedWidth() int           { return 2 }
 
