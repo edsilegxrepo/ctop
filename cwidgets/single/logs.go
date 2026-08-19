@@ -1,44 +1,62 @@
 package single
 
 import (
+	"sync"
 	"time"
 
-	"github.com/bcicen/ctop/models"
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/models"
+	"github.com/edsilegx/ctop/pkg/sanitize"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
+	tb "github.com/nsf/termbox-go"
 )
 
 type LogLines struct {
 	ts   []time.Time
 	data []string
+	lock sync.RWMutex
 }
 
 func NewLogLines(max int) *LogLines {
 	ll := &LogLines{
-		ts:   make([]time.Time, max),
-		data: make([]string, max),
+		ts:   make([]time.Time, 0, max),
+		data: make([]string, 0, max),
 	}
 	return ll
 }
 
+func (ll *LogLines) Len() int {
+	ll.lock.RLock()
+	defer ll.lock.RUnlock()
+	return len(ll.data)
+}
+
 func (ll *LogLines) getLines(start, end int) []string {
+	ll.lock.RLock()
+	defer ll.lock.RUnlock()
 	if start < 0 {
 		start = 0
 	}
 	if end < 0 || end > len(ll.data) {
-		return ll.data[start:]
+		res := make([]string, len(ll.data[start:]))
+		copy(res, ll.data[start:])
+		return res
 	}
-	return ll.data[start:end]
+	res := make([]string, len(ll.data[start:end]))
+	copy(res, ll.data[start:end])
+	return res
 }
 
 func (ll *LogLines) add(l models.Log) {
+	ll.lock.Lock()
+	defer ll.lock.Unlock()
 	if len(ll.data) == cap(ll.data) {
 		ll.data = append(ll.data[:0], ll.data[1:]...)
 		ll.ts = append(ll.ts[:0], ll.ts[1:]...)
 	}
 	ll.ts = append(ll.ts, l.Timestamp)
-	ll.data = append(ll.data, l.Message)
+	ll.data = append(ll.data, sanitize.StripANSI(l.Message))
 	log.Debugf("recorded log line: %v", l)
 }
 
@@ -60,7 +78,9 @@ func NewLogs(stream chan models.Log) *Logs {
 	go func() {
 		for line := range stream {
 			i.lines.add(line)
-			ui.Render(i)
+			if tb.IsInit {
+				ui.Render(i)
+			}
 		}
 	}()
 	return i
@@ -77,7 +97,7 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 	if maxLines < 0 {
 		maxLines = 0
 	}
-	offset := len(w.lines.data) - maxLines
+	offset := w.lines.Len() - maxLines
 	if offset < 0 {
 		offset = 0
 	}

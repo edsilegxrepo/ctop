@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"image"
 
-	"github.com/bcicen/ctop/cwidgets"
-	"github.com/bcicen/ctop/models"
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/cwidgets"
+	"github.com/edsilegx/ctop/models"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 

@@ -2,17 +2,17 @@ package config
 
 // defaults
 var defaultParams = []*Param{
-	&Param{
+	{
 		Key:   "filterStr",
 		Val:   "",
 		Label: "Container Name or ID Filter",
 	},
-	&Param{
+	{
 		Key:   "sortField",
 		Val:   "state",
 		Label: "Container Sort Field",
 	},
-	&Param{
+	{
 		Key:   "columns",
 		Val:   "status,name,id,cpu,mem,net,io,pids,uptime",
 		Label: "Enabled Columns",

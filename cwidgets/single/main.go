@@ -3,10 +3,11 @@ package single
 import (
 	"image"
 
-	"github.com/bcicen/ctop/logging"
-	"github.com/bcicen/ctop/models"
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/logging"
+	"github.com/edsilegx/ctop/models"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
+	tb "github.com/nsf/termbox-go"
 )
 
 var (
@@ -47,7 +48,9 @@ func (e *Single) Up() {
 	if e.Y < 0 {
 		e.Y++
 		e.Align()
-		ui.Render(e)
+		if tb.IsInit {
+			ui.Render(e)
+		}
 	}
 }
 
@@ -56,7 +59,9 @@ func (e *Single) Down() {
 	if e.Y > (termH - e.GetHeight()) {
 		e.Y--
 		e.Align()
-		ui.Render(e)
+		if tb.IsInit {
+			ui.Render(e)
+		}
 	}
 }
 

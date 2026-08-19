@@ -1,14 +1,16 @@
+// grid.go manages UI screen rendering, layout calculations, terminal resize events, and the primary application loop.
 package main
 
 import (
 	"time"
 
-	"github.com/bcicen/ctop/config"
-	"github.com/bcicen/ctop/cwidgets/single"
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/config"
+	"github.com/edsilegx/ctop/cwidgets/single"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 
+// ShowConnError renders a full-screen modal error view and attempts automatic reconnection every second.
 func ShowConnError(err error) (exit bool) {
 	ui.Clear()
 	setErr := func(err error) {
@@ -46,13 +48,17 @@ func ShowConnError(err error) (exit bool) {
 	}
 }
 
+// RedrawRows recalculates layout heights, repopulates compact grid rows, and executes TermUI render.
 func RedrawRows(clr bool) {
+	if cGrid == nil || cursor == nil {
+		return
+	}
 	// reinit body rows
 	cGrid.Clear()
 
 	// build layout
 	y := 0
-	if config.GetSwitchVal("enableHeader") {
+	if config.GetSwitchVal("enableHeader") && header != nil {
 		header.SetCount(cursor.Len())
 		header.SetFilter(config.GetVal("filterStr"))
 		y += header.Height() + 1
@@ -69,7 +75,9 @@ func RedrawRows(clr bool) {
 
 	if clr {
 		ui.Clear()
-		log.Debugf("screen cleared")
+		if log != nil {
+			log.Debugf("screen cleared")
+		}
 	}
 
 	cGrid.Align()
@@ -133,6 +141,9 @@ func SingleView() MenuFn {
 }
 
 func RefreshDisplay() error {
+	if cursor == nil {
+		return nil
+	}
 	// skip display refresh during scroll
 	if !cursor.isScrolling {
 		needsClear, err := cursor.RefreshContainers()

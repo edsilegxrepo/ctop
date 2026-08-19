@@ -1,4 +1,4 @@
-FROM quay.io/vektorcloud/go:1.18
+FROM <docker_image>
 
 RUN apk add --no-cache make
 

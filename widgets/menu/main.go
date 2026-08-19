@@ -1,15 +1,19 @@
+// Package menu provides customizable interactive modal menus, selectable item lists, tooltips, and sorting dialogs.
+// Objective: Offer flexible list selection components for sorting, filtering, columns, and contextual actions.
 package menu
 
 import (
 	"image"
 	"sort"
 
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
+	tb "github.com/nsf/termbox-go"
 )
 
 type Padding [2]int // x,y padding
 
+// Menu represents a modal menu window with item selection, keyboard scrolling, and tooltip display.
 type Menu struct {
 	ui.Block
 	SortItems    bool   // enable automatic sorting of menu items
@@ -136,7 +140,9 @@ func (m *Menu) Up() {
 		if m.items[m.cursorPos].Separator {
 			m.cursorPos = 0
 		}
-		ui.Render(m)
+		if tb.IsInit {
+			ui.Render(m)
+		}
 	}
 }
 
@@ -149,7 +155,9 @@ func (m *Menu) Down() {
 		if m.items[m.cursorPos].Separator {
 			m.cursorPos = len(m.items) - 1
 		}
-		ui.Render(m)
+		if tb.IsInit {
+			ui.Render(m)
+		}
 	}
 }
 
@@ -159,7 +167,9 @@ func (m *Menu) refresh() {
 		sort.Sort(m.items)
 	}
 	m.calcSize()
-	ui.Render(m)
+	if tb.IsInit {
+		ui.Render(m)
+	}
 }
 
 // Set width and height based on menu items

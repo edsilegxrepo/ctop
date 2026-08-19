@@ -3,18 +3,20 @@
 package collector
 
 import (
+	// nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used - pseudo-random generator is intended for non-security mock metrics simulation
 	"math/rand"
+	"sync/atomic"
 	"time"
 
-	"github.com/bcicen/ctop/models"
+	"github.com/edsilegx/ctop/models"
 )
 
 // Mock collector
 type Mock struct {
 	models.Metrics
 	stream     chan models.Metrics
-	done       bool
-	running    bool
+	done       atomic.Bool
+	running    atomic.Bool
 	aggression int64
 }
 
@@ -28,18 +30,19 @@ func NewMock(a int64) *Mock {
 }
 
 func (c *Mock) Running() bool {
-	return c.running
+	return c.running.Load()
 }
 
 func (c *Mock) Start() {
-	c.done = false
+	c.done.Store(false)
+	c.running.Store(true)
 	c.stream = make(chan models.Metrics)
 	go c.run()
 }
 
 func (c *Mock) Stop() {
-	c.running = false
-	c.done = true
+	c.running.Store(false)
+	c.done.Store(true)
 }
 
 func (c *Mock) Stream() chan models.Metrics {
@@ -51,9 +54,13 @@ func (c *Mock) Logs() LogCollector {
 }
 
 func (c *Mock) run() {
-	c.running = true
+	c.running.Store(true)
+	// #nosec G404 - weak pseudo-random generator is sufficient for non-security mock metrics simulation
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	defer close(c.stream)
+	defer func() {
+		c.running.Store(false)
+		close(c.stream)
+	}()
 
 	// set to random static value, once
 	c.Pids = r.Intn(12)
@@ -74,11 +81,9 @@ func (c *Mock) run() {
 		}
 		c.MemPercent = percent(float64(c.MemUsage), float64(c.MemLimit))
 		c.stream <- c.Metrics
-		if c.done {
+		if c.done.Load() {
 			break
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(50 * time.Millisecond)
 	}
-
-	c.running = false
 }

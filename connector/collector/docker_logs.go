@@ -5,30 +5,36 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/bcicen/ctop/models"
+	"github.com/edsilegx/ctop/models"
 	api "github.com/fsouza/go-dockerclient"
 )
 
+const (
+	maxLogLineSize = 1024 * 1024 // 1MB buffer for long log lines
+)
+
 type DockerLogs struct {
-	id     string
-	client *api.Client
-	done   chan bool
+	id       string
+	client   *api.Client
+	cancel   context.CancelFunc
+	stopOnce sync.Once
 }
 
 func NewDockerLogs(id string, client *api.Client) *DockerLogs {
 	return &DockerLogs{
 		id:     id,
 		client: client,
-		done:   make(chan bool),
 	}
 }
 
 func (l *DockerLogs) Stream() chan models.Log {
 	r, w := io.Pipe()
-	logCh := make(chan models.Log)
+	logCh := make(chan models.Log, 100)
 	ctx, cancel := context.WithCancel(context.Background())
+	l.cancel = cancel
 
 	opts := api.LogsOptions{
 		Context:      ctx,
@@ -47,7 +53,11 @@ func (l *DockerLogs) Stream() chan models.Log {
 	go func() {
 		defer close(logCh)
 		defer func() { _ = r.Close() }()
+
 		scanner := bufio.NewScanner(r)
+		buf := make([]byte, 64*1024)
+		scanner.Buffer(buf, maxLogLineSize)
+
 		for scanner.Scan() {
 			text := l.stripPfx(scanner.Text())
 			parts := strings.SplitN(text, " ", 2)
@@ -60,21 +70,19 @@ func (l *DockerLogs) Stream() chan models.Log {
 				logCh <- models.Log{Timestamp: l.parseTime(parts[0]), Message: parts[1]}
 			}
 		}
+		if err := scanner.Err(); err != nil && err != io.EOF && err != io.ErrClosedPipe {
+			log.Debugf("scanner finished for %s: %s", l.id, err)
+		}
 	}()
 
 	// connect to container log stream
 	go func() {
 		defer func() { _ = w.Close() }()
 		err := l.client.Logs(opts)
-		if err != nil {
+		if err != nil && ctx.Err() == nil {
 			log.Errorf("error reading container logs: %s", err)
 		}
 		log.Infof("log reader stopped for container: %s", l.id)
-	}()
-
-	go func() {
-		<-l.done
-		cancel()
 	}()
 
 	log.Infof("log reader started for container: %s", l.id)
@@ -82,10 +90,11 @@ func (l *DockerLogs) Stream() chan models.Log {
 }
 
 func (l *DockerLogs) Stop() {
-	select {
-	case l.done <- true:
-	default:
-	}
+	l.stopOnce.Do(func() {
+		if l.cancel != nil {
+			l.cancel()
+		}
+	})
 }
 
 func (l *DockerLogs) parseTime(s string) time.Time {

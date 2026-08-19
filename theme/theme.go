@@ -1,3 +1,5 @@
+// Package theme provides visual styling, color palette mappings, style builders, and terminal dimension helpers.
+// Objective: Centralize TermUI colors, styling primitives, and headless terminal sizing.
 package theme
 
 import (
@@ -8,6 +10,7 @@ import (
 var (
 	inverted bool
 
+	// ColorMap defines the default dark-theme color palette for all ctop UI components.
 	ColorMap = map[string]ui.Color{
 		"fg":                 ui.ColorWhite,
 		"bg":                 ui.ColorClear,
@@ -76,10 +79,15 @@ func InvertColorMap() {
 
 // TermDimensions returns terminal width and height without calling tb.Sync()
 func TermDimensions() (int, int) {
+	if !tb.IsInit {
+		return 80, 24
+	}
 	return tb.Size()
 }
 
 // SyncTerm syncs termbox internal buffer on resize
 func SyncTerm() {
-	_ = tb.Sync()
+	if tb.IsInit {
+		_ = tb.Sync()
+	}
 }

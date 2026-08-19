@@ -1,3 +1,4 @@
+// menus.go provides modal dialogs and interactive menus for Help, Filters, Sorting, Columns, Logs, Container Actions, and Shell execution.
 package main
 
 import (
@@ -6,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bcicen/ctop/config"
-	"github.com/bcicen/ctop/container"
-	"github.com/bcicen/ctop/theme"
-	"github.com/bcicen/ctop/widgets"
-	"github.com/bcicen/ctop/widgets/menu"
+	"github.com/edsilegx/ctop/config"
+	"github.com/edsilegx/ctop/container"
+	"github.com/edsilegx/ctop/theme"
+	"github.com/edsilegx/ctop/widgets"
+	"github.com/edsilegx/ctop/widgets/menu"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 	"github.com/pkg/browser"
@@ -197,10 +198,12 @@ func ColumnsMenu() MenuFn {
 			} else if IsKeyMatch("pgdown", e.ID) {
 				downFn()
 			} else if IsKeyMatch("exit", e.ID) {
-				cSource, err := cursor.cSuper.Get()
-				if err == nil {
-					for _, c := range cSource.All() {
-						c.RecreateWidgets()
+				if cursor != nil && cursor.cSuper != nil {
+					cSource, err := cursor.cSuper.Get()
+					if err == nil {
+						for _, c := range cSource.All() {
+							c.RecreateWidgets()
+						}
 					}
 				}
 				return nil
@@ -212,6 +215,9 @@ func ColumnsMenu() MenuFn {
 }
 
 func ContainerMenu() MenuFn {
+	if cursor == nil {
+		return nil
+	}
 	c := cursor.Selected()
 	if c == nil {
 		return nil
@@ -233,13 +239,10 @@ func ContainerMenu() MenuFn {
 		items = append(items, menu.Item{Val: "stop", Label: "[s] stop"})
 		items = append(items, menu.Item{Val: "pause", Label: "[p] pause"})
 		items = append(items, menu.Item{Val: "restart", Label: "[r] restart"})
-		if runtime.GOOS != "windows" || c.Meta["Web Port"] != "" {
-			items = append(items, menu.NewSeparator())
-		}
+		items = append(items, menu.NewSeparator())
+
 		// Group 3: Tools
-		if runtime.GOOS != "windows" {
-			items = append(items, menu.Item{Val: "exec", Label: "[e] exec shell"})
-		}
+		items = append(items, menu.Item{Val: "exec", Label: "[e] exec shell"})
 		if c.Meta["Web Port"] != "" {
 			items = append(items, menu.Item{Val: "browser", Label: "[w] open in browser"})
 		}
@@ -457,11 +460,17 @@ func LogMenu() MenuFn {
 						m.RecomputeTextOut()
 						renderAll()
 					case "q", "Q", "<Escape>", "<C-c>":
-						quit <- true
+						select {
+						case quit <- true:
+						default:
+						}
 						inactivityTimer.Stop()
 						return nil
 					default:
-						quit <- true
+						select {
+						case quit <- true:
+						default:
+						}
 						inactivityTimer.Stop()
 						return nil
 					}
@@ -483,8 +492,24 @@ func ExecShell() MenuFn {
 		return nil
 	}
 
-	if err := c.Exec([]string{"/bin/sh", "-c", "printf '\\e[0m\\e[?25h' && clear && eval `grep ^$(id -un): /etc/passwd | cut -d : -f 7-`"}); err != nil {
-		log.StatusErr(err)
+	var cmd []string
+	if runtime.GOOS == "windows" {
+		cmd = []string{"powershell.exe", "-NoLogo"}
+	} else {
+		cmd = []string{"/bin/sh", "-c", "printf '\\e[0m\\e[?25h' && clear && eval `grep ^$(id -un): /etc/passwd | cut -d : -f 7-`"}
+	}
+
+	if err := c.Exec(cmd); err != nil {
+		// Fallback to basic shell if advanced command failed
+		var fbCmd []string
+		if runtime.GOOS == "windows" {
+			fbCmd = []string{"cmd.exe"}
+		} else {
+			fbCmd = []string{"/bin/sh"}
+		}
+		if fbErr := c.Exec(fbCmd); fbErr != nil {
+			log.StatusErr(fbErr)
+		}
 	}
 
 	tb.HideCursor()
@@ -569,22 +594,27 @@ func logReader(container *container.Container) (logs chan widgets.ToggleText, qu
 	logCollector := container.Logs()
 	if logCollector == nil {
 		logs = make(chan widgets.ToggleText)
-		quit = make(chan bool)
+		quit = make(chan bool, 1)
 		close(logs)
 		return
 	}
 	stream := logCollector.Stream()
 	logs = make(chan widgets.ToggleText)
-	quit = make(chan bool)
+	quit = make(chan bool, 1)
 
 	go func() {
+		defer func() {
+			logCollector.Stop()
+			close(logs)
+		}()
 		for {
 			select {
-			case log := <-stream:
+			case log, ok := <-stream:
+				if !ok {
+					return
+				}
 				logs <- &toggleLog{timestamp: log.Timestamp, message: log.Message}
 			case <-quit:
-				logCollector.Stop()
-				close(logs)
 				return
 			}
 		}

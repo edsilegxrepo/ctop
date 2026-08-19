@@ -1,4 +1,6 @@
 ctop
+_build/
+release/
 .idea
 /vendor/
 *.log

@@ -1,3 +1,6 @@
+// Package connector abstracts container runtime engines (Docker, runC, Mock) behind a unified discovery interface.
+// Objective: Manage daemon discovery, automatic reconnection supervision, and container registry caching.
+// Data Flow: Host Runtime Socket -> Connector Driver -> ConnectorSuper -> GridCursor -> Container Models.
 package connector
 
 import (
@@ -6,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bcicen/ctop/container"
-	"github.com/bcicen/ctop/logging"
+	"github.com/edsilegx/ctop/container"
+	"github.com/edsilegx/ctop/logging"
 )
 
 var (
@@ -15,8 +18,10 @@ var (
 	enabled = make(map[string]ConnectorFn)
 )
 
+// ConnectorFn is a constructor signature that creates and connects a runtime Connector.
 type ConnectorFn func() (Connector, error)
 
+// Connector defines the standard contract required for container runtime engines.
 type Connector interface {
 	// All returns a pre-sorted container.Containers of all discovered containers
 	All() container.Containers

@@ -1,3 +1,5 @@
+// theme_test.go validates theme color lookup, style generation, color map inversion, and terminal dimension fallback.
+// Test Strategy: Verifies palette mappings, inverted mode toggling, and headless fallback sizing.
 package theme
 
 import (
@@ -38,4 +40,14 @@ func TestInvertColorMap(t *testing.T) {
 	if c := Color("header.bg"); c != ui.ColorBlack {
 		t.Errorf("expected inverted header.bg to be ColorBlack, got %v", c)
 	}
+	// Calling a second time should be a no-op
+	InvertColorMap()
+}
+
+func TestTermDimensionsAndSync(t *testing.T) {
+	w, h := TermDimensions()
+	if w <= 0 || h <= 0 {
+		t.Errorf("expected positive dimensions, got w=%d, h=%d", w, h)
+	}
+	SyncTerm()
 }

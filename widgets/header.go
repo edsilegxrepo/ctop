@@ -1,3 +1,5 @@
+// Package widgets provides custom TermUI presentation components (Header, StatusLine, ErrorView, TextView, Input).
+// Objective: Render terminal headers, status notifications, scrollable text buffers, and prompt inputs.
 package widgets
 
 import (
@@ -5,10 +7,11 @@ import (
 	"image"
 	"time"
 
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 
+// CTopHeader displays the top application bar showing live clock, total/filtered container count, and active filter text.
 type CTopHeader struct {
 	ui.Block
 	TimeText   string

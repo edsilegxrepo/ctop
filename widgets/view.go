@@ -5,9 +5,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/pkg/sanitize"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 	"github.com/mattn/go-runewidth"
+	tb "github.com/nsf/termbox-go"
 )
 
 type ToggleText interface {
@@ -17,7 +19,7 @@ type ToggleText interface {
 
 type TextView struct {
 	ui.Block
-	sync.Mutex
+	mu          sync.Mutex
 	inputStream <-chan ToggleText
 	render      chan bool
 	toggleState bool
@@ -52,57 +54,64 @@ func NewTextView(lines <-chan ToggleText) *TextView {
 
 // Resize adjusts view according to window size
 func (t *TextView) Resize() {
-	ui.Clear()
+	if tb.IsInit {
+		ui.Clear()
+	}
 	w, h := theme.TermDimensions()
 	t.SetRect(0, 0, w, h)
 	t.queueRender()
 }
 
+// SetRect sets block boundaries
+func (t *TextView) SetRect(x1, y1, x2, y2 int) {
+	t.Block.SetRect(x1, y1, x2, y2)
+}
+
 // Toggle toggles text display format
 func (t *TextView) Toggle() {
-	t.Lock()
+	t.mu.Lock()
 	t.toggleState = !t.toggleState
-	t.RecomputeTextOut()
-	t.Unlock()
+	t.recomputeTextOut()
+	t.mu.Unlock()
 	t.queueRender()
 }
 
 // Pause pauses automatic background redraws
 func (t *TextView) Pause() {
-	t.Lock()
+	t.mu.Lock()
 	t.paused = true
-	t.Unlock()
+	t.mu.Unlock()
 }
 
 // Resume resumes automatic background redraws
 func (t *TextView) Resume() {
-	t.Lock()
+	t.mu.Lock()
 	t.paused = false
-	t.RecomputeTextOut()
-	t.Unlock()
+	t.recomputeTextOut()
+	t.mu.Unlock()
 	t.queueRender()
 }
 
 // IsPaused returns whether background redraws are paused
 func (t *TextView) IsPaused() bool {
-	t.Lock()
-	defer t.Unlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	return t.paused
 }
 
 // SetFilter sets the active filter substring
 func (t *TextView) SetFilter(f string) {
-	t.Lock()
+	t.mu.Lock()
 	t.filterStr = f
-	t.RecomputeTextOut()
-	t.Unlock()
+	t.recomputeTextOut()
+	t.mu.Unlock()
 	t.queueRender()
 }
 
 // Filter returns current filter substring
 func (t *TextView) Filter() string {
-	t.Lock()
-	defer t.Unlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	return t.filterStr
 }
 
@@ -115,6 +124,12 @@ func (t *TextView) queueRender() {
 
 // RecomputeTextOut calculates displayed lines based on dimensions, filter, and wrap
 func (t *TextView) RecomputeTextOut() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.recomputeTextOut()
+}
+
+func (t *TextView) recomputeTextOut() {
 	maxWidth := (t.Inner.Max.X - t.Inner.Min.X) - (t.padding[0] * 2)
 	height := (t.Inner.Max.Y - t.Inner.Min.Y) - (t.padding[1] * 2)
 	if maxWidth <= 0 || height <= 0 {
@@ -122,14 +137,18 @@ func (t *TextView) RecomputeTextOut() {
 	}
 	t.TextOut = []string{}
 	for i := len(t.Text) - 1; i >= 0; i-- {
-		raw := t.Text[i].Toggle(t.toggleState)
+		raw := sanitize.StripANSI(t.Text[i].Toggle(t.toggleState))
 		if t.filterStr != "" && !strings.Contains(strings.ToLower(raw), strings.ToLower(t.filterStr)) {
 			continue
 		}
 		lines := splitLine(raw, maxWidth)
-		t.TextOut = append(lines, t.TextOut...)
+		for j := len(lines) - 1; j >= 0; j-- {
+			t.TextOut = append([]string{lines[j]}, t.TextOut...)
+			if len(t.TextOut) >= height {
+				break
+			}
+		}
 		if len(t.TextOut) >= height {
-			t.TextOut = t.TextOut[len(t.TextOut)-height:]
 			break
 		}
 	}
@@ -137,6 +156,9 @@ func (t *TextView) RecomputeTextOut() {
 
 func (t *TextView) Draw(buf *ui.Buffer) {
 	t.Block.Draw(buf)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	if len(t.TextOut) == 0 {
 		msg := "(no logs available)"
@@ -177,14 +199,16 @@ func (t *TextView) Draw(buf *ui.Buffer) {
 func (t *TextView) renderLoop() {
 	go func() {
 		for range t.render {
-			t.Lock()
+			t.mu.Lock()
 			if t.paused {
-				t.Unlock()
+				t.mu.Unlock()
 				continue
 			}
-			t.RecomputeTextOut()
-			t.Unlock()
-			ui.Render(t)
+			t.recomputeTextOut()
+			t.mu.Unlock()
+			if tb.IsInit {
+				ui.Render(t)
+			}
 		}
 	}()
 }
@@ -192,9 +216,9 @@ func (t *TextView) renderLoop() {
 func (t *TextView) readInputLoop() {
 	go func() {
 		for line := range t.inputStream {
-			t.Lock()
+			t.mu.Lock()
 			t.Text = append(t.Text, line)
-			t.Unlock()
+			t.mu.Unlock()
 			t.queueRender()
 		}
 	}()

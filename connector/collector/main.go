@@ -1,19 +1,24 @@
+// Package collector implements continuous telemetry and log streaming for container runtimes.
+// Objective: Stream real-time CPU, memory, network, and I/O metrics along with timestamped log entries.
+// Data Flow: Daemon Stats / Cgroups -> Collector -> models.Metrics Channel -> Container Model.
 package collector
 
 import (
 	"math"
 
-	"github.com/bcicen/ctop/logging"
-	"github.com/bcicen/ctop/models"
+	"github.com/edsilegx/ctop/logging"
+	"github.com/edsilegx/ctop/models"
 )
 
 var log = logging.Init()
 
+// LogCollector streams live container log lines.
 type LogCollector interface {
 	Stream() chan models.Log
 	Stop()
 }
 
+// Collector continuously collects and streams container resource utilization metrics.
 type Collector interface {
 	Stream() chan models.Metrics
 	Logs() LogCollector

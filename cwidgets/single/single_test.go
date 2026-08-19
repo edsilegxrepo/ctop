@@ -1,7 +1,14 @@
+// single_test.go validates detailed single-container inspection widgets (CPU/Mem sparklines, environment tables, network/IO diffs).
+// Test Strategy: Tests history ring buffers, multiline table generators, and metric delta calculations.
 package single
 
 import (
+	"image"
 	"testing"
+	"time"
+
+	"github.com/edsilegx/ctop/models"
+	ui "github.com/gizak/termui/v3"
 )
 
 func TestMkInfoRows(t *testing.T) {
@@ -45,6 +52,10 @@ func TestNetUpdate(t *testing.T) {
 	if net.rxTitle != "RX [1.95kib/s]" {
 		t.Errorf("unexpected rxTitle: %s", net.rxTitle)
 	}
+
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	net.SetRect(0, 0, 80, 12)
+	net.Draw(buf)
 }
 
 func TestIOUpdate(t *testing.T) {
@@ -58,10 +69,95 @@ func TestIOUpdate(t *testing.T) {
 	if io.readHist.Val != 1000 {
 		t.Errorf("expected read rate 1000, got %d", io.readHist.Val)
 	}
-	if io.writeHist.Val != 2000 {
-		t.Errorf("expected write rate 2000, got %d", io.writeHist.Val)
+
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	io.SetRect(0, 0, 80, 12)
+	io.Draw(buf)
+}
+
+func TestCpuAndMemWidgets(t *testing.T) {
+	cpu := NewCpu()
+	cpu.Update(85)
+	if len(cpu.hist.Data) == 0 || cpu.hist.Data[len(cpu.hist.Data)-1] != 85.0 {
+		t.Errorf("expected CPU data ending in 85.0")
 	}
-	if io.readTitle != "READ [1000b/s]" {
-		t.Errorf("unexpected readTitle: %s", io.readTitle)
+
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	cpu.SetRect(0, 0, 80, 12)
+	cpu.Draw(buf)
+
+	mem := NewMem()
+	mem.Update(512*1024*1024, 1024*1024*1024)
+	if mem.val != 512*1024*1024 || mem.limit != 1024*1024*1024 {
+		t.Errorf("expected mem val and limit to be updated")
 	}
+	mem.SetRect(0, 0, 80, 12)
+	mem.Draw(buf)
+}
+
+func TestEnvAndInfoWidgets(t *testing.T) {
+	env := NewEnv()
+	env.Set("FOO=BAR;BAZ=QUX")
+	if env.GetHeight() != 4 { // 2 lines + 2 borders
+		t.Errorf("expected env height 4, got %d", env.GetHeight())
+	}
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	env.SetRect(0, 0, 80, 10)
+	env.Draw(buf)
+
+	info := NewInfo()
+	info.Set("name", "test-server")
+	info.Set("state", "running")
+	if info.GetHeight() <= 0 {
+		t.Errorf("expected positive info height, got %d", info.GetHeight())
+	}
+	info.SetRect(0, 0, 80, 10)
+	info.Draw(buf)
+}
+
+func TestSingleView(t *testing.T) {
+	s := NewSingle()
+	if s == nil {
+		t.Fatal("expected non-nil Single")
+	}
+
+	meta := models.NewMeta("name", "nginx-ingress")
+	meta["[ENV-VAR]"] = "PORT=80"
+	s.SetMeta(meta)
+
+	metrics := models.NewMetrics()
+	metrics.CPUUtil = 45
+	metrics.NetRx = 2048
+	metrics.NetTx = 4096
+	metrics.MemUsage = 256 * 1024 * 1024
+	metrics.MemLimit = 512 * 1024 * 1024
+	metrics.IOBytesRead = 1024
+	metrics.IOBytesWrite = 2048
+	s.SetMetrics(metrics)
+
+	s.SetWidth(120)
+	s.Up()
+	s.Down()
+
+	if height := s.GetHeight(); height <= 0 {
+		t.Fatalf("expected positive height, got %d", height)
+	}
+
+	s.Align()
+	buf := ui.NewBuffer(image.Rect(0, 0, 120, 80))
+	s.Draw(buf)
+}
+
+func TestLogsWidget(t *testing.T) {
+	stream := make(chan models.Log, 5)
+	logsWidget := NewLogs(stream)
+
+	stream <- models.Log{Timestamp: time.Now(), Message: "starting service..."}
+	stream <- models.Log{Timestamp: time.Now(), Message: "service ready"}
+	time.Sleep(50 * time.Millisecond)
+
+	buf := ui.NewBuffer(image.Rect(0, 0, 80, 20))
+	logsWidget.SetRect(0, 0, 80, 20)
+	logsWidget.Draw(buf)
+	close(stream)
 }

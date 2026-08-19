@@ -3,8 +3,8 @@ package compact
 import (
 	"image"
 
-	"github.com/bcicen/ctop/models"
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/models"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -85,7 +85,7 @@ func (s *Status) setState(val string) {
 		mark = '■'
 		style = theme.Style("status.danger")
 	case "paused":
-		mark = '❚'
+		mark = '‖'
 		style = theme.Style("status.warn")
 	default:
 		mark = ' '

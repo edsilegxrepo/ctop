@@ -3,10 +3,10 @@ package compact
 import (
 	"image"
 
-	"github.com/bcicen/ctop/config"
-	"github.com/bcicen/ctop/logging"
-	"github.com/bcicen/ctop/models"
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/config"
+	"github.com/edsilegx/ctop/logging"
+	"github.com/edsilegx/ctop/models"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 

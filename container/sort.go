@@ -1,3 +1,4 @@
+// sort.go implements comparator functions, sort registries, and filtering logic for container collections.
 package container
 
 import (
@@ -5,7 +6,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/bcicen/ctop/config"
+	"github.com/edsilegx/ctop/config"
 )
 
 type sortMethod func(c1, c2 *Container) bool
@@ -18,9 +19,12 @@ var stateMap = map[string]int{
 	"":        0,
 }
 
-var idSorter = func(c1, c2 *Container) bool { return c1.Id < c2.Id }
-var nameSorter = func(c1, c2 *Container) bool { return c1.GetMeta("name") < c2.GetMeta("name") }
+var (
+	idSorter   = func(c1, c2 *Container) bool { return c1.Id < c2.Id }
+	nameSorter = func(c1, c2 *Container) bool { return c1.GetMeta("name") < c2.GetMeta("name") }
+)
 
+// Sorters maps configurable column keys (cpu, mem, io, net, pids, state, uptime) to comparator functions.
 var Sorters = map[string]sortMethod{
 	"id":   idSorter,
 	"name": nameSorter,
@@ -103,11 +107,22 @@ func (a Containers) Sort()         { sort.Sort(a) }
 func (a Containers) Len() int      { return len(a) }
 func (a Containers) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a Containers) Less(i, j int) bool {
-	f := Sorters[config.GetVal("sortField")]
+	sortField := config.GetVal("sortField")
+	f, ok := Sorters[sortField]
+	if !ok || f == nil {
+		f = Sorters["name"]
+	}
+	if f == nil {
+		return false
+	}
 	if config.GetSwitchVal("sortReversed") {
 		return f(a[j], a[i])
 	}
 	return f(a[i], a[j])
+}
+
+func isActive(state string) bool {
+	return state == "running" || state == "paused" || state == "restarting"
 }
 
 func (a Containers) Filter() {
@@ -115,15 +130,20 @@ func (a Containers) Filter() {
 	re := regexp.MustCompile(fmt.Sprintf(".*%s", filter))
 
 	for _, c := range a {
-		c.Display = true
+		name := c.GetMeta("name")
+		state := c.GetMeta("state")
+		display := true
 		// Apply name filter
-		if re.FindAllString(c.GetMeta("name"), 1) == nil {
-			c.Display = false
+		if re.FindAllString(name, 1) == nil {
+			display = false
 		}
-		// Apply state filter
-		if !config.GetSwitchVal("allContainers") && c.GetMeta("state") != "running" {
-			c.Display = false
+		// Apply state filter (active only includes running, paused, and restarting)
+		if !config.GetSwitchVal("allContainers") && !isActive(state) {
+			display = false
 		}
+		c.mu.Lock()
+		c.Display = display
+		c.mu.Unlock()
 	}
 }
 

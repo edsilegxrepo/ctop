@@ -3,7 +3,7 @@ package compact
 import (
 	"image"
 
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 

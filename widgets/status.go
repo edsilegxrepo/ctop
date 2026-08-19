@@ -3,13 +3,11 @@ package widgets
 import (
 	"image"
 
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 
-var (
-	statusHeight = 1
-)
+var statusHeight = 1
 
 type StatusLine struct {
 	ui.Block

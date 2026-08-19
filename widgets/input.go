@@ -4,13 +4,12 @@ import (
 	"image"
 	"strings"
 
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
+	tb "github.com/nsf/termbox-go"
 )
 
-var (
-	input_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_./:"
-)
+var input_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_./:"
 
 type Padding [2]int // x,y padding
 
@@ -71,7 +70,9 @@ func (i *Input) KeyPress(keyID string) {
 				i.stream <- i.Data
 			}
 		}
-		ui.Render(i)
+		if tb.IsInit {
+			ui.Render(i)
+		}
 		return
 	}
 	if len(i.Data) >= i.MaxLen {
@@ -82,6 +83,8 @@ func (i *Input) KeyPress(keyID string) {
 		if i.stream != nil {
 			i.stream <- i.Data
 		}
-		ui.Render(i)
+		if tb.IsInit {
+			ui.Render(i)
+		}
 	}
 }

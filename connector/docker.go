@@ -1,3 +1,4 @@
+// docker.go implements the Connector interface for Docker daemons via go-dockerclient.
 package connector
 
 import (
@@ -9,9 +10,9 @@ import (
 	"github.com/hako/durafmt"
 	"github.com/op/go-logging"
 
-	"github.com/bcicen/ctop/connector/collector"
-	"github.com/bcicen/ctop/connector/manager"
-	"github.com/bcicen/ctop/container"
+	"github.com/edsilegx/ctop/connector/collector"
+	"github.com/edsilegx/ctop/connector/manager"
+	"github.com/edsilegx/ctop/container"
 	api "github.com/fsouza/go-dockerclient"
 )
 
@@ -25,12 +26,14 @@ var actionToStatus = map[string]string{
 	"unpause": "running",
 }
 
+// StatusUpdate carries asynchronous container lifecycle or health updates from the Docker event stream.
 type StatusUpdate struct {
 	Cid    string
 	Field  string // "status" or "health"
 	Status string
 }
 
+// Docker implements Connector for Docker engines, caching active containers and streaming events.
 type Docker struct {
 	client       *api.Client
 	containers   map[string]*container.Container
@@ -81,10 +84,11 @@ func (cm *Docker) Wait() struct{} { return <-cm.closed }
 func (cm *Docker) watchEvents() {
 	log.Info("docker event listener starting")
 	events := make(chan *api.APIEvents)
-	opts := api.EventsOptions{Filters: map[string][]string{
-		"type":  {"container"},
-		"event": {"create", "start", "health_status", "pause", "unpause", "stop", "die", "destroy"},
-	},
+	opts := api.EventsOptions{
+		Filters: map[string][]string{
+			"type":  {"container"},
+			"event": {"create", "start", "health_status", "pause", "unpause", "stop", "die", "destroy"},
+		},
 	}
 	if err := cm.client.AddEventListenerWithOptions(opts, events); err != nil {
 		log.Errorf("failed to add docker event listener: %s", err)
@@ -210,6 +214,9 @@ func (cm *Docker) inspect(id string) (insp *api.Container, found bool, failed bo
 }
 
 func calcUptime(insp *api.Container) string {
+	if insp.State.StartedAt.IsZero() {
+		return "-"
+	}
 	endTime := insp.State.FinishedAt
 	if endTime.IsZero() || insp.State.Running {
 		endTime = time.Now()
@@ -229,8 +236,25 @@ func (cm *Docker) refreshAll() {
 
 	for _, i := range allContainers {
 		c := cm.MustGet(i.ID)
-		c.SetMeta("name", shortName(i.Names[0]))
-		c.SetState(i.State)
+		if len(i.Names) > 0 {
+			c.SetMeta("name", shortName(i.Names[0]))
+		}
+		state := i.State
+		if state == "" {
+			statusLower := strings.ToLower(i.Status)
+			if strings.Contains(statusLower, "paused") {
+				state = "paused"
+			} else if strings.Contains(statusLower, "restarting") {
+				state = "restarting"
+			} else if strings.HasPrefix(statusLower, "up") {
+				state = "running"
+			} else if strings.HasPrefix(statusLower, "exited") {
+				state = "exited"
+			} else if strings.HasPrefix(statusLower, "created") {
+				state = "created"
+			}
+		}
+		c.SetState(state)
 		cm.needsRefresh <- c.Id
 	}
 }
@@ -268,47 +292,58 @@ func (cm *Docker) LoopStatuses() {
 // MustGet gets a single container, creating one anew if not existing
 func (cm *Docker) MustGet(id string) *container.Container {
 	c, ok := cm.Get(id)
-	// append container struct for new containers
-	if !ok {
-		// create collector
-		collector := collector.NewDocker(cm.client, id)
-		// create manager
-		manager := manager.NewDocker(cm.client, id)
-		// create container
-		c = container.New(id, collector, manager)
-		cm.lock.Lock()
-		cm.containers[id] = c
-		cm.lock.Unlock()
+	if ok {
+		return c
 	}
+	// append container struct for new containers
+	// create collector
+	collector := collector.NewDocker(cm.client, id)
+	// create manager
+	manager := manager.NewDocker(cm.client, id)
+	// create container
+	c = container.New(id, collector, manager)
+	cm.lock.Lock()
+	if existing, exists := cm.containers[id]; exists {
+		cm.lock.Unlock()
+		return existing
+	}
+	cm.containers[id] = c
+	cm.lock.Unlock()
 	return c
 }
 
 // Docker implements Connector
 func (cm *Docker) Get(id string) (*container.Container, bool) {
-	cm.lock.Lock()
+	cm.lock.RLock()
 	c, ok := cm.containers[id]
-	cm.lock.Unlock()
+	cm.lock.RUnlock()
 	return c, ok
 }
 
 // Remove containers by ID
 func (cm *Docker) delByID(id string) {
 	cm.lock.Lock()
-	delete(cm.containers, id)
+	c, ok := cm.containers[id]
+	if ok {
+		delete(cm.containers, id)
+	}
 	cm.lock.Unlock()
+	if ok && c != nil {
+		c.SetState("exited")
+	}
 	log.Infof("removed dead container: %s", id)
 }
 
 // Docker implements Connector
 func (cm *Docker) All() (containers container.Containers) {
-	cm.lock.Lock()
+	cm.lock.RLock()
 	for _, c := range cm.containers {
 		containers = append(containers, c)
 	}
+	cm.lock.RUnlock()
 
 	containers.Sort()
 	containers.Filter()
-	cm.lock.Unlock()
 	return containers
 }
 

@@ -3,6 +3,8 @@
 package collector
 
 import (
+	"math"
+
 	linuxproc "github.com/c9s/goprocinfo/linux"
 )
 
@@ -18,6 +20,9 @@ func getSysMemTotal() int64 {
 	if err != nil {
 		log.Errorf("error reading system stats: %s", err)
 		return 0
+	}
+	if stat.MemTotal > math.MaxInt64/1024 {
+		return math.MaxInt64
 	}
 	return int64(stat.MemTotal * 1024)
 }

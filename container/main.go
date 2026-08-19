@@ -1,23 +1,26 @@
+// Package container models active container entities, their telemetry channels, lifecycle controls, and visual row widgets.
+// Objective: Bridge raw metrics collectors and managers with UI widget updaters and filtering/sorting logic.
+// Data Flow: Collector Stream -> Container.Read() -> Container.Metrics -> CompactRow / SingleView Updaters.
 package container
 
 import (
-	"github.com/bcicen/ctop/connector/collector"
-	"github.com/bcicen/ctop/connector/manager"
-	"github.com/bcicen/ctop/cwidgets"
-	"github.com/bcicen/ctop/cwidgets/compact"
-	"github.com/bcicen/ctop/logging"
-	"github.com/bcicen/ctop/models"
+	"sync"
+
+	"github.com/edsilegx/ctop/connector/collector"
+	"github.com/edsilegx/ctop/connector/manager"
+	"github.com/edsilegx/ctop/cwidgets"
+	"github.com/edsilegx/ctop/cwidgets/compact"
+	"github.com/edsilegx/ctop/logging"
+	"github.com/edsilegx/ctop/models"
 )
 
-var (
-	log = logging.Init()
-)
+var log = logging.Init()
 
 const (
 	running = "running"
 )
 
-// Metrics and metadata representing a container
+// Container encapsulates metadata, live telemetry metrics, lifecycle control methods, and visual widgets for a container.
 type Container struct {
 	models.Metrics
 	Id        string
@@ -27,6 +30,7 @@ type Container struct {
 	updater   cwidgets.WidgetUpdater
 	collector collector.Collector
 	manager   manager.Manager
+	mu        sync.RWMutex
 }
 
 func New(id string, collector collector.Collector, manager manager.Manager) *Container {
@@ -47,23 +51,35 @@ func New(id string, collector collector.Collector, manager manager.Manager) *Con
 }
 
 func (c *Container) RecreateWidgets() {
-	c.SetUpdater(cwidgets.NullWidgetUpdater{})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.updater = cwidgets.NullWidgetUpdater{}
 	c.Widgets = compact.NewCompactRow()
-	c.SetUpdater(c.Widgets)
+	c.updater = c.Widgets
+	c.updater.SetMeta(c.Meta)
+	c.updater.SetMetrics(c.Metrics)
 }
 
 func (c *Container) SetUpdater(u cwidgets.WidgetUpdater) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.updater = u
 	c.updater.SetMeta(c.Meta)
 	c.updater.SetMetrics(c.Metrics)
 }
 
 func (c *Container) SetMeta(k, v string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.Meta[k] = v
-	c.updater.SetMeta(c.Meta)
+	if c.updater != nil {
+		c.updater.SetMeta(c.Meta)
+	}
 }
 
 func (c *Container) GetMeta(k string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Meta.Get(k)
 }
 
@@ -89,18 +105,26 @@ func (c *Container) Logs() collector.LogCollector {
 func (c *Container) Read(stream chan models.Metrics) {
 	go func() {
 		for metrics := range stream {
+			c.mu.Lock()
 			c.Metrics = metrics
-			c.updater.SetMetrics(metrics)
+			if c.updater != nil {
+				c.updater.SetMetrics(metrics)
+			}
+			c.mu.Unlock()
 		}
 		log.Infof("reader stopped for container: %s", c.Id)
+		c.mu.Lock()
 		c.Metrics = models.NewMetrics()
-		c.Widgets.Reset()
+		if c.Widgets != nil {
+			c.Widgets.Reset()
+		}
+		c.mu.Unlock()
 	}()
 	log.Infof("reader started for container: %s", c.Id)
 }
 
 func (c *Container) Start() {
-	if c.Meta["state"] != running {
+	if c.GetMeta("state") != running {
 		if err := c.manager.Start(); err != nil {
 			log.Warningf("container %s: %v", c.Id, err)
 			log.StatusErr(err)
@@ -111,7 +135,7 @@ func (c *Container) Start() {
 }
 
 func (c *Container) Stop() {
-	if c.Meta["state"] == running {
+	if c.GetMeta("state") == running {
 		if err := c.manager.Stop(); err != nil {
 			log.Warningf("container %s: %v", c.Id, err)
 			log.StatusErr(err)
@@ -129,7 +153,7 @@ func (c *Container) Remove() {
 }
 
 func (c *Container) Pause() {
-	if c.Meta["state"] == running {
+	if c.GetMeta("state") == running {
 		if err := c.manager.Pause(); err != nil {
 			log.Warningf("container %s: %v", c.Id, err)
 			log.StatusErr(err)
@@ -140,7 +164,7 @@ func (c *Container) Pause() {
 }
 
 func (c *Container) Unpause() {
-	if c.Meta["state"] == "paused" {
+	if c.GetMeta("state") == "paused" {
 		if err := c.manager.Unpause(); err != nil {
 			log.Warningf("container %s: %v", c.Id, err)
 			log.StatusErr(err)
@@ -151,7 +175,7 @@ func (c *Container) Unpause() {
 }
 
 func (c *Container) Restart() {
-	if c.Meta["state"] == running {
+	if c.GetMeta("state") == running {
 		if err := c.manager.Restart(); err != nil {
 			log.Warningf("container %s: %v", c.Id, err)
 			log.StatusErr(err)

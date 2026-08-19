@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bcicen/ctop/connector/collector"
-	"github.com/bcicen/ctop/connector/manager"
-	"github.com/bcicen/ctop/container"
+	"github.com/edsilegx/ctop/connector/collector"
+	"github.com/edsilegx/ctop/connector/manager"
+	"github.com/edsilegx/ctop/container"
 	"github.com/opencontainers/runc/libcontainer"
 )
 

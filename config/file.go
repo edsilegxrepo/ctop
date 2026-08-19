@@ -10,9 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-var (
-	xdgRe = regexp.MustCompile("^XDG_*")
-)
+var xdgRe = regexp.MustCompile("^XDG_*")
 
 type File struct {
 	Options map[string]string `toml:"options"`
@@ -41,7 +39,6 @@ func exportConfig() File {
 	return c
 }
 
-//
 func Read() error {
 	var config File
 
@@ -83,9 +80,9 @@ func Write() (path string, err error) {
 	}
 
 	cfgdir := filepath.Dir(path)
-	// create config dir if not exist
+	// create config dir if not exist with restricted permissions
 	if _, err := os.Stat(cfgdir); err != nil {
-		err = os.MkdirAll(cfgdir, 0755)
+		err = os.MkdirAll(cfgdir, 0o700)
 		if err != nil {
 			return path, fmt.Errorf("failed to create config dir [%s]: %s", cfgdir, err)
 		}
@@ -98,10 +95,14 @@ func Write() (path string, err error) {
 		}
 	}
 
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
+	// #nosec G304 - configuration file path resolved from user config directory
+	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return path, fmt.Errorf("failed to open config for writing: %s", err)
 	}
+	defer func() {
+		_ = file.Close()
+	}()
 
 	writer := toml.NewEncoder(file)
 	err = writer.Encode(exportConfig())
@@ -114,23 +115,35 @@ func Write() (path string, err error) {
 
 // determine config path from environment
 func getConfigPath() (path string, err error) {
-	homeDir, ok := os.LookupEnv("HOME")
-	if !ok {
-		return path, fmt.Errorf("$HOME not set")
+	if xdgHome, ok := os.LookupEnv("XDG_CONFIG_HOME"); ok && xdgHome != "" {
+		return filepath.Clean(filepath.Join(xdgHome, "ctop", "config")), nil
 	}
 
-	// use xdg config home if possible
-	if xdgSupport() {
-		xdgHome, ok := os.LookupEnv("XDG_CONFIG_HOME")
-		if !ok {
-			xdgHome = fmt.Sprintf("%s/.config", homeDir)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = os.Getenv("HOME")
+	}
+
+	// Respect existing legacy ~/.ctop file if present
+	if homeDir != "" {
+		legacyPath := filepath.Clean(filepath.Join(homeDir, ".ctop"))
+		if _, statErr := os.Stat(legacyPath); statErr == nil {
+			return legacyPath, nil
 		}
-		path = fmt.Sprintf("%s/ctop/config", xdgHome)
-	} else {
-		path = fmt.Sprintf("%s/.ctop", homeDir)
 	}
 
-	return path, nil
+	if configDir, err := os.UserConfigDir(); err == nil && configDir != "" {
+		return filepath.Clean(filepath.Join(configDir, "ctop", "config")), nil
+	}
+
+	if homeDir != "" {
+		if xdgSupport() {
+			return filepath.Clean(filepath.Join(homeDir, ".config", "ctop", "config")), nil
+		}
+		return filepath.Clean(filepath.Join(homeDir, ".ctop")), nil
+	}
+
+	return "", fmt.Errorf("unable to determine user home or config directory")
 }
 
 // test for environemnt supporting XDG spec

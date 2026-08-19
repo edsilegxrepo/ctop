@@ -2,10 +2,11 @@ package manager
 
 import (
 	"fmt"
-	api "github.com/fsouza/go-dockerclient"
-	"github.com/pkg/errors"
 	"io"
 	"os"
+
+	api "github.com/fsouza/go-dockerclient"
+	"github.com/pkg/errors"
 )
 
 type Docker struct {
@@ -40,9 +41,11 @@ var wrongFrameFormat = errors.New("Wrong frame format")
 // A frame has a Header and a Payload
 // Header: [8]byte{STREAM_TYPE, 0, 0, 0, SIZE1, SIZE2, SIZE3, SIZE4}
 // STREAM_TYPE can be:
-//    0: stdin (is written on stdout)
-//    1: stdout
-//    2: stderr
+//
+//	0: stdin (is written on stdout)
+//	1: stdout
+//	2: stderr
+//
 // SIZE1, SIZE2, SIZE3, SIZE4 are the four bytes of the uint32 size encoded as big endian.
 // But we don't use size, because we don't need to find the end of frame.
 type frameWriter struct {
@@ -86,7 +89,6 @@ func (dc *Docker) Exec(cmd []string) error {
 		Container:    dc.id,
 		Tty:          true,
 	})
-
 	if err != nil {
 		return err
 	}

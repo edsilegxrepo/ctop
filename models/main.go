@@ -1,12 +1,17 @@
+// Package models defines core telemetry, container metadata, and log data structures.
+// Objective: Provide lightweight, standardized domain types for container metrics, log lines, and metadata.
+// Data Flow: Connector Telemetry Stream -> Models (Metrics, Log, Meta) -> Container -> UI Widgets.
 package models
 
 import "time"
 
+// Log represents a single timestamped container log entry.
 type Log struct {
 	Timestamp time.Time
 	Message   string
 }
 
+// Meta holds arbitrary key-value metadata strings associated with a container.
 type Meta map[string]string
 
 // NewMeta returns an initialized Meta map.
@@ -31,7 +36,7 @@ func (m Meta) Get(k string) string {
 }
 
 type Metrics struct {
-	NCpus        uint8
+	NCpus        int
 	CPUUtil      int
 	NetTx        int64
 	NetRx        int64

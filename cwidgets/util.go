@@ -26,12 +26,12 @@ var (
 
 	// short, full unit labels
 	labels = [][2]string{
-		[2]string{"B", "B"},
-		[2]string{"K", "KiB"},
-		[2]string{"M", "MiB"},
-		[2]string{"G", "GiB"},
-		[2]string{"T", "TiB"},
-		[2]string{"P", "PiB"},
+		{"B", "B"},
+		{"K", "KiB"},
+		{"M", "MiB"},
+		{"G", "GiB"},
+		{"T", "TiB"},
+		{"P", "PiB"},
 	}
 )
 

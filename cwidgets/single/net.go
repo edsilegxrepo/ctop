@@ -6,8 +6,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/bcicen/ctop/cwidgets"
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/cwidgets"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 

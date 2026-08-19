@@ -1,3 +1,7 @@
+// Package main is the entry point for ctop, a top-like real-time container metrics monitor.
+// Objective: Parse CLI arguments, initialize configuration/logging/UI, coordinate container connector
+// discovery, and drive the interactive terminal event loop.
+// Data Flow: CLI Flags -> Config/Theme -> Connector -> GridCursor -> TermUI Render Loop.
 package main
 
 import (
@@ -7,32 +11,36 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/bcicen/ctop/config"
-	"github.com/bcicen/ctop/connector"
-	"github.com/bcicen/ctop/container"
-	"github.com/bcicen/ctop/cwidgets/compact"
-	"github.com/bcicen/ctop/logging"
-	"github.com/bcicen/ctop/widgets"
+	"github.com/edsilegx/ctop/config"
+	"github.com/edsilegx/ctop/connector"
+	"github.com/edsilegx/ctop/container"
+	"github.com/edsilegx/ctop/cwidgets/compact"
+	"github.com/edsilegx/ctop/logging"
+	"github.com/edsilegx/ctop/pkg/exit"
+	"github.com/edsilegx/ctop/widgets"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 )
 
 var (
+	// Version metadata populated during compilation
 	build     = "none"
 	version   = "dev-build"
 	goVersion = runtime.Version()
 
-	log      *logging.CTopLogger
-	cursor   *GridCursor
-	cGrid    *compact.CompactGrid
-	header   *widgets.CTopHeader
-	status   *widgets.StatusLine
-	errView  *widgets.ErrorView
-	uiEvents <-chan ui.Event
+	// Global application state singletons
+	log      *logging.CTopLogger  // Global logger instance
+	cursor   *GridCursor          // Interactive container list selection and pagination cursor
+	cGrid    *compact.CompactGrid // Terminal grid renderer for compact container row widgets
+	header   *widgets.CTopHeader  // Top application status header
+	status   *widgets.StatusLine  // Bottom status line for notification messages and errors
+	errView  *widgets.ErrorView   // Modal connection error viewer
+	uiEvents <-chan ui.Event      // Asynchronous UI keyboard and resize event stream
 
 	versionStr = fmt.Sprintf("ctop version %v, build %v %v", version, build, goVersion)
 )
 
+// main parses CLI arguments, initializes subsystems, and starts the primary render loop.
 func main() {
 	defer panicExit()
 
@@ -51,12 +59,12 @@ func main() {
 
 	if *versionFlag {
 		fmt.Println(versionStr)
-		os.Exit(0)
+		os.Exit(exit.ExitSuccess)
 	}
 
 	if *helpFlag {
 		printHelp()
-		os.Exit(0)
+		os.Exit(exit.ExitSuccess)
 	}
 
 	// init logger
@@ -73,8 +81,11 @@ func main() {
 		config.Update("filterStr", *filterFlag)
 	}
 
+	// Ensure all containers (running, paused, stopped) are shown by default unless -a flag is passed
 	if *activeOnlyFlag {
-		config.Toggle("allContainers")
+		config.UpdateSwitch("allContainers", false)
+	} else {
+		config.UpdateSwitch("allContainers", true)
 	}
 
 	if *sortFieldFlag != "" {
@@ -92,7 +103,8 @@ func main() {
 	}
 	initTheme()
 	if err := ui.Init(); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "error initializing terminal UI: %v\n", err)
+		os.Exit(exit.ExitUI)
 	}
 	tb.SetInputMode(tb.InputEsc)
 	tb.HideCursor()
@@ -102,7 +114,9 @@ func main() {
 	// init grid, cursor, header
 	cSuper, err := connector.ByName(*connectorFlag)
 	if err != nil {
-		panic(err)
+		Shutdown()
+		fmt.Fprintf(os.Stderr, "error initializing connector '%s': %v\n", *connectorFlag, err)
+		os.Exit(exit.ExitConnector)
 	}
 	cursor = &GridCursor{cSuper: cSuper}
 	cGrid = compact.NewCompactGrid()
@@ -111,31 +125,34 @@ func main() {
 	errView = widgets.NewErrorView()
 
 	for {
-		exit := Display()
-		if exit {
+		exitRequested := Display()
+		if exitRequested {
 			return
 		}
 	}
 }
 
 func Shutdown() {
-	log.Notice("shutting down")
-	log.Exit()
+	if log != nil {
+		log.Notice("shutting down")
+		log.Exit()
+	}
 	ui.Close()
 }
 
 // ensure a given sort field is valid
 func validSort(s string) {
 	if _, ok := container.Sorters[s]; !ok {
-		fmt.Printf("invalid sort field: %s\n", s)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "invalid sort field: %s\n", s)
+		os.Exit(exit.ExitUsage)
 	}
 }
 
 func panicExit() {
 	if r := recover(); r != nil {
 		Shutdown()
-		panic(r)
+		fmt.Fprintf(os.Stderr, "fatal runtime error: %v\n", r)
+		os.Exit(exit.ExitGeneral)
 	}
 }
 

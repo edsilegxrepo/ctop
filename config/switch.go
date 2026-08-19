@@ -2,22 +2,22 @@ package config
 
 // defaults
 var defaultSwitches = []*Switch{
-	&Switch{
+	{
 		Key:   "sortReversed",
 		Val:   false,
 		Label: "Reverse sort order",
 	},
-	&Switch{
+	{
 		Key:   "allContainers",
 		Val:   true,
 		Label: "Show all containers",
 	},
-	&Switch{
+	{
 		Key:   "fullRowCursor",
 		Val:   true,
 		Label: "Highlight entire cursor row (vs. name only)",
 	},
-	&Switch{
+	{
 		Key:   "enableHeader",
 		Val:   true,
 		Label: "Enable status header",

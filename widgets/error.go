@@ -5,7 +5,7 @@ import (
 	"image"
 	"time"
 
-	"github.com/bcicen/ctop/theme"
+	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 )
 
