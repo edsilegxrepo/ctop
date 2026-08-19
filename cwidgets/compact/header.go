@@ -17,7 +17,7 @@ type CompactHeader struct {
 func NewCompactHeader() *CompactHeader {
 	ch := &CompactHeader{
 		Block:     *ui.NewBlock(),
-		TextStyle: theme.Style("fg"),
+		TextStyle: ui.NewStyle(theme.Color("grid.header.fg"), theme.Color("bg"), ui.ModifierBold),
 	}
 	ch.Border = false
 	ch.SetRect(rowPadding, 0, rowPadding+100, 1)
@@ -46,6 +46,7 @@ func (row *CompactHeader) Draw(buf *ui.Buffer) {
 	x := rowPadding
 	y := row.Min.Y
 
+	style := ui.NewStyle(theme.Color("grid.header.fg"), theme.Color("bg"), ui.ModifierBold)
 	for n, field := range row.fields {
 		w := 0
 		if n < len(row.widths) {
@@ -54,7 +55,7 @@ func (row *CompactHeader) Draw(buf *ui.Buffer) {
 		if w > 0 && len(field) > w {
 			field = field[:w]
 		}
-		buf.SetString(field, row.TextStyle, image.Pt(x, y))
+		buf.SetString(field, style, image.Pt(x, y))
 		x += w + colSpacing
 	}
 }
