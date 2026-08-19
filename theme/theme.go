@@ -3,12 +3,15 @@
 package theme
 
 import (
+	"sync"
+
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 )
 
 var (
 	inverted bool
+	themeMu  sync.RWMutex
 
 	// ColorMap defines the default dark-theme color palette for all ctop UI components.
 	ColorMap = map[string]ui.Color{
@@ -45,6 +48,8 @@ var (
 
 // Color returns the Color associated with the given key
 func Color(k string) ui.Color {
+	themeMu.RLock()
+	defer themeMu.RUnlock()
 	if c, ok := ColorMap[k]; ok {
 		return c
 	}
@@ -63,6 +68,8 @@ func Style2(fgKey, bgKey string) ui.Style {
 
 // InvertColorMap inverts the foreground colors for light backgrounds
 func InvertColorMap() {
+	themeMu.Lock()
+	defer themeMu.Unlock()
 	if inverted {
 		return
 	}

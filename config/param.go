@@ -17,6 +17,11 @@ var defaultParams = []*Param{
 		Val:   "status,name,id,cpu,mem,net,io,pids,uptime",
 		Label: "Enabled Columns",
 	},
+	{
+		Key:   "downloadDir",
+		Val:   ".",
+		Label: "Default Host Download Directory",
+	},
 }
 
 type Param struct {

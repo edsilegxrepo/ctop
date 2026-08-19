@@ -171,6 +171,8 @@ func TestTextViewControls(t *testing.T) {
 	emptyTv.SetFilter("non-matching")
 	emptyTv.SetRect(0, 0, 80, 20)
 	emptyTv.Draw(buf)
+	tv.Close()
+	emptyTv.Close()
 	close(linesCh)
 	close(emptyCh)
 }

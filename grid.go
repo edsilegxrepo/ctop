@@ -2,11 +2,18 @@
 package main
 
 import (
+	"fmt"
+	"path"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/edsilegx/ctop/config"
+	"github.com/edsilegx/ctop/cwidgets"
 	"github.com/edsilegx/ctop/cwidgets/single"
 	"github.com/edsilegx/ctop/theme"
+	"github.com/edsilegx/ctop/widgets"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -48,8 +55,13 @@ func ShowConnError(err error) (exit bool) {
 	}
 }
 
+var redrawLock sync.Mutex
+
 // RedrawRows recalculates layout heights, repopulates compact grid rows, and executes TermUI render.
 func RedrawRows(clr bool) {
+	redrawLock.Lock()
+	defer redrawLock.Unlock()
+
 	if cGrid == nil || cursor == nil {
 		return
 	}
@@ -61,6 +73,7 @@ func RedrawRows(clr bool) {
 	if config.GetSwitchVal("enableHeader") && header != nil {
 		header.SetCount(cursor.Len())
 		header.SetFilter(config.GetVal("filterStr"))
+		header.Align()
 		y += header.Height() + 1
 	}
 
@@ -103,9 +116,49 @@ func SingleViewWithTab(initialTab int) MenuFn {
 
 	ui.Clear()
 	ex := single.NewSingle()
-	ex.SetTab(initialTab)
+
+	refreshExplorerDir := func(p string) {
+		ents, err := c.ReadDir(p)
+		if err != nil {
+			log.Errorf("failed to read dir %s: %s", p, err)
+		}
+		ex.Explorer.ClearPreview()
+		ex.SetExplorer(p, ents)
+		ex.Explorer.CursorPos = 0
+		ui.Clear()
+		ui.Render(ex)
+	}
+
+	switchTab := func(tab int) {
+		switch tab {
+		case single.TabNetwork:
+			ex.RunNetworkProbes()
+		case single.TabTop:
+			if topRes, err := c.Top(); err == nil {
+				ex.SetTop(topRes)
+			}
+		case single.TabDiff:
+			if changes, err := c.Changes(); err == nil {
+				ex.SetDiff(changes)
+			}
+		case single.TabGenerator:
+			ex.SetGenerator(c.GenerateRunCmd(), c.GenerateCompose())
+		case single.TabFiles:
+			dir := ex.Explorer.CurrentDir
+			if dir == "" {
+				dir = "/"
+			}
+			if entries, err := c.ReadDir(dir); err == nil {
+				ex.SetExplorer(dir, entries)
+			}
+		}
+		ex.SetTab(tab)
+	}
+
+	switchTab(initialTab)
 	c.SetUpdater(ex)
 	defer c.SetUpdater(c.Widgets)
+	defer ex.StopNetworkProbes()
 
 	termW, _ := theme.TermDimensions()
 	ex.SetWidth(termW)
@@ -120,27 +173,234 @@ func SingleViewWithTab(initialTab int) MenuFn {
 		case e := <-uiEvents:
 			switch e.Type {
 			case ui.KeyboardEvent:
+				if ex.ActiveTab == single.TabFiles {
+					if ex.Explorer.Previewing {
+						if e.ID == "<Escape>" || e.ID == "<Enter>" || e.ID == "q" || e.ID == "Q" {
+							ex.Explorer.ClearPreview()
+							ui.Clear()
+							ui.Render(ex)
+						}
+						continue
+					}
+
+					if IsKeyMatch("up", e.ID) {
+						ex.Explorer.Up()
+						ui.Render(ex)
+						continue
+					} else if IsKeyMatch("down", e.ID) {
+						ex.Explorer.Down()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "<Enter>" {
+						if item, ok := ex.Explorer.Selected(); ok {
+							if item.IsDir {
+								refreshExplorerDir(item.Path)
+							} else {
+								content, err := c.ReadFile(item.Path, 128*1024)
+								if err != nil {
+									content = fmt.Sprintf("Error reading file: %v", err)
+								}
+								ex.Explorer.SetPreview(content)
+								ui.Clear()
+								ui.Render(ex)
+							}
+						}
+						continue
+					} else if e.ID == "<Backspace>" {
+						cur := ex.Explorer.CurrentDir
+						if cur != "/" && cur != "" {
+							parent := path.Dir(cur)
+							if parent == "" {
+								parent = "/"
+							}
+							refreshExplorerDir(parent)
+						}
+						continue
+					} else if e.ID == "v" || e.ID == "<Space>" {
+						if item, ok := ex.Explorer.Selected(); ok && !item.IsDir {
+							content, err := c.ReadFile(item.Path, 128*1024)
+							if err != nil {
+								content = fmt.Sprintf("Error reading file: %v", err)
+							}
+							ex.Explorer.SetPreview(content)
+							ui.Clear()
+							ui.Render(ex)
+						}
+						continue
+					} else if e.ID == "d" {
+						if item, ok := ex.Explorer.Selected(); ok {
+							destName := item.Name
+							if destName == ".." {
+								destName = path.Base(ex.Explorer.CurrentDir)
+								if destName == "/" || destName == "." || destName == "" {
+									destName = "root"
+								}
+							}
+							activeDlDir := config.GetVal("downloadDir")
+							if activeDlDir == "" {
+								activeDlDir = "."
+							}
+							targetPath := filepath.Join(activeDlDir, destName)
+							bytesDownloaded, err := c.Download(item.Path, targetPath)
+							if err != nil {
+								ex.Explorer.SetStatus(fmt.Sprintf("❌ Download failed: %v", err), true)
+							} else {
+								ex.Explorer.SetStatus(fmt.Sprintf("✔ Downloaded %s -> %s (%s)", item.Path, targetPath, cwidgets.ByteFormat64(bytesDownloaded)), false)
+							}
+							ui.Clear()
+							ui.Render(ex)
+						}
+						continue
+					} else if e.ID == "D" {
+						inp := widgets.NewInput()
+						inp.Title = "Set Host Download Target Directory (Press Enter to apply, Esc to cancel)"
+						curDl := config.GetVal("downloadDir")
+						if curDl == "" {
+							curDl = "."
+						}
+						inp.Data = curDl
+						ui.Clear()
+						ui.Render(inp)
+						for {
+							ie := <-uiEvents
+							if ie.Type == ui.ResizeEvent {
+								theme.SyncTerm()
+								inp.Align()
+								ui.Clear()
+								ui.Render(inp)
+								continue
+							}
+							if ie.Type == ui.KeyboardEvent {
+								if ie.ID == "<Escape>" {
+									break
+								} else if ie.ID == "<Enter>" {
+									newDir := strings.TrimSpace(inp.Data)
+									if newDir == "" {
+										newDir = "."
+									}
+									config.Update("downloadDir", newDir)
+									ex.Explorer.SetDownloadDir(newDir)
+									ex.Explorer.SetStatus(fmt.Sprintf("✔ Host download directory set to: %s", newDir), false)
+									break
+								} else {
+									inp.KeyPress(ie.ID)
+									ui.Render(inp)
+								}
+							}
+						}
+						ui.Clear()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "u" || e.ID == "U" {
+						inp := widgets.NewInput()
+						inp.Title = fmt.Sprintf("Upload Host File/Dir to %s (Enter path, Esc to cancel)", ex.Explorer.CurrentDir)
+						inp.Data = ""
+						ui.Clear()
+						ui.Render(inp)
+						for {
+							ie := <-uiEvents
+							if ie.Type == ui.ResizeEvent {
+								theme.SyncTerm()
+								inp.Align()
+								ui.Clear()
+								ui.Render(inp)
+								continue
+							}
+							if ie.Type == ui.KeyboardEvent {
+								if ie.ID == "<Escape>" {
+									break
+								} else if ie.ID == "<Enter>" {
+									srcHost := strings.TrimSpace(inp.Data)
+									if srcHost != "" {
+										err := c.Upload(srcHost, ex.Explorer.CurrentDir)
+										if err != nil {
+											ex.Explorer.SetStatus(fmt.Sprintf("❌ Upload failed: %v", err), true)
+										} else {
+											ex.Explorer.SetStatus(fmt.Sprintf("✔ Uploaded %s -> %s", srcHost, ex.Explorer.CurrentDir), false)
+											refreshExplorerDir(ex.Explorer.CurrentDir)
+										}
+									}
+									break
+								} else {
+									inp.KeyPress(ie.ID)
+									ui.Render(inp)
+								}
+							}
+						}
+						ui.Clear()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "r" || e.ID == "R" {
+						refreshExplorerDir(ex.Explorer.CurrentDir)
+						continue
+					}
+				}
+
+				if ex.ActiveTab == single.TabNetwork && (e.ID == "p" || e.ID == "P") {
+					ex.RunNetworkProbes()
+					continue
+				}
+
 				if IsKeyMatch("up", e.ID) {
 					ex.Up()
+					ui.Render(ex)
 				} else if IsKeyMatch("down", e.ID) {
 					ex.Down()
+					ui.Render(ex)
+				} else if IsKeyMatch("pgup", e.ID) {
+					ex.PgUp()
+					ui.Render(ex)
+				} else if IsKeyMatch("pgdown", e.ID) {
+					ex.PgDown()
+					ui.Render(ex)
 				} else if e.ID == "<Tab>" || e.ID == "<Right>" || e.ID == "l" {
-					ex.NextTab()
+					switchTab((ex.ActiveTab + 1) % single.TotalTabs)
+					ui.Clear()
+					ui.Render(ex)
 				} else if e.ID == "<BackTab>" || e.ID == "<Left>" || e.ID == "h" {
-					ex.PrevTab()
+					switchTab((ex.ActiveTab - 1 + single.TotalTabs) % single.TotalTabs)
+					ui.Clear()
+					ui.Render(ex)
 				} else if e.ID == "1" || e.ID == "o" {
-					ex.SetTab(single.TabMetrics)
+					switchTab(single.TabMetrics)
+					ui.Clear()
+					ui.Render(ex)
 				} else if e.ID == "2" || e.ID == "v" {
-					ex.SetTab(single.TabVolumes)
+					switchTab(single.TabVolumes)
+					ui.Clear()
+					ui.Render(ex)
 				} else if e.ID == "3" || e.ID == "n" {
-					ex.SetTab(single.TabNetwork)
-				} else if e.ID == "4" || e.ID == "E" || e.ID == "e" || e.ID == "p" {
-					ex.SetTab(single.TabProcess)
-				} else if e.ID == "5" || e.ID == "L" {
-					ex.SetTab(single.TabLabels)
+					switchTab(single.TabNetwork)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "4" || e.ID == "E" {
+					switchTab(single.TabProcess)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "5" || e.ID == "P" {
+					switchTab(single.TabTop)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "6" || e.ID == "D" {
+					switchTab(single.TabDiff)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "7" || e.ID == "G" {
+					switchTab(single.TabGenerator)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "8" || e.ID == "L" {
+					switchTab(single.TabLabels)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "9" || e.ID == "F" {
+					switchTab(single.TabFiles)
+					ui.Clear()
+					ui.Render(ex)
+				} else if (e.ID == "u" || e.ID == "U") && ex.ActiveTab != single.TabFiles {
+					ex.ToggleSecretMask()
+					ui.Render(ex)
 				} else if e.ID == "q" || e.ID == "Q" || e.ID == "<Escape>" {
-					return nil
-				} else {
 					return nil
 				}
 			case ui.ResizeEvent:
@@ -173,8 +433,24 @@ func SingleViewProcess() MenuFn {
 	return SingleViewWithTab(single.TabProcess)
 }
 
+func SingleViewTop() MenuFn {
+	return SingleViewWithTab(single.TabTop)
+}
+
+func SingleViewDiff() MenuFn {
+	return SingleViewWithTab(single.TabDiff)
+}
+
+func SingleViewGenerator() MenuFn {
+	return SingleViewWithTab(single.TabGenerator)
+}
+
 func SingleViewLabels() MenuFn {
 	return SingleViewWithTab(single.TabLabels)
+}
+
+func SingleViewFiles() MenuFn {
+	return SingleViewWithTab(single.TabFiles)
 }
 
 func RefreshDisplay() error {
@@ -249,14 +525,23 @@ func Display() bool {
 					case "<Right>", "o":
 						menu = SingleView
 						goto RunMenu
+					case "v":
+						menu = SingleViewVolumes
+						goto RunMenu
+					case "n":
+						menu = SingleViewNetwork
+						goto RunMenu
+					case "U":
+						menu = ResourceMenu
+						goto RunMenu
+					case "F":
+						menu = FileExplorerMenu
+						goto RunMenu
 					case "e":
 						menu = ExecShell
 						goto RunMenu
 					case "w":
-						menu = OpenInBrowser()
-						if menu != nil {
-							goto RunMenu
-						}
+						OpenInBrowser()
 					case "a":
 						config.Toggle("allContainers")
 						connErr = RefreshDisplay()
@@ -268,6 +553,9 @@ func Display() bool {
 					case "f":
 						menu = FilterMenu
 						goto RunMenu
+					case "g", "G":
+						config.Toggle("groupByCompose")
+						_ = RefreshDisplay()
 					case "H":
 						config.Toggle("enableHeader")
 						RedrawRows(true)

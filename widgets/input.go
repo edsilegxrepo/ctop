@@ -6,10 +6,9 @@ import (
 
 	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
-	tb "github.com/nsf/termbox-go"
 )
 
-var input_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_./:"
+var input_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_./:~@+=, #$%&*()[]{}<>?!"
 
 type Padding [2]int // x,y padding
 
@@ -26,7 +25,7 @@ func NewInput() *Input {
 	w, h := theme.TermDimensions()
 	i := &Input{
 		Block:     *ui.NewBlock(),
-		MaxLen:    30,
+		MaxLen:    256,
 		TextStyle: theme.Style2("menu.text.fg", "menu.text.bg"),
 		padding:   Padding{2, 1},
 	}
@@ -38,23 +37,50 @@ func NewInput() *Input {
 }
 
 func (i *Input) calcSize(termW, termH int) {
-	width := i.MaxLen + (i.padding[0] * 2) + 2
-	height := 3
-	if width > termW {
+	titleLen := len(i.Title)
+	needed := 72
+	if titleLen+8 > needed {
+		needed = titleLen + 8
+	}
+	width := needed + (i.padding[0] * 2) + 2
+	if width > termW-2 {
+		width = termW - 2
+	}
+	if width < 20 {
 		width = termW
 	}
-	y1 := termH - height
+
+	x0 := (termW - width) / 2
+	if x0 < 0 {
+		x0 = 0
+	}
+	height := 3
+	y1 := (termH - height) / 2
 	if y1 < 0 {
 		y1 = 0
 	}
-	i.SetRect(0, y1, width, termH)
+	i.SetRect(x0, y1, x0+width, y1+height)
+}
+
+func (i *Input) Align() {
+	w, h := theme.TermDimensions()
+	i.calcSize(w, h)
 }
 
 func (i *Input) Draw(buf *ui.Buffer) {
+	w, h := theme.TermDimensions()
+	if i.Rectangle.Dx() < len(i.Title)+6 || i.Rectangle.Dx() < 50 {
+		i.calcSize(w, h)
+	}
 	i.Block.Draw(buf)
 	x := i.Inner.Min.X + i.padding[0]
 	y := i.Inner.Min.Y
-	buf.SetString(i.Data, i.TextStyle, image.Pt(x, y))
+	txt := i.Data
+	maxVisible := (i.Inner.Max.X - i.Inner.Min.X) - (i.padding[0] * 2)
+	if maxVisible > 0 && len(txt) > maxVisible {
+		txt = txt[len(txt)-maxVisible:]
+	}
+	buf.SetString(txt, i.TextStyle, image.Pt(x, y))
 }
 
 func (i *Input) Stream() chan string {
@@ -70,9 +96,6 @@ func (i *Input) KeyPress(keyID string) {
 				i.stream <- i.Data
 			}
 		}
-		if tb.IsInit {
-			ui.Render(i)
-		}
 		return
 	}
 	if len(i.Data) >= i.MaxLen {
@@ -82,9 +105,6 @@ func (i *Input) KeyPress(keyID string) {
 		i.Data += keyID
 		if i.stream != nil {
 			i.stream <- i.Data
-		}
-		if tb.IsInit {
-			ui.Render(i)
 		}
 	}
 }

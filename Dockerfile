@@ -9,7 +9,7 @@ RUN go mod download
 COPY . .
 RUN make build && \
     mkdir -p /go/bin && \
-    mv -v ctop /go/bin/
+    mv -v bin/ctop /go/bin/
 
 FROM scratch
 ENV TERM=linux

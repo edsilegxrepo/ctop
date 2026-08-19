@@ -210,6 +210,11 @@ func TestNetworkWidget(t *testing.T) {
 
 	nw.SetRect(0, 0, 100, 15)
 	nw.Draw(buf)
+
+	// Test probes
+	nw.RunProbes()
+	time.Sleep(50 * time.Millisecond)
+	nw.Draw(buf)
 }
 
 func TestProcessWidget(t *testing.T) {
@@ -265,10 +270,153 @@ func TestLabelsWidget(t *testing.T) {
 	lbl.Draw(buf)
 }
 
+func TestTopWidget(t *testing.T) {
+	top := NewTop()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	// Empty draw
+	top.SetRect(0, 0, 100, 10)
+	top.Draw(buf)
+	if top.GetHeight() != 5 {
+		t.Fatalf("expected empty top height 5, got %d", top.GetHeight())
+	}
+
+	top.Set(models.TopResult{
+		Titles: []string{"UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"},
+		Processes: [][]string{
+			{"root", "1234", "1", "0.0", "12:00", "?", "00:00:01", "/app/server"},
+		},
+	})
+	if len(top.Result.Processes) != 1 {
+		t.Fatalf("expected 1 process, got %d", len(top.Result.Processes))
+	}
+	top.SetRect(0, 0, 100, 15)
+	top.Draw(buf)
+}
+
+func TestDiffWidget(t *testing.T) {
+	diff := NewDiff()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	// Empty draw
+	diff.SetRect(0, 0, 100, 10)
+	diff.Draw(buf)
+	if diff.GetHeight() != 5 {
+		t.Fatalf("expected empty diff height 5, got %d", diff.GetHeight())
+	}
+
+	diff.Set([]models.Change{
+		{Path: "/app/config.json", Kind: 0},
+		{Path: "/tmp/app.log", Kind: 1},
+		{Path: "/var/cache/old.tmp", Kind: 2},
+	})
+	if len(diff.Changes) != 3 {
+		t.Fatalf("expected 3 changes, got %d", len(diff.Changes))
+	}
+	diff.SetRect(0, 0, 100, 15)
+	diff.Draw(buf)
+}
+
+func TestGeneratorWidget(t *testing.T) {
+	gen := NewGenerator()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	// Empty draw
+	gen.SetRect(0, 0, 100, 10)
+	gen.Draw(buf)
+
+	gen.Set("docker run -d --name test redis:alpine", "version: '3.8'\nservices:\n  test:\n    image: redis:alpine")
+	if gen.RunCmd == "" || gen.Compose == "" {
+		t.Fatalf("expected non-empty run/compose strings")
+	}
+	gen.SetRect(0, 0, 100, 15)
+	gen.Draw(buf)
+}
+
+func TestEnvSecretMasking(t *testing.T) {
+	env := NewEnv()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	env.Set("DB_PASSWORD=supersecret;API_KEY=12345;LOG_LEVEL=debug")
+	env.SetRect(0, 0, 100, 10)
+	env.Draw(buf)
+
+	// Verify password masked
+	var foundMasked bool
+	for _, r := range env.Rows {
+		if r[0] == "DB_PASSWORD" && r[1] == "•••••••••••• [masked]" {
+			foundMasked = true
+		}
+	}
+	if !foundMasked {
+		t.Fatalf("expected DB_PASSWORD to be masked by default")
+	}
+
+	// Toggle unmask
+	env.ToggleMask()
+	foundMasked = false
+	for _, r := range env.Rows {
+		if r[0] == "DB_PASSWORD" && r[1] == "supersecret" {
+			foundMasked = true
+		}
+	}
+	if !foundMasked {
+		t.Fatalf("expected DB_PASSWORD to be unmasked after ToggleMask")
+	}
+}
+
+func TestExplorerWidget(t *testing.T) {
+	exp := NewExplorer()
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+
+	// Empty draw
+	exp.SetRect(0, 0, 100, 10)
+	exp.Draw(buf)
+	if exp.GetHeight() != 6 {
+		t.Fatalf("expected empty explorer height 6, got %d", exp.GetHeight())
+	}
+
+	exp.Set("/app", []models.FileInfo{
+		{Name: "config.json", Path: "/app/config.json", IsDir: false, Size: 128, Mode: "-rw-r--r--", ModTime: "2026-08-18 12:00:00"},
+		{Name: "src", Path: "/app/src", IsDir: true, Mode: "drwxr-xr-x", ModTime: "2026-08-18 12:00:00"},
+	})
+
+	if len(exp.totalItems()) != 3 { // ".." + config.json + src
+		t.Fatalf("expected 3 total items, got %d", len(exp.totalItems()))
+	}
+
+	// Navigation
+	exp.Down()
+	exp.Up()
+	item, ok := exp.Selected()
+	if !ok || item.Name != ".." {
+		t.Fatalf("expected first item to be '..', got %+v", item)
+	}
+
+	exp.Down()
+	item, ok = exp.Selected()
+	if !ok || item.Name != "config.json" {
+		t.Fatalf("expected second item to be 'config.json', got %+v", item)
+	}
+
+	// Preview mode
+	exp.SetPreview("{\"name\": \"ctop\"}")
+	if !exp.Previewing {
+		t.Fatalf("expected Previewing to be true")
+	}
+	exp.Draw(buf)
+
+	exp.ClearPreview()
+	if exp.Previewing {
+		t.Fatalf("expected Previewing to be false")
+	}
+	exp.Draw(buf)
+}
+
 func TestSingleTabNavigation(t *testing.T) {
 	s := NewSingle()
 	meta := models.NewMeta("name", "postgres-db", "state", "running")
-	meta["[ENV-VAR]"] = "POSTGRES_DB=appdb;POSTGRES_USER=admin"
+	meta["[ENV-VAR]"] = "POSTGRES_DB=appdb;POSTGRES_USER=admin;POSTGRES_PASSWORD=secret"
 	meta["[MOUNTS]"] = "/var/lib/data:::/opt/volumes/data:::volume:::rw:::"
 	meta["[LABELS]"] = "com.docker.compose.project=webapp;;service=db"
 	meta["[NETWORKS]"] = "bridge:::172.17.0.2:::172.17.0.1:::02:42:ac:11:00:02:::16"
@@ -276,9 +424,17 @@ func TestSingleTabNavigation(t *testing.T) {
 	meta["workdir"] = "/var/lib/postgresql"
 	s.SetMeta(meta)
 
+	s.SetTop(models.TopResult{
+		Titles: []string{"PID", "CMD"},
+		Processes: [][]string{{"1", "postgres"}},
+	})
+	s.SetDiff([]models.Change{{Path: "/var/lib/postgresql/data", Kind: 0}})
+	s.SetGenerator("docker run -d postgres", "version: '3.8'")
+	s.SetExplorer("/", []models.FileInfo{{Name: "var", Path: "/var", IsDir: true}})
+
 	buf := ui.NewBuffer(image.Rect(0, 0, 120, 40))
 
-	// Iterate through each tab
+	// Iterate through each of 9 tabs
 	for tab := 0; tab < TotalTabs; tab++ {
 		s.SetTab(tab)
 		if s.ActiveTab != tab {
@@ -289,14 +445,17 @@ func TestSingleTabNavigation(t *testing.T) {
 	}
 
 	// Test NextTab and PrevTab cycling
-	s.SetTab(TabLabels)
+	s.SetTab(TabFiles)
 	s.NextTab()
 	if s.ActiveTab != TabMetrics {
-		t.Errorf("expected NextTab from TabLabels to cycle to TabMetrics, got %d", s.ActiveTab)
+		t.Errorf("expected NextTab from TabFiles to cycle to TabMetrics, got %d", s.ActiveTab)
 	}
 
 	s.PrevTab()
-	if s.ActiveTab != TabLabels {
-		t.Errorf("expected PrevTab from TabMetrics to cycle to TabLabels, got %d", s.ActiveTab)
+	if s.ActiveTab != TabFiles {
+		t.Errorf("expected PrevTab from TabMetrics to cycle to TabFiles, got %d", s.ActiveTab)
 	}
+
+	// Test ToggleSecretMask
+	s.ToggleSecretMask()
 }

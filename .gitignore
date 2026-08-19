@@ -1,6 +1,9 @@
 ctop
+bin/
 _build/
 release/
 .idea
 /vendor/
 *.log
+ctop_logs_*.log
+sha256sums.txt

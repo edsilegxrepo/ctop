@@ -14,9 +14,15 @@ import (
 	ui "github.com/gizak/termui/v3"
 )
 
-func TestInitTheme(t *testing.T) {
+func TestMain(m *testing.M) {
 	initTheme()
-	InvertColorMap()
+	openBrowserURL = func(url string) error {
+		return nil
+	}
+	os.Exit(m.Run())
+}
+
+func TestInitTheme(t *testing.T) {
 	if ui.Theme.Block.Title.Fg == 0 {
 		t.Log("theme initialized")
 	}
@@ -40,9 +46,9 @@ func TestPrintHelp(t *testing.T) {
 }
 
 func TestValidSort(t *testing.T) {
-	validSort("name")
-	validSort("cpu")
-	validSort("mem")
+	for k := range container.Sorters {
+		validSort(k)
+	}
 }
 
 func TestPanicExit(t *testing.T) {

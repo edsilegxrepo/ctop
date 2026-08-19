@@ -9,7 +9,6 @@ import (
 	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 	"github.com/mattn/go-runewidth"
-	tb "github.com/nsf/termbox-go"
 )
 
 type ToggleText interface {
@@ -21,7 +20,8 @@ type TextView struct {
 	ui.Block
 	mu          sync.Mutex
 	inputStream <-chan ToggleText
-	render      chan bool
+	closed      chan struct{}
+	closeOnce   sync.Once
 	toggleState bool
 	filterStr   string
 	paused      bool
@@ -36,7 +36,7 @@ func NewTextView(lines <-chan ToggleText) *TextView {
 	t := &TextView{
 		Block:       *ui.NewBlock(),
 		inputStream: lines,
-		render:      make(chan bool, 10),
+		closed:      make(chan struct{}),
 		Text:        []ToggleText{},
 		TextOut:     []string{},
 		TextStyle:   theme.Style2("menu.text.fg", "menu.text.bg"),
@@ -48,23 +48,21 @@ func NewTextView(lines <-chan ToggleText) *TextView {
 	t.SetRect(0, 0, w, h)
 
 	t.readInputLoop()
-	t.renderLoop()
 	return t
 }
 
 // Resize adjusts view according to window size
 func (t *TextView) Resize() {
-	if tb.IsInit {
-		ui.Clear()
-	}
+	ui.Clear()
 	w, h := theme.TermDimensions()
 	t.SetRect(0, 0, w, h)
-	t.queueRender()
 }
 
 // SetRect sets block boundaries
 func (t *TextView) SetRect(x1, y1, x2, y2 int) {
+	t.mu.Lock()
 	t.Block.SetRect(x1, y1, x2, y2)
+	t.mu.Unlock()
 }
 
 // Toggle toggles text display format
@@ -73,7 +71,6 @@ func (t *TextView) Toggle() {
 	t.toggleState = !t.toggleState
 	t.recomputeTextOut()
 	t.mu.Unlock()
-	t.queueRender()
 }
 
 // Pause pauses automatic background redraws
@@ -89,7 +86,6 @@ func (t *TextView) Resume() {
 	t.paused = false
 	t.recomputeTextOut()
 	t.mu.Unlock()
-	t.queueRender()
 }
 
 // IsPaused returns whether background redraws are paused
@@ -105,7 +101,6 @@ func (t *TextView) SetFilter(f string) {
 	t.filterStr = f
 	t.recomputeTextOut()
 	t.mu.Unlock()
-	t.queueRender()
 }
 
 // Filter returns current filter substring
@@ -115,18 +110,22 @@ func (t *TextView) Filter() string {
 	return t.filterStr
 }
 
-func (t *TextView) queueRender() {
-	select {
-	case t.render <- true:
-	default:
-	}
-}
-
 // RecomputeTextOut calculates displayed lines based on dimensions, filter, and wrap
 func (t *TextView) RecomputeTextOut() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.recomputeTextOut()
+}
+
+// Lines returns all accumulated log lines formatted with current toggle state
+func (t *TextView) Lines() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var res []string
+	for _, item := range t.Text {
+		res = append(res, item.Toggle(t.toggleState))
+	}
+	return res
 }
 
 func (t *TextView) recomputeTextOut() {
@@ -196,30 +195,30 @@ func (t *TextView) Draw(buf *ui.Buffer) {
 	}
 }
 
-func (t *TextView) renderLoop() {
-	go func() {
-		for range t.render {
-			t.mu.Lock()
-			if t.paused {
-				t.mu.Unlock()
-				continue
-			}
-			t.recomputeTextOut()
-			t.mu.Unlock()
-			if tb.IsInit {
-				ui.Render(t)
-			}
-		}
-	}()
+// Close stops the background worker loops
+func (t *TextView) Close() {
+	t.closeOnce.Do(func() {
+		close(t.closed)
+	})
 }
 
 func (t *TextView) readInputLoop() {
 	go func() {
-		for line := range t.inputStream {
-			t.mu.Lock()
-			t.Text = append(t.Text, line)
-			t.mu.Unlock()
-			t.queueRender()
+		for {
+			select {
+			case <-t.closed:
+				return
+			case line, ok := <-t.inputStream:
+				if !ok {
+					return
+				}
+				t.mu.Lock()
+				t.Text = append(t.Text, line)
+				if !t.paused {
+					t.recomputeTextOut()
+				}
+				t.mu.Unlock()
+			}
 		}
 	}()
 }

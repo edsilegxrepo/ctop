@@ -1,9 +1,13 @@
 package single
 
 import (
+	"context"
 	"fmt"
 	"image"
+	"net"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
@@ -18,12 +22,25 @@ type NetworkInfo struct {
 	Subnet  string
 }
 
-// Network widget displays container network adapters, addresses, and port mappings.
+// ProbeResult stores TCP connectivity diagnostics
+type ProbeResult struct {
+	Label    string // e.g. "External Host"
+	Target   string // e.g. "127.0.0.1:8080"
+	Status   string // "OPEN", "CLOSED", "TIMEOUT", "REACHABLE"
+	Duration time.Duration
+	Success  bool
+}
+
+// Network widget displays container network adapters, addresses, port mappings, and live TCP probes.
 type Network struct {
 	ui.Block
 	Networks []NetworkInfo
 	Ports    string
 	IPs      string
+	Probes   []ProbeResult
+	mu       sync.Mutex
+	probing  bool
+	cancel   context.CancelFunc
 }
 
 // NewNetwork constructs a new Network inspection widget.
@@ -31,16 +48,30 @@ func NewNetwork() *Network {
 	nw := &Network{
 		Block:    *ui.NewBlock(),
 		Networks: []NetworkInfo{},
+		Probes:   []ProbeResult{},
 	}
-	nw.Title = "NETWORKING & PORTS"
+	nw.Title = "NETWORKING & PORTS [p: run TCP probe]"
 	nw.BorderStyle = theme.Style("border.fg")
 	nw.TitleStyle = theme.Style("label.fg")
 	nw.SetRect(0, 0, colWidth[0], 6)
 	return nw
 }
 
+// StopProbes aborts any ongoing network probe goroutines
+func (w *Network) StopProbes() {
+	w.mu.Lock()
+	if w.cancel != nil {
+		w.cancel()
+		w.cancel = nil
+	}
+	w.probing = false
+	w.mu.Unlock()
+}
+
 // Set parses the serialized networks and port information
 func (w *Network) Set(networkStr, portsStr, ipsStr string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.Ports = portsStr
 	w.IPs = ipsStr
 	w.Networks = []NetworkInfo{}
@@ -72,11 +103,206 @@ func (w *Network) Set(networkStr, portsStr, ipsStr string) {
 	}
 }
 
+// RunProbes asynchronously executes TCP reachability tests against unique external mapped ports and internal container endpoints in parallel
+func (w *Network) RunProbes() {
+	w.mu.Lock()
+	if w.cancel != nil {
+		w.cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	w.cancel = cancel
+	w.probing = true
+
+	portsVal := w.Ports
+	networksVal := make([]NetworkInfo, len(w.Networks))
+	copy(networksVal, w.Networks)
+	w.mu.Unlock()
+
+	go func() {
+		defer func() {
+			w.mu.Lock()
+			w.probing = false
+			w.mu.Unlock()
+		}()
+		type probeTask struct {
+			label  string
+			target string
+			isGw   bool
+		}
+
+		var tasks []probeTask
+		seenTargets := make(map[string]bool)
+
+		// 1. Unique External Host Ports (from portsVal)
+		if strings.TrimSpace(portsVal) != "" {
+			for _, line := range strings.Split(portsVal, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				if strings.Contains(line, "->") {
+					parts := strings.Split(line, "->")
+					hostPart := strings.TrimSpace(parts[0])
+					lastColon := strings.LastIndex(hostPart, ":")
+					if lastColon != -1 {
+						hostIP := hostPart[:lastColon]
+						port := hostPart[lastColon+1:]
+						label := "External Host"
+						if hostIP == "::" || hostIP == "::1" || hostIP == "[::]" {
+							hostIP = "::1"
+							label = "External (IPv6)"
+						} else {
+							hostIP = "127.0.0.1"
+							label = "External (IPv4)"
+						}
+						target := net.JoinHostPort(hostIP, port)
+						if !seenTargets[target] {
+							seenTargets[target] = true
+							tasks = append(tasks, probeTask{label: label, target: target, isGw: false})
+						}
+					}
+				}
+			}
+		}
+
+		// 2. Unique Container Internal Ports
+		uniqueContPorts := make(map[string]bool)
+		if strings.TrimSpace(portsVal) != "" {
+			for _, line := range strings.Split(portsVal, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				if strings.Contains(line, "->") {
+					parts := strings.Split(line, "->")
+					contPart := strings.TrimSpace(parts[1])
+					port := strings.Split(contPart, "/")[0]
+					if port != "" {
+						uniqueContPorts[port] = true
+					}
+				} else if strings.Contains(line, "/") {
+					port := strings.Split(line, "/")[0]
+					if port != "" {
+						uniqueContPorts[port] = true
+					}
+				}
+			}
+		}
+
+		// Add internal targets per network interface
+		for _, n := range networksVal {
+			if n.IP != "" {
+				for port := range uniqueContPorts {
+					target := net.JoinHostPort(n.IP, port)
+					if !seenTargets[target] {
+						seenTargets[target] = true
+						tasks = append(tasks, probeTask{
+							label:  fmt.Sprintf("Internal (%s)", n.Name),
+							target: target,
+							isGw:   false,
+						})
+					}
+				}
+
+				// 3. Bridge Gateway
+				if n.Gateway != "" {
+					if !seenTargets[n.Gateway] {
+						seenTargets[n.Gateway] = true
+						tasks = append(tasks, probeTask{
+							label:  fmt.Sprintf("Gateway (%s)", n.Name),
+							target: n.Gateway,
+							isGw:   true,
+						})
+					}
+				}
+			}
+		}
+
+		// Run all probes concurrently
+		var wg sync.WaitGroup
+		resultsMu := sync.Mutex{}
+		results := make([]ProbeResult, len(tasks))
+
+		for idx, task := range tasks {
+			wg.Add(1)
+			go func(i int, t probeTask) {
+				defer wg.Done()
+				if t.isGw {
+					// Gateway probe
+					gwAddr := net.JoinHostPort(t.target, "53")
+					success, dur, _ := probeTCP(ctx, gwAddr, 250*time.Millisecond)
+					status := "REACHABLE"
+					if !success {
+						status = "CONFIGURED"
+						success = true
+					}
+					resultsMu.Lock()
+					results[i] = ProbeResult{
+						Label:    t.label,
+						Target:   t.target,
+						Status:   status,
+						Duration: dur,
+						Success:  success,
+					}
+					resultsMu.Unlock()
+				} else {
+					success, dur, err := probeTCP(ctx, t.target, 350*time.Millisecond)
+					status := "OPEN"
+					if !success {
+						if err != nil && strings.Contains(err.Error(), "refused") {
+							status = "REFUSED"
+						} else {
+							status = "CLOSED / UNREACHABLE"
+						}
+					} else if strings.HasPrefix(t.label, "Internal") {
+						status = "REACHABLE"
+					}
+					resultsMu.Lock()
+					results[i] = ProbeResult{
+						Label:    t.label,
+						Target:   t.target,
+						Status:   status,
+						Duration: dur,
+						Success:  success,
+					}
+					resultsMu.Unlock()
+				}
+			}(idx, task)
+		}
+
+		wg.Wait()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		w.mu.Lock()
+		w.Probes = results
+		w.mu.Unlock()
+	}()
+}
+
+func probeTCP(ctx context.Context, addr string, timeout time.Duration) (bool, time.Duration, error) {
+	start := time.Now()
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	dur := time.Since(start)
+	if err != nil {
+		return false, dur, err
+	}
+	_ = conn.Close()
+	return true, dur, nil
+}
+
 // GetHeight calculates required widget height
 func (w *Network) GetHeight() int {
-	h := 3 // title + borders
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	h := 4 // title + borders
 	if len(w.Networks) > 0 {
-		h += len(w.Networks) + 2 // header + rows
+		h += len(w.Networks) + 2
 	} else if w.IPs != "" {
 		h += len(strings.Split(w.IPs, "\n")) + 2
 	} else {
@@ -88,15 +314,24 @@ func (w *Network) GetHeight() int {
 	} else {
 		h += 2
 	}
+
+	numProbes := len(w.Probes)
+	if numProbes > 0 {
+		h += numProbes + 2
+	} else {
+		h += 3
+	}
 	return h
 }
 
-// Draw renders formatted network adapters and port tables
+// Draw renders formatted network adapters, port tables, and probe results
 func (w *Network) Draw(buf *ui.Buffer) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.Block.Draw(buf)
 
 	headerStyle := theme.Style("label.fg")
-	keyStyle := theme.Style("header.fg")
+	keyStyle := theme.Style("label.fg")
 	valStyle := theme.Style("par.text.fg")
 	subHeaderStyle := theme.Style("status.warn")
 
@@ -153,6 +388,41 @@ func (w *Network) Draw(buf *ui.Buffer) {
 			}
 		} else {
 			buf.SetString("No ports exposed or published to host.", valStyle, image.Pt(w.Inner.Min.X+2, y))
+			y++
+		}
+	}
+
+	y++ // gap
+
+	// Section 3: Live Connectivity & Port Probes
+	if y < w.Inner.Max.Y {
+		buf.SetString("[ Live TCP Port & Connectivity Probes ] (Press 'p' to re-probe)", subHeaderStyle, image.Pt(w.Inner.Min.X+1, y))
+		y++
+
+		probes := make([]ProbeResult, len(w.Probes))
+		copy(probes, w.Probes)
+		isProbing := w.probing
+
+		if isProbing && len(probes) == 0 {
+			buf.SetString("  Probing network endpoints...", theme.Style("label.fg"), image.Pt(w.Inner.Min.X+2, y))
+			y++
+		} else if len(probes) > 0 {
+			for _, pr := range probes {
+				if y >= w.Inner.Max.Y {
+					break
+				}
+				statusColor := theme.Style("status.healthy")
+				badge := fmt.Sprintf("[✔ %s (%.1fms)]", pr.Status, float64(pr.Duration.Microseconds())/1000.0)
+				if !pr.Success {
+					statusColor = theme.Style("status.error")
+					badge = fmt.Sprintf("[❌ %s]", pr.Status)
+				}
+				buf.SetString(fmt.Sprintf("  • %-22s: %-22s ──► ", pr.Label, pr.Target), valStyle, image.Pt(w.Inner.Min.X+2, y))
+				buf.SetString(badge, statusColor, image.Pt(w.Inner.Min.X+54, y))
+				y++
+			}
+		} else {
+			buf.SetString("  No active endpoints to probe (press 'p' to test).", valStyle, image.Pt(w.Inner.Min.X+2, y))
 			y++
 		}
 	}

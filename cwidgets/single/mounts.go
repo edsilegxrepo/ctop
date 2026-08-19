@@ -97,7 +97,7 @@ func (w *Mounts) Draw(buf *ui.Buffer) {
 	headerStyle := theme.Style("label.fg")
 	destStyle := theme.Style("par.text.fg")
 	srcStyle := theme.Style("par.text.fg")
-	typeStyle := theme.Style("header.fg")
+	typeStyle := theme.Style("label.fg")
 	modeStyle := theme.Style("status.warn")
 	roStyle := theme.Style("status.danger")
 

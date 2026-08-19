@@ -32,6 +32,24 @@ func TestDockerCollectorReadCPU(t *testing.T) {
 	if c.lastCpu != 500000000 {
 		t.Fatalf("expected lastCpu to be 500000000, got %f", c.lastCpu)
 	}
+
+	// Test fallback when OnlineCPUs is 0
+	stats2 := &api.Stats{}
+	stats2.CPUStats.OnlineCPUs = 0
+	stats2.CPUStats.CPUUsage.PercpuUsage = []uint64{100, 200}
+	c.ReadCPU(stats2)
+	if c.NCpus != 2 {
+		t.Fatalf("expected NCpus 2 from PercpuUsage fallback, got %d", c.NCpus)
+	}
+
+	// Test fallback when PercpuUsage is empty
+	stats3 := &api.Stats{}
+	stats3.CPUStats.OnlineCPUs = 0
+	stats3.CPUStats.CPUUsage.PercpuUsage = nil
+	c.ReadCPU(stats3)
+	if c.NCpus != 0 {
+		t.Fatalf("expected NCpus 0 when both OnlineCPUs and PercpuUsage are empty, got %d", c.NCpus)
+	}
 }
 
 func TestDockerCollectorReadMemCgroupV2(t *testing.T) {
@@ -137,6 +155,8 @@ func TestDockerCollectorLogsAndRunning(t *testing.T) {
 		t.Fatal("expected non-nil logs collector")
 	}
 
+	c.done = make(chan bool, 1)
+	c.running.Store(true)
 	c.Stop()
 	if c.Running() {
 		t.Fatal("expected Running() to be false after Stop")
@@ -174,4 +194,48 @@ func TestDockerCollectorStreamingWithMockServer(t *testing.T) {
 	}
 
 	c.Stop()
+}
+
+func TestDockerCollectorReadMemCacheFallbacks(t *testing.T) {
+	c := &Docker{
+		Metrics: models.NewMetrics(),
+	}
+
+	// 1. TotalInactiveFile fallback
+	stats1 := &api.Stats{}
+	stats1.MemoryStats.Usage = 3000
+	stats1.MemoryStats.Limit = 5000
+	stats1.MemoryStats.Stats.TotalInactiveFile = 1000
+	stats1.MemoryStats.Stats.TotalRss = 500
+	stats1.MemoryStats.Stats.Swap = 200
+	stats1.MemoryStats.Stats.KernelStack = 100
+	stats1.MemoryStats.Stats.Slab = 50
+	c.ReadMem(stats1)
+	if c.MemUsage != 2000 {
+		t.Fatalf("expected MemUsage 2000, got %d", c.MemUsage)
+	}
+	if c.MemRss != 500 || c.MemSwap != 200 || c.MemKernel != 150 {
+		t.Fatalf("expected rss=500 swap=200 kernel=150, got rss=%d swap=%d kernel=%d", c.MemRss, c.MemSwap, c.MemKernel)
+	}
+
+	// 2. Cache fallback
+	stats2 := &api.Stats{}
+	stats2.MemoryStats.Usage = 4000
+	stats2.MemoryStats.Limit = 6000
+	stats2.MemoryStats.Stats.Cache = 1500
+	stats2.MemoryStats.Stats.Rss = 600
+	c.ReadMem(stats2)
+	if c.MemUsage != 2500 {
+		t.Fatalf("expected MemUsage 2500, got %d", c.MemUsage)
+	}
+
+	// 3. TotalCache fallback
+	stats3 := &api.Stats{}
+	stats3.MemoryStats.Usage = 5000
+	stats3.MemoryStats.Limit = 8000
+	stats3.MemoryStats.Stats.TotalCache = 2000
+	c.ReadMem(stats3)
+	if c.MemUsage != 3000 {
+		t.Fatalf("expected MemUsage 3000, got %d", c.MemUsage)
+	}
 }

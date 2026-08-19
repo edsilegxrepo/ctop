@@ -2,6 +2,7 @@ package compact
 
 import (
 	"image"
+	"sync"
 
 	"github.com/edsilegx/ctop/config"
 	"github.com/edsilegx/ctop/logging"
@@ -26,6 +27,7 @@ type CompactRow struct {
 	ui.Block
 	Cols   []CompactCol
 	Height int
+	mu     sync.Mutex
 }
 
 func NewCompactRow() *CompactRow {
@@ -39,12 +41,16 @@ func NewCompactRow() *CompactRow {
 }
 
 func (row *CompactRow) SetMeta(m models.Meta) {
+	row.mu.Lock()
+	defer row.mu.Unlock()
 	for _, w := range row.Cols {
 		w.SetMeta(m)
 	}
 }
 
 func (row *CompactRow) SetMetrics(m models.Metrics) {
+	row.mu.Lock()
+	defer row.mu.Unlock()
 	for _, w := range row.Cols {
 		w.SetMetrics(m)
 	}
@@ -52,6 +58,8 @@ func (row *CompactRow) SetMetrics(m models.Metrics) {
 
 // Reset gauges, counters, etc. to default unread values
 func (row *CompactRow) Reset() {
+	row.mu.Lock()
+	defer row.mu.Unlock()
 	for _, w := range row.Cols {
 		w.Reset()
 	}
@@ -59,9 +67,15 @@ func (row *CompactRow) Reset() {
 
 func (row *CompactRow) GetHeight() int { return row.Height }
 
-func (row *CompactRow) GetRect() image.Rectangle { return row.Rectangle }
+func (row *CompactRow) GetRect() image.Rectangle {
+	row.mu.Lock()
+	defer row.mu.Unlock()
+	return row.Rectangle
+}
 
 func (row *CompactRow) SetY(y int) {
+	row.mu.Lock()
+	defer row.mu.Unlock()
 	row.SetRect(row.Min.X, y, row.Max.X, y+row.Height)
 	for _, w := range row.Cols {
 		rect := w.GetRect()
@@ -70,6 +84,8 @@ func (row *CompactRow) SetY(y int) {
 }
 
 func (row *CompactRow) SetWidths(totalWidth int, widths []int) {
+	row.mu.Lock()
+	defer row.mu.Unlock()
 	x := rowPadding
 	y := row.Min.Y
 	row.SetRect(x, y, x+totalWidth, y+row.Height)
@@ -85,6 +101,8 @@ func (row *CompactRow) SetWidths(totalWidth int, widths []int) {
 }
 
 func (row *CompactRow) Draw(buf *ui.Buffer) {
+	row.mu.Lock()
+	defer row.mu.Unlock()
 	row.Block.Draw(buf)
 	for _, w := range row.Cols {
 		w.Draw(buf)
@@ -92,6 +110,8 @@ func (row *CompactRow) Draw(buf *ui.Buffer) {
 }
 
 func (row *CompactRow) Highlight() {
+	row.mu.Lock()
+	defer row.mu.Unlock()
 	if config.GetSwitchVal("fullRowCursor") {
 		for i := 1; i < len(row.Cols); i++ {
 			row.Cols[i].Highlight()
@@ -102,8 +122,10 @@ func (row *CompactRow) Highlight() {
 }
 
 func (row *CompactRow) UnHighlight() {
-	for i := 1; i < len(row.Cols); i++ {
-		row.Cols[i].UnHighlight()
+	row.mu.Lock()
+	defer row.mu.Unlock()
+	for _, w := range row.Cols {
+		w.UnHighlight()
 	}
 }
 

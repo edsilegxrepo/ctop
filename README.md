@@ -42,6 +42,7 @@
 
 ### b. Secret & Credential Management
 - **Zero Plaintext Storage**: `ctop` does not store, cache, or persist daemon passwords, API tokens, or registry credentials to disk.
+- **Automatic Secret Masking**: Sensitive container environment variables (passwords, API tokens, private keys, certificates, database URLs, DSNs) are obfuscated by default (`•••••••••••• [masked]`) in the Process & Env inspector to prevent shoulder surfing and accidental disclosure. Pressing `u` toggles mask visibility.
 - **Environment Ingestion**: Connection parameters are sourced securely from runtime environment variables (`DOCKER_HOST`, `DOCKER_CERT_PATH`, `DOCKER_TLS_VERIFY`).
 - **Configuration Permissions**: User preferences written to disk (`~/.config/ctop/config`) only contain display preferences (column ordering, sort fields, filter strings) and use standard file permissions (`0600`/`0700`).
 
@@ -69,7 +70,7 @@
 
 `ctop` follows clean Go engineering practices and rigorous quality standards:
 
-- **High Test Coverage**: **80.7% statement coverage** across all packages with sub-second execution speed and zero test artifact pollution.
+- **High Test Coverage**: **83.9% statement coverage** across all 17 packages with fast execution speed, zero race conditions, zero deadlocks, and zero test artifact pollution.
 - **Thread Safety**: Fully verified under `go test -race`. All shared structs (`container.Container`, `logging.safeMemoryBackend`, `widgets.TextView`) utilize fine-grained read/write mutexes (`sync.RWMutex`, `sync.Mutex`) or atomic primitives (`sync/atomic.Bool`).
 - **Deadlock-Free Design**: Clean separation between custom widget state locks and `termui.Block` draw routines, eliminating recursive mutex lockups.
 - **Platform Support**: Fully portable across **Windows** (native console & WSL) and **Linux** (**RHEL** and **Ubuntu**).
@@ -87,11 +88,13 @@ For test specifications, defect logs, and coverage reports, see [TESTING.md](TES
 | :--- | :--- | :--- | :--- |
 | `-v` | `bool` | `false` | Output version information and exit. |
 | `-h` | `bool` | `false` | Display help dialog and list available connectors. |
-| `-f` | `string` | `""` | Filter containers by name regex. |
+| `-f` | `string` | `""` | Filter containers by name or ID regex. |
 | `-a` | `bool` | `false` | Show active (running) containers only (default: shows all). |
 | `-s` | `string` | `""` | Select container sort field (`cpu`, `mem`, `mem %`, `net`, `io`, `pids`, `name`, `state`, `uptime`). |
 | `-r` | `bool` | `false` | Reverse container sort order. |
 | `-i` | `bool` | `false` | Invert default terminal color palette (for light terminal backgrounds). |
+| `-ro` | `bool` | `false` | Read-only inspection mode (disables container lifecycle mutations). |
+| `-download-dir` | `string` | `"."` | Default host destination directory for file downloads and log exports. |
 | `-connector` | `string` | `docker` | Container engine connector to use (`docker`, `runc`, `mock`). |
 
 ---
@@ -170,10 +173,10 @@ NAME                 CID          CPU       MEM               NET RX/TX     IO R
 ● redis-cache        91b34e12c019 [  2%]    45.1M / 1.0G [ 4%]  8.5M / 1.1M    0B / 120K   4
 ● postgres-db        f419c83a992e [  8%]   512.0M / 8.0G [ 6%]  3.4M / 9.2M   45M / 12M   16
 ─────────────────────────────────────────────────────────────────────────────
-[a] all [f] filter [s] sort [c] columns [l] logs [o] open [e] exec [h] help [q] quit
+[a] all [f] filter [s] sort [g] group [c] columns [l] logs [o] open [e] exec [U] tune [h] help [q] quit
 ```
 
-#### 2. Single Container Detailed View (`[o]` key)
+#### 2. Multi-Tab Container Inspector (`[o]` key)
 ```text
 web-frontend (c8a412f10a8b) - Up 3 hours                                    [q] back
 ─────────────────────────────────────────────────────────────────────────────
@@ -186,29 +189,39 @@ NETWORK I/O                            DISK I/O
   RX: 1.2 MB (4.5 KB/s)                  Read:  12.0 KB (0 B/s)
   TX: 4.8 MB (18.2 KB/s)                 Write: 45.0 KB (2.1 KB/s)
 
-ENVIRONMENT                            METADATA
-  NODE_ENV=production                    Image: node:18-alpine
-  PORT=8080                              IPs:   172.17.0.2
-  LOG_LEVEL=info                         Ports: 0.0.0.0:8080->8080/tcp
+MEMORY BREAKDOWN                       METADATA
+  RSS: 110.2 MB                          Image: node:18-alpine
+  Cache: 32.3 MB                         IPs:   172.17.0.2
+  Swap: 0 B | Kernel: 4.2 MB             Ports: 0.0.0.0:8080->8080/tcp
 ```
 
-#### 2. Multi-Class Container Inspector (`[o]` key)
-The detailed container inspector provides categorized inspection with dedicated views accessible via top tabs:
-- **`[1]` Overview & Metrics**: Real-time telemetry sparklines (CPU, Memory, Net Rx/Tx, Disk I/O) and container metadata.
+The multi-tab inspector provides deep inspection across 9 specialized tabs:
+- **`[1]` Overview & Metrics**: Real-time telemetry sparklines (CPU, Memory, Net Rx/Tx, Disk I/O), memory breakdown (RSS, Cache, Swap, Kernel Memory, OOM Kill detection), and container metadata.
 - **`[2]` Volumes & Mounts**: Storage bindings table showing Destination path, Source path, Mount Type (`volume`/`bind`/`tmpfs`), and Access Mode (`rw`/`ro`).
-- **`[3]` Networking & Ports**: Network interface table (Name, IP, Gateway, MAC, Subnet) and published host port bindings (`0.0.0.0:8080 -> 80/tcp`).
-- **`[4]` Process & Env**: Runtime execution parameters (Entrypoint, Command, Working Directory, User/UID, Exit Code, Restart Policy, Resource Limits) and Environment Variables.
-- **`[5]` Labels & Compose**: Docker Compose orchestration tags and container labels.
+- **`[3]` Networking & Ports**: Network interface table (Name, IP, Gateway, MAC, Subnet), published host port bindings (`0.0.0.0:8080 -> 80/tcp`), and live TCP reachability probes for external host and internal container endpoints (`[p]` to re-probe).
+- **`[4]` Process & Env**: Runtime execution parameters, Linux Capabilities (`CapAdd`/`CapDrop`), Security Options (Seccomp, AppArmor), Healthcheck probe timeline, and environment variables with sensitive variable masking (`[u]` to toggle).
+- **`[5]` In-Container Top**: Live running process table inside the container namespace (`PID`, `USER`, `TIME`, `CMD`).
+- **`[6]` Filesystem Diff**: Real-time filesystem changes on the writable layer with Added (`[A]`), Changed (`[C]`), and Deleted (`[D]`) status indicators.
+- **`[7]` Recreate / Compose**: Equivalent `docker run` command and `docker-compose.yml` specification generator.
+- **`[8]` Labels & Compose**: Docker Compose orchestration tags and container labels.
+- **`[9]` In-Container Files**: Interactive directory browser, in-TUI file previewer (`<Enter>`/`<Space>`), host download exporter (`[d]`), and host file uploader (`[u]` to upload host files/directories into the container).
 
-*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-5`, or class hotkeys (`o`, `v`, `n`, `E`, `L`) to switch views. Use `↑`/`↓` to scroll.
+*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-9`, or class hotkeys (`o`, `v`, `n`, `E`, `P`, `D`, `G`, `L`, `F`) to switch views. Use `u` to toggle environment variable secret masks. In File Explorer: `d` downloads to host, `u` uploads from host, `D` customizes download directory. In Network tab: `p` runs live TCP port probes. Use `↑`/`↓` to scroll.
 
 #### 3. Log Stream Drawer (`[l]` key)
 ```text
-Logs: web-frontend (c8a412f10a8b) ───────────────────────── [t] timestamps [q] exit
+Logs: web-frontend (c8a412f10a8b) ───────────────── [t] time [/] filter [s] save [D] dir [q] exit
 2026-08-18T18:48:12Z [info] HTTP GET /api/v1/health 200 OK 4ms
 2026-08-18T18:48:25Z [info] Database connection pool verified healthy
 2026-08-18T18:49:01Z [info] Handling websocket broadcast to 12 clients
 ```
+*Tip:* Press `s` inside the log viewer to export active logs to disk, and press `D` to change the destination directory on-the-fly.
+
+#### 4. Live Resource Hot-Tuning (`[U]` key)
+Directly adjust container limits and policies without container restarts or downtime:
+- **Memory Limit**: Modify live memory ceiling in MB (e.g. `512`, `1024`, or `0` for unlimited).
+- **CPU Quota**: Allocate CPU cores (e.g. `1.5` for 1.5 cores, `0.5` for half a core).
+- **Restart Policy**: Switch between `always`, `unless-stopped`, `on-failure`, and `no`.
 
 ---
 
@@ -222,19 +235,27 @@ Logs: web-frontend (c8a412f10a8b) ───────────────�
 | `↓` / `j` | Move cursor down |
 | `PageUp` / `Ctrl+u` | Jump up one page |
 | `PageDown` / `Ctrl+d` | Jump down one page |
-| `<Enter>` | Open container action menu (Start, Stop, Pause, Exec, Inspectors, Logs) |
+| `<Enter>` | Open container action menu (Inspectors, File Explorer, Logs, Lifecycle, Resource Tuning, Exec, Tools) |
 | `a` | Toggle display of inactive / stopped containers |
 | `f` | Open interactive filter prompt |
-| `s` | Open sort selection menu |
+| `g` | Toggle Docker Compose project stack grouping |
+| `s` | Open sort selection menu (`cpu`, `mem`, `mem %`, `net`, `io`, `pids`, `name`, `state`, `uptime`, `compose`) |
 | `r` | Reverse active sort order |
 | `c` | Open column configuration menu |
-| `o` | Open container inspector (Metrics, Volumes, Network, Process, Labels) |
+| `o` | Open multi-tab container inspector (Overview, Mounts, Network, Env, Top, Diff, Recreate, Labels, Files) |
 | `v` | Open volumes & mounts inspector directly |
 | `n` | Open networking & ports inspector directly |
-| `l` | Open live container log drawer (`t` to toggle RFC3339 timestamps) |
+| `p` | Re-run live TCP port reachability probes (in Network tab) |
+| `F` | Open interactive in-container file explorer & text previewer directly |
+| `l` | Open live container log drawer (`t` timestamps, `/` filter, `s` save, `D` dir, `q` close) |
+| `U` | Open live resource hot-tuning dialog (Memory limit MB, CPU quota, Restart policy) |
+| `k` | Open granular POSIX signal menu (`SIGHUP`, `SIGQUIT`, `SIGUSR1`, `SIGUSR2`, `SIGTERM`, `SIGKILL`) |
 | `e` | Open interactive shell inside selected container |
-| `w` | Open web port in default browser (first mapped HTTP port) |
-| `S` | Save active settings to configuration file (`~/.config/ctop/config`) |
+| `w` | Open web port in default browser (first mapped HTTP port) with clean screen restoration |
+| `u` | Toggle secret masking in Environment inspector / Upload in File Explorer |
+| `d` | Download selected container file/directory to host (in File Explorer) |
+| `D` | Set target host download / export directory (in File Explorer & Log Viewer) |
+| `S` | Save active settings to configuration file (`~/.config/ctop/config` or `~/.ctop`) |
 | `H` | Toggle ctop status header |
 | `h` / `?` | Open interactive help dialog |
 | `q` / `<Escape>` / `Ctrl+c` | Close modal / Exit ctop |

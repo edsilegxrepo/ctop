@@ -101,13 +101,20 @@ func EnabledColumns() (a []string) {
 
 // ColumnToggle toggles the enabled status of a given column name
 func ColumnToggle(name string) {
-	col := GlobalColumns[colIndex(name)]
-	col.Enabled = !col.Enabled
-	log.Noticef("config change [column-%s]: %t -> %t", col.Name, !col.Enabled, col.Enabled)
+	lock.Lock()
+	defer lock.Unlock()
+	idx := colIndex(name)
+	if idx >= 0 {
+		col := GlobalColumns[idx]
+		col.Enabled = !col.Enabled
+		log.Noticef("config change [column-%s]: %t -> %t", col.Name, !col.Enabled, col.Enabled)
+	}
 }
 
 // ColumnLeft moves the column with given name up one position, if possible
 func ColumnLeft(name string) {
+	lock.Lock()
+	defer lock.Unlock()
 	idx := colIndex(name)
 	if idx > 0 {
 		swapCols(idx, idx-1)
@@ -116,8 +123,10 @@ func ColumnLeft(name string) {
 
 // ColumnRight moves the column with given name up one position, if possible
 func ColumnRight(name string) {
+	lock.Lock()
+	defer lock.Unlock()
 	idx := colIndex(name)
-	if idx < len(GlobalColumns)-1 {
+	if idx >= 0 && idx < len(GlobalColumns)-1 {
 		swapCols(idx, idx+1)
 	}
 }

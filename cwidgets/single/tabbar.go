@@ -9,20 +9,28 @@ import (
 )
 
 const (
-	TabMetrics = 0
-	TabVolumes = 1
-	TabNetwork = 2
-	TabProcess = 3
-	TabLabels  = 4
-	TotalTabs  = 5
+	TabMetrics   = 0
+	TabVolumes   = 1
+	TabNetwork   = 2
+	TabProcess   = 3
+	TabTop       = 4
+	TabDiff      = 5
+	TabGenerator = 6
+	TabLabels    = 7
+	TabFiles     = 8
+	TotalTabs    = 9
 )
 
 var TabTitles = []string{
-	"1: Overview & Metrics",
-	"2: Volumes & Mounts",
-	"3: Networking & Ports",
-	"4: Process & Env",
-	"5: Labels & Compose",
+	"1: Overview",
+	"2: Mounts",
+	"3: Network",
+	"4: Env/Process",
+	"5: Top",
+	"6: Diff",
+	"7: Recreate",
+	"8: Labels",
+	"9: Files",
 }
 
 // TabBar widget renders the top navigation header for class-based views.
@@ -68,9 +76,10 @@ func (w *TabBar) Draw(buf *ui.Buffer) {
 	}
 
 	// Hotkey hint on the right
-	hint := "[Tab/1-5: Switch | ↑/↓: Scroll | q: Exit]"
+	hint := "[Tab/1-9: Switch | ↑/↓: Scroll | u: Unmask | q: Exit]"
 	hintX := w.Inner.Max.X - len(hint) - 1
 	if hintX > x {
 		buf.SetString(hint, hintStyle, image.Pt(hintX, y))
 	}
 }
+

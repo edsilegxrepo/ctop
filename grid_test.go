@@ -4,11 +4,17 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/edsilegx/ctop/config"
 	"github.com/edsilegx/ctop/cwidgets/compact"
+	"github.com/edsilegx/ctop/cwidgets/single"
+	"github.com/edsilegx/ctop/models"
 	"github.com/edsilegx/ctop/widgets"
+	"github.com/edsilegx/ctop/widgets/menu"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -48,21 +54,26 @@ func TestSingleViewNavigation(t *testing.T) {
 		fn   func() MenuFn
 		keys []string
 	}{
-		{"Metrics", SingleView, []string{"j", "k", "<Tab>", "<BackTab>", "1", "2", "3", "4", "5", "q"}},
+		{"Metrics", SingleView, []string{"j", "k", "h", "l", "<Tab>", "<BackTab>", "1", "u", "2", "3", "4", "5", "6", "7", "8", "9", "1", "q"}},
 		{"Volumes", SingleViewVolumes, []string{"j", "k", "v", "<Tab>", "q"}},
-		{"Network", SingleViewNetwork, []string{"j", "k", "n", "<Tab>", "q"}},
-		{"Process", SingleViewProcess, []string{"j", "k", "E", "<Tab>", "q"}},
+		{"Network", SingleViewNetwork, []string{"j", "k", "n", "p", "<Tab>", "q"}},
+		{"Process", SingleViewProcess, []string{"j", "k", "E", "u", "<Tab>", "q"}},
+		{"Top", SingleViewTop, []string{"j", "k", "P", "<Tab>", "q"}},
+		{"Diff", SingleViewDiff, []string{"j", "k", "D", "<Tab>", "q"}},
+		{"Generator", SingleViewGenerator, []string{"j", "k", "G", "<Tab>", "q"}},
 		{"Labels", SingleViewLabels, []string{"j", "k", "L", "<Tab>", "q"}},
+		{"Files", SingleViewFiles, []string{"j", "k", "<Enter>", "<Backspace>", "j", "v", "<Escape>", "d", "D", "t", "m", "p", "<Enter>", "u", "s", "r", "c", "<Enter>", "r", "q"}},
 	}
 
 	for _, tv := range testViews {
-		mockEvents := make(chan ui.Event, 20)
+		mockEvents := make(chan ui.Event, 40)
 		mockEvents <- ui.Event{Type: ui.ResizeEvent}
 		for _, k := range tv.keys {
 			mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: k}
 		}
 		uiEvents = mockEvents
 
+		t.Logf("Running view test: %s", tv.name)
 		fn := tv.fn()
 		if fn != nil {
 			t.Fatalf("expected view %s to return nil on 'q'", tv.name)
@@ -95,11 +106,12 @@ func TestDisplayLoop(t *testing.T) {
 	cursor = gc
 
 	// Test normal navigation and keys ending with 'q' (exit)
-	mockEvents := make(chan ui.Event, 20)
+	mockEvents := make(chan ui.Event, 30)
 	mockEvents <- ui.Event{Type: ui.ResizeEvent}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "k"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "a"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "g"} // toggle compose grouping
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "H"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}
@@ -123,12 +135,25 @@ func TestDisplayLoop(t *testing.T) {
 		{"c", "q"},
 		{"o", "q"},
 		{"l", "q"},
+		{"U", "c"},
+		{"v", "q"},
+		{"n", "q"},
+		{"F", "q"},
+		{"K", "c"},
+		{"E", "q"},
+		{"P", "q"},
+		{"G", "q"},
+		{"L", "q"},
+		{"<Enter>", "q"},
+		{"e", "q"},
+		{"b", "q"},
 	}
 
 	for _, mt := range menuTriggers {
 		mEvents := make(chan ui.Event, 10)
 		mEvents <- ui.Event{Type: ui.KeyboardEvent, ID: mt.openKey}
 		mEvents <- ui.Event{Type: ui.KeyboardEvent, ID: mt.exitKey}
+		mEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"} // safety exit fallback
 		uiEvents = mEvents
 		_ = Display()
 	}
@@ -151,4 +176,141 @@ func TestShowConnError(t *testing.T) {
 		t.Fatal("expected ShowConnError to return true on 'q'")
 	}
 	errView = nil
+}
+
+func TestConcurrentMetricsAndSingleView(t *testing.T) {
+	initTheme()
+	config.Init()
+
+	mockContainers := createMockContainers(3)
+	c := mockContainers[0]
+	gc := &GridCursor{
+		filtered:   mockContainers,
+		selectedID: c.Id,
+	}
+	cursor = gc
+	defer func() { cursor = nil }()
+
+	stopWorker := make(chan struct{})
+	metricStream := make(chan models.Metrics, 100)
+	c.Read(metricStream)
+
+	var workerWg sync.WaitGroup
+	workerWg.Add(1)
+	go func() {
+		defer workerWg.Done()
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		val := 10
+		for {
+			select {
+			case <-stopWorker:
+				close(metricStream)
+				return
+			case <-ticker.C:
+				val = (val + 5) % 100
+				metricStream <- models.Metrics{
+					CPUUtil:      val,
+					MemUsage:     int64(val * 1024 * 1024),
+					MemLimit:     1024 * 1024 * 1024,
+					NetRx:        int64(val * 1024),
+					NetTx:        int64(val * 2048),
+					IOBytesRead:  int64(val * 512),
+					IOBytesWrite: int64(val * 256),
+				}
+				c.SetMeta("state", "running")
+			}
+		}
+	}()
+
+	eventSequence := []string{
+		"1", "j", "j", "k", "u",
+		"2", "j", "k",
+		"3", "j", "k",
+		"4", "j", "k", "u",
+		"5", "j", "k",
+		"6", "j", "k",
+		"7", "j", "k",
+		"8", "j", "k",
+		"9", "j", "k", "<Enter>", "<Backspace>", "v", "<Escape>",
+		"<Tab>", "<Tab>", "<BackTab>",
+		"1", "q",
+	}
+
+	mockEvents := make(chan ui.Event, len(eventSequence)+5)
+	mockEvents <- ui.Event{Type: ui.ResizeEvent}
+	for _, k := range eventSequence {
+		mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: k}
+	}
+	uiEvents = mockEvents
+
+	done := make(chan bool)
+	go func() {
+		fn := SingleViewWithTab(single.TabMetrics)
+		if fn != nil {
+			next := fn()
+			if next != nil {
+				t.Errorf("expected SingleViewWithTab to return nil on 'q'")
+			}
+		}
+		done <- true
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("DEADLOCK DETECTED: SingleViewWithTab hung during concurrent metric updates")
+	}
+
+	close(stopWorker)
+	workerWg.Wait()
+}
+
+func TestDirectFrameBufferRendering(t *testing.T) {
+	initTheme()
+	config.Init()
+
+	dimensions := [][2]int{
+		{80, 24},
+		{120, 40},
+		{200, 60},
+		{20, 10},
+	}
+
+	for _, dim := range dimensions {
+		buf := ui.NewBuffer(image.Rect(0, 0, dim[0], dim[1]))
+
+		s := single.NewSingle()
+		s.SetWidth(dim[0])
+		for tab := 0; tab < single.TotalTabs; tab++ {
+			s.SetTab(tab)
+			s.Align()
+			s.Draw(buf)
+			s.Up()
+			s.Down()
+			s.PgUp()
+			s.PgDown()
+		}
+
+		cg := compact.NewCompactGrid()
+		cg.SetWidth(dim[0])
+		cg.Align()
+		cg.Draw(buf)
+
+		m := menu.NewMenu()
+		m.AddItems(
+			menu.Item{Val: "1", Label: "Item 1"},
+			menu.Item{Separator: true},
+			menu.Item{Val: "2", Label: "Item 2"},
+		)
+		m.SetToolTip("Tip 1", "Tip 2")
+		m.Draw(buf)
+
+		hdr := widgets.NewCTopHeader()
+		hdr.Draw(buf)
+
+		st := widgets.NewStatusLine()
+		st.Show("Ready")
+		st.Draw(buf)
+	}
 }

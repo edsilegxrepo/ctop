@@ -2,6 +2,7 @@ package compact
 
 import (
 	"image"
+	"sync"
 
 	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
@@ -17,6 +18,7 @@ type CompactGrid struct {
 	Width  int
 	Y      int
 	Offset int // starting row offset
+	mu     sync.Mutex
 }
 
 func NewCompactGrid() *CompactGrid {
@@ -33,6 +35,8 @@ func NewCompactGrid() *CompactGrid {
 }
 
 func (cg *CompactGrid) Align() {
+	cg.mu.Lock()
+	defer cg.mu.Unlock()
 	termW, termH := theme.TermDimensions()
 	cg.SetRect(0, cg.Y, termW, termH)
 	cg.Width = termW
@@ -57,6 +61,8 @@ func (cg *CompactGrid) Align() {
 }
 
 func (cg *CompactGrid) Clear() {
+	cg.mu.Lock()
+	defer cg.mu.Unlock()
 	cg.Rows = []RowBufferer{}
 	cg.rebuildHeader()
 }
@@ -123,6 +129,8 @@ func (cg *CompactGrid) visibleRows() (rows []RowBufferer) {
 }
 
 func (cg *CompactGrid) Draw(buf *ui.Buffer) {
+	cg.mu.Lock()
+	defer cg.mu.Unlock()
 	cg.Block.Draw(buf)
 	blank := ui.NewCell(' ', theme.Style("bg"))
 	buf.Fill(blank, cg.Rectangle)
@@ -142,6 +150,8 @@ func (cg *CompactGrid) Draw(buf *ui.Buffer) {
 }
 
 func (cg *CompactGrid) AddRows(rows ...RowBufferer) {
+	cg.mu.Lock()
+	defer cg.mu.Unlock()
 	cg.Rows = append(cg.Rows, rows...)
 }
 

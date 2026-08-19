@@ -2,7 +2,11 @@
 // Objective: Abstract runtime lifecycle operations across Docker, runC, and Mock backends.
 package manager
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/edsilegx/ctop/models"
+)
 
 var ErrActionNotImpl = errors.New("action not implemented")
 
@@ -15,4 +19,13 @@ type Manager interface {
 	Unpause() error
 	Restart() error
 	Exec(cmd []string) error
+	Kill(signal string) error
+	Top(args string) (models.TopResult, error)
+	Changes() ([]models.Change, error)
+	ReadDir(path string) ([]models.FileInfo, error)
+	ReadFile(path string, maxBytes int64) (string, error)
+	Download(srcPath, dstPath string) (int64, error)
+	Upload(srcHostPath, dstContainerPath string) error
+	UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error
 }
+

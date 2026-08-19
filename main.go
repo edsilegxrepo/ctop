@@ -53,6 +53,8 @@ func main() {
 		sortFieldFlag   = flag.String("s", "", "select container sort field")
 		reverseSortFlag = flag.Bool("r", false, "reverse container sort order")
 		invertFlag      = flag.Bool("i", false, "invert default colors")
+		readOnlyFlag    = flag.Bool("ro", false, "read-only inspection mode (disables state modifications)")
+		downloadDirFlag = flag.String("download-dir", "", "default host directory for container file downloads")
 		connectorFlag   = flag.String("connector", "docker", "container connector to use")
 	)
 	flag.Parse()
@@ -79,6 +81,14 @@ func main() {
 	// override default config values with command line flags
 	if *filterFlag != "" {
 		config.Update("filterStr", *filterFlag)
+	}
+
+	if *downloadDirFlag != "" {
+		config.Update("downloadDir", *downloadDirFlag)
+	}
+
+	if *readOnlyFlag {
+		config.UpdateSwitch("readOnly", true)
 	}
 
 	// Ensure all containers (running, paused, stopped) are shown by default unless -a flag is passed

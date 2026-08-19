@@ -40,7 +40,14 @@ type Docker struct {
 	needsRefresh chan string // container IDs requiring refresh
 	statuses     chan StatusUpdate
 	closed       chan struct{}
+	closeOnce    sync.Once
 	lock         sync.RWMutex
+}
+
+func (cm *Docker) Close() {
+	cm.closeOnce.Do(func() {
+		close(cm.closed)
+	})
 }
 
 func NewDocker() (Connector, error) {
@@ -127,7 +134,7 @@ func (cm *Docker) watchEvents() {
 		}
 	}
 	log.Info("docker event listener exited")
-	close(cm.closed)
+	cm.Close()
 }
 
 func portsFormat(ports map[api.Port][]api.PortBinding) string {
@@ -231,6 +238,14 @@ func (cm *Docker) refresh(c *container.Container) {
 	c.SetMeta("[MOUNTS]", mountsFormat(insp.Mounts))
 	c.SetMeta("[LABELS]", labelsFormat(insp.Config.Labels))
 	c.SetMeta("[NETWORKS]", networksFormat(insp.NetworkSettings.Networks))
+	if insp.Config.Labels != nil {
+		if proj := insp.Config.Labels["com.docker.compose.project"]; proj != "" {
+			c.SetMeta("composeProject", proj)
+		}
+		if svc := insp.Config.Labels["com.docker.compose.service"]; svc != "" {
+			c.SetMeta("composeService", svc)
+		}
+	}
 
 	if len(insp.Config.Entrypoint) > 0 {
 		c.SetMeta("entrypoint", strings.Join(insp.Config.Entrypoint, " "))
@@ -241,29 +256,86 @@ func (cm *Docker) refresh(c *container.Container) {
 	if insp.Config.WorkingDir != "" {
 		c.SetMeta("workdir", insp.Config.WorkingDir)
 	}
-	if insp.Config.User != "" {
-		c.SetMeta("user", insp.Config.User)
+	userVal := insp.Config.User
+	if userVal == "" {
+		userVal = "root (default UID 0)"
 	}
+	c.SetMeta("user", userVal)
+
 	if insp.HostConfig != nil {
 		if insp.HostConfig.RestartPolicy.Name != "" {
 			c.SetMeta("restartPolicy", insp.HostConfig.RestartPolicy.Name)
 		}
 		if insp.HostConfig.Memory > 0 {
 			c.SetMeta("memLimit", fmt.Sprintf("%d MB", insp.HostConfig.Memory/(1024*1024)))
+		} else {
+			c.SetMeta("memLimit", "unlimited")
 		}
 		if insp.HostConfig.NanoCPUs > 0 {
 			c.SetMeta("cpuLimit", fmt.Sprintf("%.2f CPUs", float64(insp.HostConfig.NanoCPUs)/1e9))
+		} else {
+			c.SetMeta("cpuLimit", "unlimited")
 		}
 		if insp.HostConfig.PidsLimit != nil && *insp.HostConfig.PidsLimit > 0 {
 			c.SetMeta("pidsLimit", fmt.Sprintf("%d", *insp.HostConfig.PidsLimit))
+		} else {
+			c.SetMeta("pidsLimit", "unlimited")
+		}
+		if len(insp.HostConfig.CapAdd) > 0 {
+			c.SetMeta("capAdd", strings.Join(insp.HostConfig.CapAdd, ", "))
+		} else {
+			c.SetMeta("capAdd", "default (none added)")
+		}
+		if len(insp.HostConfig.CapDrop) > 0 {
+			c.SetMeta("capDrop", strings.Join(insp.HostConfig.CapDrop, ", "))
+		} else {
+			c.SetMeta("capDrop", "none (standard set)")
+		}
+		if len(insp.HostConfig.SecurityOpt) > 0 {
+			c.SetMeta("securityOpt", strings.Join(insp.HostConfig.SecurityOpt, ", "))
+		} else {
+			c.SetMeta("securityOpt", "default (seccomp:default)")
 		}
 		c.SetMeta("privileged", fmt.Sprintf("%t", insp.HostConfig.Privileged))
 		c.SetMeta("readonlyRootfs", fmt.Sprintf("%t", insp.HostConfig.ReadonlyRootfs))
 	}
+	if insp.State.Health.Status != "" {
+		c.SetMeta("healthStatus", insp.State.Health.Status)
+		c.SetMeta("failingStreak", fmt.Sprintf("%d", insp.State.Health.FailingStreak))
+		var hLogs []string
+		for _, hLog := range insp.State.Health.Log {
+			out := strings.TrimSpace(hLog.Output)
+			if len(out) > 60 {
+				out = out[:60] + "..."
+			}
+			out = strings.ReplaceAll(out, "\n", " ")
+			out = strings.ReplaceAll(out, ":::", " ")
+			hLogs = append(hLogs, fmt.Sprintf("%d:::%s:::%s", hLog.ExitCode, hLog.Start.Format("15:04:05"), out))
+		}
+		if len(hLogs) > 0 {
+			c.SetMeta("[HEALTH-LOG]", strings.Join(hLogs, ";;"))
+		}
+	} else {
+		c.SetMeta("healthStatus", "none configured")
+	}
+	if insp.Config.Healthcheck != nil {
+		if len(insp.Config.Healthcheck.Test) > 0 {
+			c.SetMeta("healthTest", strings.Join(insp.Config.Healthcheck.Test, " "))
+		}
+		if insp.Config.Healthcheck.Interval > 0 {
+			c.SetMeta("healthInterval", insp.Config.Healthcheck.Interval.String())
+		}
+		if insp.Config.Healthcheck.Timeout > 0 {
+			c.SetMeta("healthTimeout", insp.Config.Healthcheck.Timeout.String())
+		}
+		if insp.Config.Healthcheck.Retries > 0 {
+			c.SetMeta("healthRetries", fmt.Sprintf("%d", insp.Config.Healthcheck.Retries))
+		}
+	}
 	if insp.State.Status != "running" {
 		c.SetMeta("exitCode", fmt.Sprintf("%d", insp.State.ExitCode))
-		c.SetMeta("oomKilled", fmt.Sprintf("%t", insp.State.OOMKilled))
 	}
+	c.SetMeta("oomKilled", fmt.Sprintf("%t", insp.State.OOMKilled))
 	c.SetState(insp.State.Status)
 }
 

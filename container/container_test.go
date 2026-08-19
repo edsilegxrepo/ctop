@@ -29,6 +29,7 @@ type trackingManager struct {
 	paused    bool
 	unpaused  bool
 	restarted bool
+	signal    string
 	execCmd   []string
 	fail      bool
 }
@@ -89,6 +90,72 @@ func (m *trackingManager) Exec(cmd []string) error {
 	return nil
 }
 
+func (m *trackingManager) Kill(sig string) error {
+	if m.fail {
+		return errors.New("kill failed")
+	}
+	m.signal = sig
+	return nil
+}
+
+func (m *trackingManager) Top(args string) (models.TopResult, error) {
+	if m.fail {
+		return models.TopResult{}, errors.New("top failed")
+	}
+	return models.TopResult{
+		Titles: []string{"PID", "CMD"},
+		Processes: [][]string{
+			{"1", "init"},
+		},
+	}, nil
+}
+
+func (m *trackingManager) Changes() ([]models.Change, error) {
+	if m.fail {
+		return nil, errors.New("changes failed")
+	}
+	return []models.Change{
+		{Path: "/app", Kind: 0},
+	}, nil
+}
+
+func (m *trackingManager) ReadDir(path string) ([]models.FileInfo, error) {
+	if m.fail {
+		return nil, errors.New("readdir failed")
+	}
+	return []models.FileInfo{
+		{Name: "app", Path: "/app", IsDir: true, Mode: "drwxr-xr-x"},
+	}, nil
+}
+
+func (m *trackingManager) ReadFile(path string, maxBytes int64) (string, error) {
+	if m.fail {
+		return "", errors.New("readfile failed")
+	}
+	return "test file content", nil
+}
+
+func (m *trackingManager) Download(srcPath, dstPath string) (int64, error) {
+	if m.fail {
+		return 0, errors.New("download failed")
+	}
+	return 256, nil
+}
+
+func (m *trackingManager) Upload(srcPath, dstPath string) error {
+	if m.fail {
+		return errors.New("upload failed")
+	}
+	return nil
+}
+
+func (m *trackingManager) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
+	if m.fail {
+		return errors.New("update resources failed")
+	}
+	return nil
+}
+
 func TestContainerLifecycle(t *testing.T) {
 	colStream := make(chan models.Metrics, 5)
 	mgr := &trackingManager{}
@@ -141,6 +208,60 @@ func TestContainerLifecycle(t *testing.T) {
 		t.Fatalf("expected Exec to succeed, got %v", err)
 	}
 
+	// Signal
+	if err := c.Signal("SIGHUP"); err != nil || mgr.signal != "SIGHUP" {
+		t.Fatalf("expected Signal to succeed, got err=%v sig=%s", err, mgr.signal)
+	}
+
+	// Top
+	if topRes, err := c.Top(); err != nil || len(topRes.Processes) == 0 {
+		t.Fatalf("expected Top to succeed, got err=%v res=%+v", err, topRes)
+	}
+
+	// Changes
+	if ch, err := c.Changes(); err != nil || len(ch) == 0 {
+		t.Fatalf("expected Changes to succeed, got err=%v ch=%+v", err, ch)
+	}
+
+	// ReadDir, ReadFile, Download & Upload
+	if entries, err := c.ReadDir("/app"); err != nil || len(entries) == 0 {
+		t.Fatalf("expected ReadDir to succeed, got err=%v entries=%+v", err, entries)
+	}
+	if content, err := c.ReadFile("/app/config.json", 1024); err != nil || content == "" {
+		t.Fatalf("expected ReadFile to succeed, got err=%v content=%s", err, content)
+	}
+	if n, err := c.Download("/app/config.json", "./config.json"); err != nil || n <= 0 {
+		t.Fatalf("expected Download to succeed, got err=%v bytes=%d", err, n)
+	}
+	if err := c.Upload("./config.json", "/app"); err != nil {
+		t.Fatalf("expected Upload to succeed, got err=%v", err)
+	}
+	if err := c.UpdateResources(512, 1.5, "unless-stopped"); err != nil {
+		t.Fatalf("expected UpdateResources to succeed, got err=%v", err)
+	}
+
+	// Generators
+	c.SetMeta("image", "redis:alpine")
+	c.SetMeta("ports", "6379/tcp\n0.0.0.0:6379 -> 6379/tcp")
+	c.SetMeta("[MOUNTS]", "/data:::/var/lib/docker/volumes/data:::volume:::rw:::local")
+	c.SetMeta("[ENV-VAR]", "REDIS_PORT=6379;LOG_LEVEL=info")
+	c.SetMeta("memLimit", "512 MB")
+	c.SetMeta("cpuLimit", "1.00 CPUs")
+	c.SetMeta("pidsLimit", "100")
+	c.SetMeta("privileged", "true")
+	c.SetMeta("readonlyRootfs", "true")
+	c.SetMeta("restartPolicy", "always")
+
+	runCmd := c.GenerateRunCmd()
+	if runCmd == "" {
+		t.Fatal("expected non-empty run command")
+	}
+
+	composeYaml := c.GenerateCompose()
+	if composeYaml == "" {
+		t.Fatal("expected non-empty compose YAML")
+	}
+
 	// Failure branch
 	mgr.fail = true
 	c.SetState("running")
@@ -153,6 +274,9 @@ func TestContainerLifecycle(t *testing.T) {
 	c.Restart()
 	c.Remove()
 	_ = c.Exec([]string{"ls"})
+	_ = c.Signal("SIGTERM")
+	_, _ = c.Top()
+	_, _ = c.Changes()
 
 	// RecreateWidgets
 	c.RecreateWidgets()

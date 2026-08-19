@@ -117,3 +117,31 @@ func TestFilterRunningOnly(t *testing.T) {
 			c1.Display, c2.Display, c3.Display, c4.Display, c5.Display)
 	}
 }
+
+func TestComposeGrouping(t *testing.T) {
+	config.Init()
+	config.UpdateSwitch("groupByCompose", true)
+	config.Update("sortField", "name")
+
+	c1 := newTestContainer("1", "web", "running", 10, 100, 5)
+	c1.SetMeta("composeProject", "backend")
+
+	c2 := newTestContainer("2", "db", "running", 50, 50, 2)
+	c2.SetMeta("composeProject", "backend")
+
+	c3 := newTestContainer("3", "frontend-app", "running", 30, 200, 8)
+	c3.SetMeta("composeProject", "frontend")
+
+	c4 := newTestContainer("4", "standalone", "running", 20, 150, 4)
+
+	containers := Containers{c4, c3, c1, c2}
+	containers.Sort()
+
+	// Expected order: backend (db, web), frontend (frontend-app), standalone
+	if containers[0].GetMeta("name") != "db" || containers[1].GetMeta("name") != "web" ||
+		containers[2].GetMeta("name") != "frontend-app" || containers[3].GetMeta("name") != "standalone" {
+		t.Errorf("unexpected compose group order: %+v, %+v, %+v, %+v",
+			containers[0].GetMeta("name"), containers[1].GetMeta("name"),
+			containers[2].GetMeta("name"), containers[3].GetMeta("name"))
+	}
+}

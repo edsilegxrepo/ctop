@@ -106,3 +106,21 @@ func TestDockerLogsStreamWithMockServer(t *testing.T) {
 
 	dl.Stop()
 }
+
+func TestDockerLogsStreamClientError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	dl := NewDockerLogs("c123", client)
+	stream := dl.Stream()
+	for range stream {
+	}
+	dl.Stop()
+}

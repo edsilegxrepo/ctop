@@ -43,6 +43,10 @@ type Metrics struct {
 	MemLimit     int64
 	MemPercent   int
 	MemUsage     int64
+	MemRss       int64
+	MemCache     int64
+	MemSwap      int64
+	MemKernel    int64
 	IOBytesRead  int64
 	IOBytesWrite int64
 	Pids         int
@@ -55,8 +59,36 @@ func NewMetrics() Metrics {
 		NetRx:        -1,
 		MemUsage:     -1,
 		MemPercent:   -1,
+		MemRss:       -1,
+		MemCache:     -1,
+		MemSwap:      -1,
+		MemKernel:    -1,
 		IOBytesRead:  -1,
 		IOBytesWrite: -1,
 		Pids:         -1,
 	}
 }
+
+// TopResult holds process table output from container runtime top
+type TopResult struct {
+	Titles    []string
+	Processes [][]string
+}
+
+// Change represents a filesystem modification entry (Added, Modified, Deleted)
+type Change struct {
+	Path string
+	Kind int // 0: Modified (C), 1: Added (A), 2: Deleted (D)
+}
+
+// FileInfo represents file or directory metadata inside a container
+type FileInfo struct {
+	Name    string
+	Path    string
+	IsDir   bool
+	Size    int64
+	Mode    string
+	ModTime string
+}
+
+

@@ -9,7 +9,6 @@ import (
 	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
-	tb "github.com/nsf/termbox-go"
 )
 
 type LogLines struct {
@@ -78,9 +77,6 @@ func NewLogs(stream chan models.Log) *Logs {
 	go func() {
 		for line := range stream {
 			i.lines.add(line)
-			if tb.IsInit {
-				ui.Render(i)
-			}
 		}
 	}()
 	return i

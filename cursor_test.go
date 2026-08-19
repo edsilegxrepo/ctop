@@ -28,8 +28,31 @@ func (m *mockCursorManager) Stop() error             { return nil }
 func (m *mockCursorManager) Remove() error           { return nil }
 func (m *mockCursorManager) Pause() error            { return nil }
 func (m *mockCursorManager) Unpause() error          { return nil }
-func (m *mockCursorManager) Restart() error          { return nil }
-func (m *mockCursorManager) Exec(cmd []string) error { return nil }
+func (m *mockCursorManager) Restart() error                        { return nil }
+func (m *mockCursorManager) Exec(cmd []string) error               { return nil }
+func (m *mockCursorManager) Kill(sig string) error                 { return nil }
+func (m *mockCursorManager) Top(args string) (models.TopResult, error) {
+	return models.TopResult{}, nil
+}
+func (m *mockCursorManager) Changes() ([]models.Change, error) { return nil, nil }
+func (m *mockCursorManager) ReadDir(path string) ([]models.FileInfo, error) {
+	return []models.FileInfo{
+		{Name: "app", Path: "/app", IsDir: true, Mode: "drwxr-xr-x"},
+		{Name: "server", Path: "/app/server", IsDir: false, Size: 1024, Mode: "-rwxr-xr-x"},
+	}, nil
+}
+func (m *mockCursorManager) ReadFile(path string, maxBytes int64) (string, error) {
+	return "sample file content", nil
+}
+func (m *mockCursorManager) Download(srcPath, dstPath string) (int64, error) {
+	return 1024, nil
+}
+func (m *mockCursorManager) Upload(srcPath, dstPath string) error {
+	return nil
+}
+func (m *mockCursorManager) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
+	return nil
+}
 
 func createMockContainers(count int) container.Containers {
 	var list container.Containers

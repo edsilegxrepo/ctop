@@ -2,12 +2,12 @@ package single
 
 import (
 	"image"
+	"sync"
 
 	"github.com/edsilegx/ctop/logging"
 	"github.com/edsilegx/ctop/models"
 	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
-	tb "github.com/nsf/termbox-go"
 )
 
 var (
@@ -28,10 +28,15 @@ type Single struct {
 	Mounts    *Mounts
 	Network   *Network
 	Process   *Process
+	Top       *Top
+	Diff      *Diff
+	Generator *Generator
 	Labels    *Labels
+	Explorer  *Explorer
 	ActiveTab int
 	Y         int
 	Width     int
+	mu        sync.Mutex
 }
 
 // NewSingle constructs a new multi-tab container inspection view.
@@ -49,7 +54,11 @@ func NewSingle() *Single {
 		Mounts:    NewMounts(),
 		Network:   NewNetwork(),
 		Process:   NewProcess(),
+		Top:       NewTop(),
+		Diff:      NewDiff(),
+		Generator: NewGenerator(),
 		Labels:    NewLabels(),
+		Explorer:  NewExplorer(),
 		ActiveTab: TabMetrics,
 		Width:     termW,
 	}
@@ -60,54 +69,150 @@ func NewSingle() *Single {
 
 // SetTab switches active tab to the specified index.
 func (e *Single) SetTab(tab int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if tab >= 0 && tab < TotalTabs {
 		e.ActiveTab = tab
 		e.TabBar.ActiveTab = tab
 		e.Y = 0
-		e.Align()
-		if tb.IsInit {
-			ui.Render(e)
-		}
+		e.alignUnsafe()
 	}
 }
 
 // NextTab advances to the next tab.
 func (e *Single) NextTab() {
+	e.mu.Lock()
 	next := (e.ActiveTab + 1) % TotalTabs
+	e.mu.Unlock()
 	e.SetTab(next)
 }
 
 // PrevTab switches to the previous tab.
 func (e *Single) PrevTab() {
+	e.mu.Lock()
 	prev := (e.ActiveTab - 1 + TotalTabs) % TotalTabs
+	e.mu.Unlock()
 	e.SetTab(prev)
 }
 
 func (e *Single) Up() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.ActiveTab == TabFiles {
+		e.Explorer.Up()
+		return
+	}
 	if e.Y < 0 {
-		e.Y++
-		e.Align()
-		if tb.IsInit {
-			ui.Render(e)
+		e.Y += 2
+		if e.Y > 0 {
+			e.Y = 0
 		}
+		e.alignUnsafe()
 	}
 }
 
 func (e *Single) Down() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.ActiveTab == TabFiles {
+		e.Explorer.Down()
+		return
+	}
 	_, termH := theme.TermDimensions()
-	if e.Y > (termH - e.GetHeight()) {
-		e.Y--
-		e.Align()
-		if tb.IsInit {
-			ui.Render(e)
+	limit := termH - e.getHeightUnsafe()
+	if e.Y > limit {
+		e.Y -= 2
+		if e.Y < limit {
+			e.Y = limit
 		}
+		e.alignUnsafe()
 	}
 }
 
-func (e *Single) SetWidth(w int) { e.Width = w }
+func (e *Single) PgUp() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.ActiveTab == TabFiles {
+		for i := 0; i < 10; i++ {
+			e.Explorer.Up()
+		}
+		return
+	}
+	_, termH := theme.TermDimensions()
+	e.Y += termH / 2
+	if e.Y > 0 {
+		e.Y = 0
+	}
+	e.alignUnsafe()
+}
+
+func (e *Single) PgDown() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.ActiveTab == TabFiles {
+		for i := 0; i < 10; i++ {
+			e.Explorer.Down()
+		}
+		return
+	}
+	_, termH := theme.TermDimensions()
+	limit := termH - e.getHeightUnsafe()
+	e.Y -= termH / 2
+	if e.Y < limit {
+		e.Y = limit
+	}
+	e.alignUnsafe()
+}
+
+func (e *Single) SetWidth(w int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Width = w
+}
+
+func (e *Single) ToggleSecretMask() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Env.ToggleMask()
+	e.alignUnsafe()
+}
+
+func (e *Single) SetTop(res models.TopResult) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Top.Set(res)
+}
+
+func (e *Single) SetDiff(changes []models.Change) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Diff.Set(changes)
+}
+
+func (e *Single) SetGenerator(runCmd, compose string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Generator.Set(runCmd, compose)
+}
+
+func (e *Single) SetExplorer(dirPath string, entries []models.FileInfo) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Explorer.Set(dirPath, entries)
+}
+
+func (e *Single) RunNetworkProbes() {
+	e.Network.RunProbes()
+}
+
+func (e *Single) StopNetworkProbes() {
+	e.Network.StopProbes()
+}
 
 // SetMeta dispatches container metadata across all inspection sub-widgets.
 func (e *Single) SetMeta(m models.Meta) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	// 1. Process & Runtime fields
 	for _, k := range displayProcess {
 		if v, ok := m[k]; ok {
@@ -137,6 +242,8 @@ func (e *Single) SetMeta(m models.Meta) {
 
 // SetMetrics updates real-time telemetry sparklines.
 func (e *Single) SetMetrics(m models.Metrics) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.Cpu.Update(m.CPUUtil)
 	e.Net.Update(m.NetRx, m.NetTx)
 	e.Mem.Update(int(m.MemUsage), int(m.MemLimit))
@@ -144,7 +251,13 @@ func (e *Single) SetMetrics(m models.Metrics) {
 }
 
 // GetHeight returns total scrollable height for the currently active tab.
-func (e *Single) GetHeight() (h int) {
+func (e *Single) GetHeight() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.getHeightUnsafe()
+}
+
+func (e *Single) getHeightUnsafe() (h int) {
 	h = 2 // Tab bar line + gap
 	switch e.ActiveTab {
 	case TabMetrics:
@@ -160,18 +273,32 @@ func (e *Single) GetHeight() (h int) {
 	case TabProcess:
 		h += e.Process.GetHeight()
 		h += e.Env.GetHeight()
+	case TabTop:
+		h += e.Top.GetHeight()
+	case TabDiff:
+		h += e.Diff.GetHeight()
+	case TabGenerator:
+		h += e.Generator.GetHeight()
 	case TabLabels:
 		h += e.Labels.GetHeight()
+	case TabFiles:
+		h += e.Explorer.GetHeight()
 	}
 	return h
 }
 
 // Align positions active widgets according to current terminal dimensions and scroll offset.
 func (e *Single) Align() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.alignUnsafe()
+}
+
+func (e *Single) alignUnsafe() {
 	termW, termH := theme.TermDimensions()
 	e.SetRect(0, 0, termW, termH)
 
-	if e.GetHeight() <= termH {
+	if e.getHeightUnsafe() <= termH {
 		e.Y = 0
 	}
 
@@ -218,14 +345,32 @@ func (e *Single) Align() {
 		envH := e.Env.GetHeight()
 		e.Env.SetRect(0, y, leftW, y+envH)
 
+	case TabTop:
+		topH := e.Top.GetHeight()
+		e.Top.SetRect(0, y, leftW, y+topH)
+
+	case TabDiff:
+		diffH := e.Diff.GetHeight()
+		e.Diff.SetRect(0, y, leftW, y+diffH)
+
+	case TabGenerator:
+		genH := e.Generator.GetHeight()
+		e.Generator.SetRect(0, y, leftW, y+genH)
+
 	case TabLabels:
 		labelsH := e.Labels.GetHeight()
 		e.Labels.SetRect(0, y, leftW, y+labelsH)
+
+	case TabFiles:
+		expH := e.Explorer.GetHeight()
+		e.Explorer.SetRect(0, y, leftW, y+expH)
 	}
 }
 
 // Draw renders the TabBar and the active tab's widgets onto the buffer.
 func (e *Single) Draw(buf *ui.Buffer) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.Block.Draw(buf)
 	termW, _ := theme.TermDimensions()
 	if termW < 30 {
@@ -251,7 +396,16 @@ func (e *Single) Draw(buf *ui.Buffer) {
 	case TabProcess:
 		e.Process.Draw(buf)
 		e.Env.Draw(buf)
+	case TabTop:
+		e.Top.Draw(buf)
+	case TabDiff:
+		e.Diff.Draw(buf)
+	case TabGenerator:
+		e.Generator.Draw(buf)
 	case TabLabels:
 		e.Labels.Draw(buf)
+	case TabFiles:
+		e.Explorer.Draw(buf)
 	}
 }
+

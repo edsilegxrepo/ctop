@@ -34,8 +34,30 @@ func (d *dummyManager) Stop() error             { return nil }
 func (d *dummyManager) Remove() error           { return nil }
 func (d *dummyManager) Pause() error            { return nil }
 func (d *dummyManager) Unpause() error          { return nil }
-func (d *dummyManager) Restart() error          { return nil }
-func (d *dummyManager) Exec(cmd []string) error { return nil }
+func (d *dummyManager) Restart() error                        { return nil }
+func (d *dummyManager) Exec(cmd []string) error               { return nil }
+func (d *dummyManager) Kill(sig string) error                 { return nil }
+func (d *dummyManager) Top(args string) (models.TopResult, error) {
+	return models.TopResult{}, nil
+}
+func (d *dummyManager) Changes() ([]models.Change, error) { return nil, nil }
+func (d *dummyManager) ReadDir(path string) ([]models.FileInfo, error) {
+	return []models.FileInfo{
+		{Name: "app", Path: "/app", IsDir: true, Mode: "drwxr-xr-x"},
+	}, nil
+}
+func (d *dummyManager) ReadFile(path string, maxBytes int64) (string, error) {
+	return "dummy file content", nil
+}
+func (d *dummyManager) Download(srcPath, dstPath string) (int64, error) {
+	return 1024, nil
+}
+func (d *dummyManager) Upload(srcPath, dstPath string) error {
+	return nil
+}
+func (d *dummyManager) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
+	return nil
+}
 
 func TestDockerMustGetConcurrent(t *testing.T) {
 	cm := &Docker{
@@ -168,6 +190,24 @@ func TestConnectorRegistryAndSuper(t *testing.T) {
 		t.Fatal("expected non-nil ConnectorSuper")
 	}
 
+	var conn Connector
+	for i := 0; i < 50; i++ {
+		conn, err = super.Get()
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil || conn == nil {
+		t.Fatalf("expected super.Get() to return mock connector, err: %v", err)
+	}
+
+	// Calling Get() second time should return cached conn
+	conn2, err := super.Get()
+	if err != nil || conn2 != conn {
+		t.Fatalf("expected cached connector from super.Get()")
+	}
+
 	// ByName non-existent
 	_, err = ByName("invalid-connector-name")
 	if err == nil {
@@ -184,10 +224,9 @@ func TestConnectorRegistryAndSuper(t *testing.T) {
 		return &Mock{}, nil
 	})
 
-	_, err = failingSuper.Get()
-	if err == nil {
-		t.Log("ConnectorSuper returned error or connecting state")
-	}
+	_, _ = failingSuper.Get()
+	time.Sleep(50 * time.Millisecond)
+	_, _ = failingSuper.Get()
 }
 
 func TestConnectorHelpers(t *testing.T) {
@@ -358,7 +397,7 @@ func TestDockerMockServerLifecycle(t *testing.T) {
 	}
 
 	// Close loops
-	close(cm.closed)
+	cm.Close()
 }
 
 func TestNewDockerFromMockServer(t *testing.T) {
@@ -396,8 +435,11 @@ func TestNewDockerFromMockServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error from NewDocker: %v", err)
 	}
+	if dm, ok := conn.(*Docker); ok {
+		defer dm.Close()
+	}
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	all := conn.All()
 	if len(all) == 0 {
@@ -417,6 +459,11 @@ func TestNewDockerFromMockServer(t *testing.T) {
 		if _, exists := dm.Get("c123"); exists {
 			t.Fatal("expected c123 to be removed after delByID")
 		}
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			dm.Close()
+		}()
+		dm.Wait()
 	}
 }
 
@@ -439,4 +486,162 @@ func TestMockConnectorOperations(t *testing.T) {
 	if _, ok := conn.Get("nonexistent-id"); ok {
 		t.Fatal("expected nonexistent-id to return ok=false")
 	}
+}
+
+func TestConnectorFormattingHelpers(t *testing.T) {
+	// 1. mountsFormat
+	mounts := []api.Mount{
+		{Source: "/var/lib/docker/volumes/myvol/_data", Destination: "/data", RW: true, Driver: "local"},
+		{Source: "/host/path", Destination: "/container/path", RW: false, Mode: "ro", Driver: ""},
+	}
+	mStr := mountsFormat(mounts)
+	if !strings.Contains(mStr, "/data:::") || !strings.Contains(mStr, "bind") {
+		t.Errorf("unexpected mountsFormat result: %s", mStr)
+	}
+
+	// 2. labelsFormat
+	labels := map[string]string{
+		"com.docker.compose.service": "web",
+		"version":                    "1.0",
+	}
+	lStr := labelsFormat(labels)
+	if !strings.Contains(lStr, "com.docker.compose.service=web") {
+		t.Errorf("unexpected labelsFormat result: %s", lStr)
+	}
+
+	// 3. networksFormat
+	nets := map[string]api.ContainerNetwork{
+		"bridge": {IPAddress: "172.17.0.2", Gateway: "172.17.0.1", MacAddress: "02:42:ac:11:00:02", IPPrefixLen: 16},
+	}
+	nStr := networksFormat(nets)
+	if !strings.Contains(nStr, "bridge:::172.17.0.2:::172.17.0.1") {
+		t.Errorf("unexpected networksFormat result: %s", nStr)
+	}
+}
+
+func TestRuncConnectorStructures(t *testing.T) {
+	tempRuncRoot := t.TempDir()
+	t.Setenv("RUNC_ROOT", tempRuncRoot)
+	t.Setenv("RUNC_SYSTEMD_CGROUP", "1")
+
+	opts, err := NewRuncOpts()
+	if err != nil {
+		t.Fatalf("unexpected error from NewRuncOpts: %v", err)
+	}
+	if !opts.systemdCgroups || opts.root != tempRuncRoot {
+		t.Errorf("unexpected opts: %+v", opts)
+	}
+
+	runcConn, err := NewRunc()
+	if err != nil {
+		t.Fatalf("unexpected error from NewRunc: %v", err)
+	}
+	if rc, ok := runcConn.(*Runc); ok {
+		defer close(rc.closed)
+		if rc.GetLibc("nonexistent") != nil {
+			t.Error("expected nil for nonexistent libc")
+		}
+		rc.refreshAll()
+		all := rc.All()
+		if len(all) != 0 {
+			t.Errorf("expected 0 containers in empty runc root, got %d", len(all))
+		}
+		rc.delByID("test-id")
+	}
+}
+
+func TestDockerConnectorFullRefresh(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/containers/json":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"Id":"c_full","Names":["/full-container"],"State":"exited"}]`))
+		case strings.HasPrefix(r.URL.Path, "/containers/c_full/json"):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"Id": "c_full",
+				"Name": "/full-container",
+				"Created": "2026-08-18T10:00:00Z",
+				"Config": {
+					"Image": "redis:alpine",
+					"Env": ["PORT=6379", "SECRET=test"],
+					"Labels": {"com.docker.compose.project": "myproject", "com.docker.compose.service": "redis"},
+					"Entrypoint": ["docker-entrypoint.sh"],
+					"Cmd": ["redis-server"],
+					"WorkingDir": "/data",
+					"User": "1000:1000",
+					"Healthcheck": {"Test": ["CMD-SHELL", "redis-cli ping"], "Interval": 30000000000, "Timeout": 5000000000, "Retries": 3}
+				},
+				"State": {
+					"Status": "exited",
+					"Running": false,
+					"ExitCode": 137,
+					"OOMKilled": true,
+					"StartedAt": "2026-08-18T10:00:00Z",
+					"Health": {
+						"Status": "unhealthy",
+						"FailingStreak": 5,
+						"Log": [{"Start": "2026-08-18T10:05:00Z", "ExitCode": 1, "Output": "Connection refused"}]
+					}
+				},
+				"HostConfig": {
+					"RestartPolicy": {"Name": "unless-stopped"},
+					"Memory": 1073741824,
+					"NanoCPUs": 2000000000,
+					"CapAdd": ["NET_ADMIN"],
+					"CapDrop": ["MKNOD"],
+					"SecurityOpt": ["apparmor=docker-default"],
+					"Privileged": true,
+					"ReadonlyRootfs": false
+				},
+				"NetworkSettings": {
+					"Ports": {"6379/tcp": [{"HostIP": "0.0.0.0", "HostPort": "6379"}]},
+					"Networks": {"custom-net": {"IPAddress": "10.0.0.5", "Gateway": "10.0.0.1"}}
+				},
+				"Mounts": [
+					{"Source": "/var/lib/docker/volumes/redis-data/_data", "Destination": "/data", "RW": true, "Driver": "local"}
+				]
+			}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	cm := &Docker{
+		client:       client,
+		containers:   make(map[string]*container.Container),
+		needsRefresh: make(chan string, 10),
+		statuses:     make(chan StatusUpdate, 10),
+		closed:       make(chan struct{}),
+	}
+	defer cm.Close()
+
+	c := cm.MustGet("c_full")
+	cm.refresh(c)
+
+	if c.GetMeta("name") != "full-container" {
+		t.Errorf("unexpected name: %s", c.GetMeta("name"))
+	}
+	if c.GetMeta("composeProject") != "myproject" || c.GetMeta("composeService") != "redis" {
+		t.Errorf("unexpected compose meta: project=%s service=%s", c.GetMeta("composeProject"), c.GetMeta("composeService"))
+	}
+	if c.GetMeta("exitCode") != "137" || c.GetMeta("oomKilled") != "true" {
+		t.Errorf("unexpected state meta: exitCode=%s oom=%s", c.GetMeta("exitCode"), c.GetMeta("oomKilled"))
+	}
+	if c.GetMeta("memLimit") != "1024 MB" || c.GetMeta("cpuLimit") != "2.00 CPUs" {
+		t.Errorf("unexpected limits: mem=%s cpu=%s", c.GetMeta("memLimit"), c.GetMeta("cpuLimit"))
+	}
+	if c.GetMeta("healthStatus") != "unhealthy" {
+		t.Errorf("unexpected health: %s", c.GetMeta("healthStatus"))
+	}
+
+	cm.refreshAll()
 }

@@ -1,6 +1,7 @@
 package single
 
 import (
+	"fmt"
 	"image"
 	"strings"
 
@@ -34,6 +35,8 @@ var displayProcess = []string{
 	"restartPolicy", "exitCode", "oomKilled",
 	"memLimit", "cpuLimit", "pidsLimit",
 	"privileged", "readonlyRootfs",
+	"capAdd", "capDrop", "securityOpt",
+	"healthStatus", "healthTest", "healthInterval", "healthTimeout", "healthRetries",
 }
 
 var processLabels = map[string]string{
@@ -49,6 +52,14 @@ var processLabels = map[string]string{
 	"pidsLimit":      "PIDs Limit",
 	"privileged":     "Privileged",
 	"readonlyRootfs": "Readonly Rootfs",
+	"capAdd":         "Cap Add",
+	"capDrop":        "Cap Drop",
+	"securityOpt":    "Security Opts",
+	"healthStatus":   "Health Status",
+	"healthTest":     "Health Command",
+	"healthInterval": "Health Interval",
+	"healthTimeout":  "Health Timeout",
+	"healthRetries":  "Health Retries",
 }
 
 // Set updates process metadata values
@@ -69,6 +80,19 @@ func (w *Process) Set(k, v string) {
 			w.Rows = append(w.Rows, mkInfoRows(label, val)...)
 		}
 	}
+
+	if hLog, ok := w.data["[HEALTH-LOG]"]; ok && hLog != "" {
+		for _, entry := range strings.Split(hLog, ";;") {
+			parts := strings.Split(entry, ":::")
+			if len(parts) >= 3 {
+				statusStr := "OK"
+				if parts[0] != "0" {
+					statusStr = "FAIL"
+				}
+				w.Rows = append(w.Rows, []string{"Probe Log", fmt.Sprintf("[%s] %s: %s", parts[1], statusStr, parts[2])})
+			}
+		}
+	}
 }
 
 // GetHeight returns required widget lines
@@ -83,7 +107,7 @@ func (w *Process) GetHeight() int {
 func (w *Process) Draw(buf *ui.Buffer) {
 	w.Block.Draw(buf)
 
-	keyStyle := theme.Style("header.fg")
+	keyStyle := theme.Style("label.fg")
 	valStyle := theme.Style("par.text.fg")
 	sepStyle := theme.Style("border.fg")
 	sepCell := ui.NewCell(ui.VERTICAL_LINE, sepStyle)

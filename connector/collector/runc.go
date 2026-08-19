@@ -29,9 +29,13 @@ type Runc struct {
 }
 
 func NewRunc(libc *libcontainer.Container) *Runc {
+	id := ""
+	if libc != nil {
+		id = libc.ID()
+	}
 	c := &Runc{
 		Metrics:  models.NewMetrics(),
-		id:       libc.ID(),
+		id:       id,
 		libc:     libc,
 		interval: 1 * time.Second,
 		stopCh:   make(chan struct{}),
@@ -75,6 +79,10 @@ func (c *Runc) run() {
 	defer ticker.Stop()
 
 	for {
+		if c.libc == nil {
+			log.Errorf("failed to collect stats for container %s: nil libc", c.id)
+			break
+		}
 		stats, err := c.libc.Stats()
 		if err != nil {
 			log.Errorf("failed to collect stats for container %s:\n%s", c.id, err)

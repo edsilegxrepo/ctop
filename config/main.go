@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/edsilegx/ctop/logging"
@@ -29,6 +30,11 @@ func Init() {
 
 	for _, p := range defaultParams {
 		pm := *p
+		if pm.Key == "downloadDir" {
+			if envDir := os.Getenv("CTOP_DOWNLOAD_DIR"); envDir != "" {
+				pm.Val = envDir
+			}
+		}
 		GlobalParams = append(GlobalParams, &pm)
 		log.Infof("loaded default config param [%s]: %s", quote(pm.Key), quote(pm.Val))
 	}

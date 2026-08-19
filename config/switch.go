@@ -22,6 +22,16 @@ var defaultSwitches = []*Switch{
 		Val:   true,
 		Label: "Enable status header",
 	},
+	{
+		Key:   "readOnly",
+		Val:   false,
+		Label: "Read-only inspection mode (disables state modifications)",
+	},
+	{
+		Key:   "groupByCompose",
+		Val:   false,
+		Label: "Group containers by Compose project stack",
+	},
 }
 
 type Switch struct {

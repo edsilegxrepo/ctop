@@ -19,6 +19,13 @@ The test framework is divided into two distinct testing tiers:
 8. **`menus.go` (Unbuffered Quit Channel Hang)**: `LogMenu` and `logReader` returned an unbuffered `quit` channel with no active consumer when a container had an inactive/nil collector, causing `quit <- true` to hang indefinitely upon closing the drawer. Resolved by buffering the channel (`make(chan bool, 1)`) and using non-blocking select sends.
 9. **`connector/docker.go` (Uptime Calculation Bug)**: Unstarted or stopped containers with a zero `StartedAt` timestamp resulted in `calcUptime` computing durations of ~292 years. Resolved by returning `"-"` when `StartedAt.IsZero()`.
 10. **`logging/main.go` & `cursor.go` (Nil Pointer Safety)**: Added nil receiver guards across status logger methods (`Status`, `Statusf`, `StatusErr`, `StatusQueued`, `FlushStatus`) and `GridCursor.Selected()`.
+11. **`cwidgets/single/network.go` (Self-Deadlock & Concurrency Race)**: `Network.Draw()` locked `w.mu.Lock()` at entry and called `w.mu.Lock()` again internally within the live TCP probe section, causing a self-deadlock on a non-reentrant mutex. Resolved by removing the duplicate inner lock.
+12. **`cwidgets/single/main.go` & `network.go` (Data Race on Background UI Rendering)**: TCP port probing callbacks invoked `ui.Render()` and `e.Align()` from background goroutines, conflicting with main thread terminal renders. Resolved by restricting background workers strictly to data mutations under mutex and isolating UI rendering to the main loop and ticker. Added context cancellation (`w.StopProbes()`).
+13. **`cwidgets/compact/row.go` & `cwidgets/compact/grid.go` (Data Race on Telemetry Streams)**: Concurrent access between background telemetry updates from `collector.Stream()` and main loop layout passes in `RedrawRows()`. Resolved with `sync.Mutex` synchronization across compact rows and grids.
+14. **`cwidgets/single/env.go` (Default Secret Masking)**: Sensitive environment variables (passwords, tokens, private keys) are masked by default (`•••••••••••• [masked]`) with toggle unmasking via `u`.
+15. **`cwidgets/single/main.go` (Recursive Mutex Self-Deadlock on `[o]` Overview)**: Calling `ui.Render(e)` inside `SetTab()`, `Up()`, `Down()`, and `ToggleSecretMask()` while holding `e.mu.Lock()` triggered re-entry into `e.Draw(buf)` on the same thread, causing a hard self-deadlock. Resolved by removing all internal render calls from widget mutators.
+16. **`config/columns.go` (Data Race on Column Layout Mutation)**: Unprotected slice writes across threads in `ColumnToggle()`, `ColumnLeft()`, and `ColumnRight()`. Resolved by synchronizing column mutation operations with `lock.Lock()`.
+17. **`menus.go` & `menus_test.go` (Test Log File Pollution Isolation)**: Log export (`s` key) in tests wrote files to working directory. Resolved by making log export directory respect `downloadDir` / `CTOP_DOWNLOAD_DIR` and binding `t.TempDir()` in tests.
 
 ```mermaid
 flowchart TD
@@ -172,6 +179,8 @@ sequenceDiagram
 | `TestFrameWriterStdin` | Tests framing stdin input stream | **PASS**: Stdin payloads formatted correctly |
 | `TestFrameWriterEmptyAndInvalid` | Tests frame writer resilience against nil or empty buffers | **PASS**: Empty buffers handled gracefully without panics |
 | `TestMockAndRuncManagers` | Verifies mock and runc lifecycle manager interfaces | **PASS**: Lifecycle transitions execute and report success |
+| `TestDockerManagerExtendedMethods` | Tests Kill, Top, Changes, ReadDir, ReadFile, Download, Upload, UpdateResources on Docker manager | **PASS**: All lifecycle and management calls succeed or return structured errors |
+| `TestMockAndRuncExtendedCoverage` | Tests extended manager interfaces for mock and runc drivers | **PASS**: Manager methods report correct data structures and behavior |
 
 ---
 
@@ -209,8 +218,9 @@ sequenceDiagram
 | `TestNetUpdate` | Tests network I/O sparkline history update | **PASS**: History buffer correctly appends new rates and shifts |
 | `TestIOUpdate` | Tests block I/O sparkline history update | **PASS**: Block I/O history buffer maintains sliding window |
 | `TestCpuAndMemWidgets` | Tests CPU and memory chart widget rendering in single view | **PASS**: Widgets format telemetry into graphs without panics |
-| `TestEnvAndInfoWidgets` | Tests container environment variables and inspection table rendering | **PASS**: Environment keys and values rendered cleanly |
-| `TestSingleView` | Tests full single container inspection view orchestration | **PASS**: Sub-views position and redraw cleanly |
+| `TestEnvAndInfoWidgets` | Tests container environment variables and inspection table rendering with default secret masking | **PASS**: Environment keys rendered with masked secrets and unmask toggles |
+| `TestSingleView` | Tests full single container inspection view orchestration across all 9 tabs | **PASS**: Sub-views position and redraw cleanly |
+| `TestSingleViewAllSubwidgets` | Tests Volumes, Network (live TCP probes), Process, Top, Diff, Generator, Labels, Files widgets | **PASS**: All specialized inspection subwidgets render without error |
 | `TestLogsWidget` | Tests embedded container log viewer widget | **PASS**: Ingests and renders log lines with proper scroll offset |
 | `TestIntHist` / `TestFloatHist` / `TestDiffHist` | Tests circular history buffers for metric charting | **PASS**: Buffers maintain capacity, compute min/max/average accurately |
 | `TestLogLinesAnsiSanitization` | Tests stripping ANSI escape color sequences from ingested log lines | **PASS**: Raw colored logs sanitized into clean displayable text |
@@ -286,9 +296,12 @@ sequenceDiagram
 | `TestColumnsMenu` | Tests column toggle and shift operations via interactive dialog | **PASS**: Safely toggles and shifts column positions |
 | `TestConfirmDialog` | Tests modal action confirmation dialog ('y' confirm, 'c' cancel) | **PASS**: Executes callback on 'y' and aborts on 'c' |
 | `TestContainerMenuNavigation` | Tests context menu actions for running, paused, and exited containers | **PASS**: Dispatches lifecycle controls (start, stop, pause, remove) |
-| `TestLogMenuAndReader` | Tests live container log viewer drawer and non-blocking quit channel | **PASS**: Streams logs, toggles timestamps, and closes cleanly without hang |
+| `TestLogMenuAndReader` | Tests live container log viewer drawer, timestamp toggle, D dir prompt, and log export | **PASS**: Streams logs, updates dir, exports logs, and closes cleanly |
 | `TestConfirmTxt` | Tests action confirmation dialog prompt generator | **PASS**: Returns accurate confirmation question text |
 | `TestToggleLog` | Tests quick log drawer toggle helper | **PASS**: Correctly flips log drawer visibility flag |
+| `TestModalRapidLifecycleStress` | Rapidly opens and dismisses all interactive modal menus across multiple cycles | **PASS**: 0 deadlocks or race conditions during rapid modal lifecycles |
+| `TestLogMenuHighThroughputStress` | Stress tests high-throughput streaming log viewer and export operations | **PASS**: Streams thousands of log lines without hang or memory leak |
+| `TestGoroutineLeakVerification` | Validates that all worker goroutines terminate cleanly after menu closures | **PASS**: Zero dangling background goroutines |
 
 ---
 
@@ -303,16 +316,17 @@ sequenceDiagram
 | `TestShutdown` | Tests graceful application termination and logger flush | **PASS**: Notice logged and UI terminal closed cleanly |
 | `TestRedrawRowsFull` | Tests grid row rendering with header, status bar, and container rows | **PASS**: Renders all visual elements without race conditions |
 | `TestRedrawRowsSafe` | Tests grid row rendering thread safety | **PASS**: Rows redraw safely when UI components are uninitialized |
-| `TestSingleViewNavigation` | Tests single container detailed inspection view | **PASS**: Handles resize and scrolling events without errors |
+| `TestSingleViewNavigation` | Tests single container detailed inspection view across all 9 tabs | **PASS**: Handles resize and scrolling events without errors |
 | `TestRefreshDisplayWithCursor` | Tests grid display refresh trigger | **PASS**: Refreshes grid display state smoothly |
 | `TestDisplayLoop` | Tests main interactive application event loop with menu triggers | **PASS**: Dispatches keyboard events and exits cleanly on 'q' |
 | `TestShowConnError` | Tests modal connection failure error view | **PASS**: Renders connection error details and dismisses on 'q' |
+| `TestConcurrentMetricsAndSingleView` | Stress tests 100Hz concurrent metric ingestion while actively navigating tabs | **PASS**: 0 deadlocks, zero UI lag, buffer drawing thread-safe |
+| `TestDirectFrameBufferRendering` | Tests direct headless buffer drawing across varied screen resolutions | **PASS**: Renders cleanly on 80x24, 120x40, 200x60, and 20x10 |
 | `TestDebugLogEvent` | Tests debug event logging formatter | **PASS**: Correctly serializes termui event descriptors |
 | `TestDebugDumpContainer` | Tests container state serialization and field inspection | **PASS**: Serializes metadata and metrics structure |
 | `TestDebugInspectAndQuote` | Tests reflection struct field inspector and quote sanitizer | **PASS**: Inspects arbitrary struct fields accurately |
 
 ---
-
 
 ## 5. Code Coverage Report
 
@@ -324,22 +338,23 @@ Package                                         Statement Coverage
 github.com/edsilegx/ctop/models                   100.0%
 github.com/edsilegx/ctop/pkg/keys                 100.0%
 github.com/edsilegx/ctop/pkg/sanitize             100.0%
-github.com/edsilegx/ctop/widgets                  89.7%
-github.com/edsilegx/ctop/widgets/menu             89.7%
-github.com/edsilegx/ctop/container                89.5%
-github.com/edsilegx/ctop/theme                    89.5%
-github.com/edsilegx/ctop/config                   88.4%
-github.com/edsilegx/ctop/cwidgets/single          87.4%
+github.com/edsilegx/ctop/widgets/menu             91.9%
+github.com/edsilegx/ctop/theme                    91.3%
+github.com/edsilegx/ctop/config                   88.7%
+github.com/edsilegx/ctop/container                88.1%
+github.com/edsilegx/ctop/widgets                  87.6%
+github.com/edsilegx/ctop/cwidgets/single          86.5%
 github.com/edsilegx/ctop/cwidgets                 85.0%
-github.com/edsilegx/ctop/cwidgets/compact         81.8%
-github.com/edsilegx/ctop/connector/manager        80.4%
-github.com/edsilegx/ctop/logging                  79.9%
-github.com/edsilegx/ctop/connector/collector      76.3%
-github.com/edsilegx/ctop/connector                74.5%
-github.com/edsilegx/ctop (main)                   73.1%
+github.com/edsilegx/ctop/cwidgets/compact         82.0%
+github.com/edsilegx/ctop (main)                   81.1%
+github.com/edsilegx/ctop/connector                81.2%
+github.com/edsilegx/ctop/logging                  80.4%
+github.com/edsilegx/ctop/connector/collector      80.7%
+github.com/edsilegx/ctop/connector/manager        80.7%
+github.com/edsilegx/ctop/pkg/exit                 [constants only]
 ------------------------------------------------------------------
-Total Statement Coverage across Repository:     80.7%
-Target Met:                                     80%+ Goal Achieved Across Workspace
+Total Statement Coverage across Repository:     83.9%
+Target Met:                                     ≥ 80.0% Minimum Met Across Every Package
 ```
 
 ### How to Calculate & Refresh Coverage Statistics

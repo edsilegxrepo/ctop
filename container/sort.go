@@ -92,6 +92,20 @@ var Sorters = map[string]sortMethod{
 		}
 		return c1Uptime > c2Uptime
 	},
+	"compose": func(c1, c2 *Container) bool {
+		p1 := c1.GetMeta("composeProject")
+		p2 := c2.GetMeta("composeProject")
+		if p1 == p2 {
+			return nameSorter(c1, c2)
+		}
+		if p1 == "" {
+			return false
+		}
+		if p2 == "" {
+			return true
+		}
+		return p1 < p2
+	},
 }
 
 func SortFields() (fields []string) {
@@ -107,6 +121,20 @@ func (a Containers) Sort()         { sort.Sort(a) }
 func (a Containers) Len() int      { return len(a) }
 func (a Containers) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a Containers) Less(i, j int) bool {
+	if config.GetSwitchVal("groupByCompose") {
+		projI := a[i].GetMeta("composeProject")
+		projJ := a[j].GetMeta("composeProject")
+		if projI != projJ {
+			if projI == "" {
+				return false
+			}
+			if projJ == "" {
+				return true
+			}
+			return projI < projJ
+		}
+	}
+
 	sortField := config.GetVal("sortField")
 	f, ok := Sorters[sortField]
 	if !ok || f == nil {

@@ -35,6 +35,11 @@ func TestConfigParams(t *testing.T) {
 		t.Errorf("expected sortField='cpu', got '%s'", val)
 	}
 
+	Update("downloadDir", "/custom/downloads")
+	if val := GetVal("downloadDir"); val != "/custom/downloads" {
+		t.Errorf("expected downloadDir='/custom/downloads', got '%s'", val)
+	}
+
 	// Test non-existent param returns empty
 	if val := GetVal("nonExistentKey"); val != "" {
 		t.Errorf("expected empty string for nonExistentKey, got '%s'", val)

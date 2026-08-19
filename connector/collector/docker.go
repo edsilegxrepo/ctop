@@ -3,6 +3,7 @@ package collector
 import (
 	"math"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/edsilegx/ctop/models"
@@ -19,6 +20,7 @@ type Docker struct {
 	done       chan bool
 	lastCpu    float64
 	lastSysCpu float64
+	mu         sync.Mutex
 }
 
 func NewDocker(client *api.Client, id string) *Docker {
@@ -30,6 +32,9 @@ func NewDocker(client *api.Client, id string) *Docker {
 }
 
 func (c *Docker) Start() {
+	if !c.running.CompareAndSwap(false, true) {
+		return
+	}
 	c.done = make(chan bool, 1)
 	stream := make(chan models.Metrics)
 	c.stream = stream
@@ -51,16 +56,18 @@ func (c *Docker) Start() {
 	go func() {
 		defer close(stream)
 		for s := range stats {
+			c.mu.Lock()
 			c.ReadCPU(s)
 			c.ReadMem(s)
 			c.ReadNet(s)
 			c.ReadIO(s)
-			stream <- c.Metrics
+			metrics := c.Metrics
+			c.mu.Unlock()
+			stream <- metrics
 		}
 		log.Infof("collector stopped for container: %s", c.id)
 	}()
 
-	c.running.Store(true)
 	log.Infof("collector started for container: %s", c.id)
 }
 
@@ -78,10 +85,11 @@ func (c *Docker) Logs() LogCollector {
 
 // Stop collector
 func (c *Docker) Stop() {
-	c.running.Store(false)
-	select {
-	case c.done <- true:
-	default:
+	if c.running.CompareAndSwap(true, false) {
+		select {
+		case c.done <- true:
+		default:
+		}
 	}
 }
 
@@ -140,6 +148,32 @@ func (c *Docker) ReadMem(stats *api.Stats) {
 		c.MemLimit = int64(stats.MemoryStats.Limit)
 	}
 	c.MemPercent = percent(float64(c.MemUsage), float64(c.MemLimit))
+
+	rss := stats.MemoryStats.Stats.TotalRss
+	if rss == 0 {
+		rss = stats.MemoryStats.Stats.Rss
+	}
+	if rss > math.MaxInt64 {
+		c.MemRss = math.MaxInt64
+	} else {
+		c.MemRss = int64(rss)
+	}
+	if cache > math.MaxInt64 {
+		c.MemCache = math.MaxInt64
+	} else {
+		c.MemCache = int64(cache)
+	}
+	if stats.MemoryStats.Stats.Swap > math.MaxInt64 {
+		c.MemSwap = math.MaxInt64
+	} else {
+		c.MemSwap = int64(stats.MemoryStats.Stats.Swap)
+	}
+	kMem := stats.MemoryStats.Stats.KernelStack + stats.MemoryStats.Stats.Slab
+	if kMem > math.MaxInt64 {
+		c.MemKernel = math.MaxInt64
+	} else {
+		c.MemKernel = int64(kMem)
+	}
 }
 
 func (c *Docker) ReadNet(stats *api.Stats) {

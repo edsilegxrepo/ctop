@@ -8,7 +8,6 @@ import (
 
 	"github.com/edsilegx/ctop/theme"
 	ui "github.com/gizak/termui/v3"
-	tb "github.com/nsf/termbox-go"
 )
 
 type Padding [2]int // x,y padding
@@ -140,9 +139,6 @@ func (m *Menu) Up() {
 		if m.items[m.cursorPos].Separator {
 			m.cursorPos = 0
 		}
-		if tb.IsInit {
-			ui.Render(m)
-		}
 	}
 }
 
@@ -155,9 +151,6 @@ func (m *Menu) Down() {
 		if m.items[m.cursorPos].Separator {
 			m.cursorPos = len(m.items) - 1
 		}
-		if tb.IsInit {
-			ui.Render(m)
-		}
 	}
 }
 
@@ -167,9 +160,6 @@ func (m *Menu) refresh() {
 		sort.Sort(m.items)
 	}
 	m.calcSize()
-	if tb.IsInit {
-		ui.Render(m)
-	}
 }
 
 // Set width and height based on menu items

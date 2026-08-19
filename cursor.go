@@ -109,12 +109,10 @@ func (gc *GridCursor) ScrollPage() {
 	// page down
 	if idx >= cGrid.Offset+cGrid.MaxRows() {
 		cGrid.Offset++
-		cGrid.Align()
 	}
 	// page up
 	if idx < cGrid.Offset {
 		cGrid.Offset--
-		cGrid.Align()
 	}
 }
 
@@ -178,9 +176,6 @@ func (gc *GridCursor) PgUp() {
 	gc.selectedID = next.Id
 	next.Widgets.Highlight()
 
-	if cGrid != nil {
-		cGrid.Align()
-	}
 	RedrawRows(false)
 }
 
@@ -206,9 +201,6 @@ func (gc *GridCursor) PgDown() {
 	gc.selectedID = next.Id
 	next.Widgets.Highlight()
 
-	if cGrid != nil {
-		cGrid.Align()
-	}
 	RedrawRows(false)
 }
 

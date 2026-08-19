@@ -100,7 +100,7 @@ func (w *Labels) GetHeight() int {
 func (w *Labels) Draw(buf *ui.Buffer) {
 	w.Block.Draw(buf)
 
-	keyStyle := theme.Style("header.fg")
+	keyStyle := theme.Style("label.fg")
 	valStyle := theme.Style("par.text.fg")
 	subHeaderStyle := theme.Style("status.warn")
 	sepStyle := theme.Style("border.fg")

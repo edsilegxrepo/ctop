@@ -6,9 +6,11 @@ package collector
 
 import (
 	"testing"
+	"time"
 
 	"github.com/edsilegx/ctop/models"
 	"github.com/opencontainers/cgroups"
+	"github.com/opencontainers/runc/types"
 )
 
 func TestRuncCollectorReadCPU(t *testing.T) {
@@ -90,6 +92,22 @@ func TestRuncCollectorReadMem(t *testing.T) {
 	if c.MemPercent != 25 {
 		t.Fatalf("expected MemPercent 25, got %d", c.MemPercent)
 	}
+
+	// Test large memory limit clamped to sysMemTotal
+	if sysMemTotal > 0 {
+		stats2 := &cgroups.Stats{
+			MemoryStats: cgroups.MemoryStats{
+				Usage: cgroups.MemoryData{
+					Usage: 1024,
+					Limit: uint64(sysMemTotal) + 1000000,
+				},
+			},
+		}
+		c.ReadMem(stats2)
+		if c.MemLimit != sysMemTotal {
+			t.Fatalf("expected MemLimit clamped to sysMemTotal %d, got %d", sysMemTotal, c.MemLimit)
+		}
+	}
 }
 
 func TestRuncCollectorReadNet(t *testing.T) {
@@ -101,20 +119,39 @@ func TestRuncCollectorReadNet(t *testing.T) {
 	if c.NetRx != 0 || c.NetTx != 0 {
 		t.Fatalf("expected 0 net stats for empty interfaces, got rx=%d tx=%d", c.NetRx, c.NetTx)
 	}
+
+	ifaces := []*types.NetworkInterface{
+		{Name: "eth0", RxBytes: 1024, TxBytes: 2048},
+		{Name: "eth1", RxBytes: 4096, TxBytes: 8192},
+	}
+	c.ReadNet(ifaces)
+	if c.NetRx != 5120 || c.NetTx != 10240 {
+		t.Fatalf("expected rx=5120 tx=10240, got rx=%d tx=%d", c.NetRx, c.NetTx)
+	}
 }
 
 func TestRuncLifecycle(t *testing.T) {
-	r := &Runc{
-		id:      "test-runc-container",
-		Metrics: models.NewMetrics(),
-		stopCh:  make(chan struct{}),
-	}
+	r := NewRunc(nil)
 
 	if r.Running() {
 		t.Fatal("expected r.Running() to be false initially")
 	}
 	if r.Logs() != nil {
 		t.Fatal("expected runc Logs() to be nil")
+	}
+	if r.Stream() != nil {
+		t.Fatal("expected stream to be nil before start")
+	}
+
+	r.Start()
+	time.Sleep(50 * time.Millisecond)
+
+	// Test Stop branch when running
+	r.running.Store(true)
+	r.done.Store(false)
+	r.Stop()
+	if r.Running() {
+		t.Fatal("expected r.Running() to be false after Stop")
 	}
 }
 
