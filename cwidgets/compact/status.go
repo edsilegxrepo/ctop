@@ -33,7 +33,8 @@ func NewStatus() CompactCol {
 func (s *Status) Draw(buf *ui.Buffer) {
 	s.Block.Draw(buf)
 	x := s.Min.X
-	y := s.Min.Y
+	height := s.Max.Y - s.Min.Y
+	y := s.Min.Y + (height-1)/2
 
 	if s.highlighted {
 		hiCell := ui.NewCell(' ', ui.NewStyle(theme.Color("cursor.fg"), theme.Color("cursor.bg")))
@@ -62,15 +63,15 @@ func (s *Status) SetMeta(m models.Meta) {
 }
 
 func (s *Status) SetX(x int) {
-	s.SetRect(x, s.Min.Y, x+s.FixedWidth(), s.Min.Y+1)
+	s.SetRect(x, s.Min.Y, x+s.FixedWidth(), s.Max.Y)
 }
 
 func (s *Status) SetY(y int) {
-	s.SetRect(s.Min.X, y, s.Min.X+s.FixedWidth(), y+1)
+	s.SetRect(s.Min.X, y, s.Min.X+s.FixedWidth(), y+(s.Max.Y-s.Min.Y))
 }
 
 func (s *Status) SetWidth(w int) {
-	s.SetRect(s.Min.X, s.Min.Y, s.Min.X+w, s.Min.Y+1)
+	s.SetRect(s.Min.X, s.Min.Y, s.Min.X+w, s.Max.Y)
 }
 
 // Status implements CompactCol

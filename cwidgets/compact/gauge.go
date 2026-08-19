@@ -99,7 +99,8 @@ func (w *GaugeCol) Draw(buf *ui.Buffer) {
 	w.Block.Draw(buf)
 
 	width := w.Max.X - w.Min.X
-	if width <= 0 {
+	height := w.Max.Y - w.Min.Y
+	if width <= 0 || height <= 0 {
 		return
 	}
 
@@ -113,24 +114,25 @@ func (w *GaugeCol) Draw(buf *ui.Buffer) {
 		label = label[:width]
 	}
 
-	pt := image.Pt(w.Min.X, w.Min.Y)
+	y := w.Min.Y + (height-1)/2
+	pt := image.Pt(w.Min.X, y)
 	if w.rightAlign && len(label) < width {
-		pt = image.Pt(w.Min.X+(width-len(label)), w.Min.Y)
+		pt = image.Pt(w.Min.X+(width-len(label)), y)
 	}
 
 	buf.SetString(label, w.LabelStyle, pt)
 }
 
 func (w *GaugeCol) SetX(x int) {
-	w.SetRect(x, w.Min.Y, x+(w.Max.X-w.Min.X), w.Min.Y+1)
+	w.SetRect(x, w.Min.Y, x+(w.Max.X-w.Min.X), w.Max.Y)
 }
 
 func (w *GaugeCol) SetY(y int) {
-	w.SetRect(w.Min.X, y, w.Max.X, y+1)
+	w.SetRect(w.Min.X, y, w.Max.X, y+(w.Max.Y-w.Min.Y))
 }
 
 func (w *GaugeCol) SetWidth(width int) {
-	w.SetRect(w.Min.X, w.Min.Y, w.Min.X+width, w.Min.Y+1)
+	w.SetRect(w.Min.X, w.Min.Y, w.Min.X+width, w.Max.Y)
 }
 
 // GaugeCol implements CompactCol

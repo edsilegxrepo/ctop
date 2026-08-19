@@ -126,7 +126,8 @@ func NewTextCol(header string) *TextCol {
 func (w *TextCol) Draw(buf *ui.Buffer) {
 	w.Block.Draw(buf)
 	width := w.Max.X - w.Min.X
-	if width <= 0 {
+	height := w.Max.Y - w.Min.Y
+	if width <= 0 || height <= 0 {
 		return
 	}
 
@@ -140,24 +141,25 @@ func (w *TextCol) Draw(buf *ui.Buffer) {
 		s = s[:width]
 	}
 
-	pt := image.Pt(w.Min.X, w.Min.Y)
+	y := w.Min.Y + (height-1)/2
+	pt := image.Pt(w.Min.X, y)
 	if w.rightAlign && len(s) < width {
-		pt = image.Pt(w.Min.X+(width-len(s)), w.Min.Y)
+		pt = image.Pt(w.Min.X+(width-len(s)), y)
 	}
 
 	buf.SetString(s, w.TextStyle, pt)
 }
 
 func (w *TextCol) SetX(x int) {
-	w.SetRect(x, w.Min.Y, x+(w.Max.X-w.Min.X), w.Min.Y+1)
+	w.SetRect(x, w.Min.Y, x+(w.Max.X-w.Min.X), w.Max.Y)
 }
 
 func (w *TextCol) SetY(y int) {
-	w.SetRect(w.Min.X, y, w.Max.X, y+1)
+	w.SetRect(w.Min.X, y, w.Max.X, y+(w.Max.Y-w.Min.Y))
 }
 
 func (w *TextCol) SetWidth(width int) {
-	w.SetRect(w.Min.X, w.Min.Y, w.Min.X+width, w.Min.Y+1)
+	w.SetRect(w.Min.X, w.Min.Y, w.Min.X+width, w.Max.Y)
 }
 
 func (w *TextCol) Highlight() {
