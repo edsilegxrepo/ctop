@@ -8,7 +8,7 @@ require (
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/jgautheron/codename-generator v0.0.0-20150829203204-16d037c7cc3c
 	github.com/mattn/go-runewidth v0.0.28
-	github.com/nsf/termbox-go v1.1.1
+	github.com/nsf/termbox-go v1.1.2
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/opencontainers/cgroups v0.1.0
