@@ -4,7 +4,7 @@ We are committed to ensuring the security of our application, and addressing sec
 
 ## Supported Versions
 
-We recommend always using the latest commit from the `master` branch, as we currently do not have a formal versioning scheme with designated security support.
+We recommend always using the latest commit from the `main` branch, as we currently do not have a formal versioning scheme with designated security support.
 
 ## Reporting a Vulnerability
 

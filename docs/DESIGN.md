@@ -62,8 +62,8 @@ graph TD
 
 ### 2.1 Problem Analysis of Current Architecture
 
-1. **Domain Entities Bound to UI Widgets**: The `container.Container` struct in [container/main.go](container/main.go) directly embeds `Widgets *compact.CompactRow` and `updater cwidgets.WidgetUpdater`. A background metric read modifies UI widget state directly, making it impossible to use `ctop` without importing UI drawing code.
-2. **Global Singletons**: Configuration ([config/main.go](config/main.go)), logging ([logging/main.go](logging/main.go)), and UI coordinate states are managed via global variables, preventing multiple concurrent engine instances or multi-tenant server sessions.
+1. **Domain Entities Bound to UI Widgets**: The `container.Container` struct in [container/main.go](../container/main.go) directly embeds `Widgets *compact.CompactRow` and `updater cwidgets.WidgetUpdater`. A background metric read modifies UI widget state directly, making it impossible to use `ctop` without importing UI drawing code.
+2. **Global Singletons**: Configuration ([config/main.go](../config/main.go)), logging ([logging/main.go](../logging/main.go)), and UI coordinate states are managed via global variables, preventing multiple concurrent engine instances or multi-tenant server sessions.
 3. **No Command-Line Separation**: `main.go` resides in the repository root and immediately initializes `termui.Init()`. There is no separation between the application entry point and package logic.
 4. **Tight Event Coupling**: Terminal keyboard events in `grid.go` drive data fetching synchronously rather than observing an decoupled telemetry stream.
 
@@ -915,7 +915,9 @@ ctop/
 ├── go.mod
 ├── go.sum
 ├── ARCHITECTURE.md
-└── DESIGN.md                     # This document
+└── docs/
+    ├── DESIGN.md                 # This document
+    └── MODERNIZATION.md          # Modernization & migration guide
 ```
 
 ---

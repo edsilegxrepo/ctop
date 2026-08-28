@@ -3,12 +3,12 @@ module github.com/edsilegx/ctop
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/c9s/goprocinfo v0.0.0-20210130143923-c95fcf8c64a8
-	github.com/fsouza/go-dockerclient v1.13.2
+	github.com/fsouza/go-dockerclient v1.13.3
 	github.com/gizak/termui/v3 v3.1.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/jgautheron/codename-generator v0.0.0-20150829203204-16d037c7cc3c
 	github.com/mattn/go-runewidth v0.0.28
-	github.com/nsf/termbox-go v1.1.1
+	github.com/nsf/termbox-go v1.1.2
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/opencontainers/cgroups v0.1.0
@@ -21,7 +21,7 @@ require (
 	cyphar.com/go-pathrs v0.2.5 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/aperturerobotics/protobuf-go-lite v0.17.0 // indirect
+	github.com/aperturerobotics/protobuf-go-lite v0.18.0 // indirect
 	github.com/checkpoint-restore/go-criu/v8 v8.4.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/containerd/console v1.0.5 // indirect
@@ -48,12 +48,12 @@ require (
 	github.com/opencontainers/runtime-spec v1.3.0 // indirect
 	github.com/opencontainers/selinux v1.15.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/seccomp/libseccomp-golang v0.11.1 // indirect
-	github.com/sirupsen/logrus v1.10.0 // indirect
+	github.com/seccomp/libseccomp-golang v0.12.0 // indirect
+	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/vishvananda/netlink v1.3.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )
 
-go 1.25.5
+go 1.26

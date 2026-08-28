@@ -285,6 +285,8 @@ If a container is configured with a Docker health check, a health badge appears 
 ## 7. Associated Documentation
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: Detailed system architecture, component contracts, data flow diagrams, and concurrency models.
+- **[docs/DESIGN.md](docs/DESIGN.md)**: Headless engine architecture, REST/WebSocket streaming API, and modular package decoupling specification.
+- **[docs/MODERNIZATION.md](docs/MODERNIZATION.md)**: Go modernization roadmap, dependency upgrades (`termui` v3, `runc` v1.3), and static analysis remediation record.
 - **[TESTING.md](TESTING.md)**: Complete test strategy, categorized test catalog (14 groups), 10 identified defect resolutions, and coverage verification report.
 - **[CHANGELOG.md](CHANGELOG.md)**: Chronological record of all version releases, feature additions, defect fixes, and security remediations.
 - **[SECURITY.md](SECURITY.md)**: Security vulnerability disclosure policy and reporting protocols.
