@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edsilegx/ctop/config"
-	"github.com/edsilegx/ctop/cwidgets"
-	"github.com/edsilegx/ctop/cwidgets/single"
-	"github.com/edsilegx/ctop/theme"
-	"github.com/edsilegx/ctop/widgets"
+	"github.com/edsilegx/ctop/internal/cwidgets"
+	"github.com/edsilegx/ctop/internal/cwidgets/single"
+	"github.com/edsilegx/ctop/internal/theme"
+	"github.com/edsilegx/ctop/internal/widgets"
+	"github.com/edsilegx/ctop/pkg/config"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -87,7 +87,7 @@ func RedrawRows(clr bool) {
 	}
 
 	if clr {
-		ui.Clear()
+		theme.SafeClear()
 		if log != nil {
 			log.Debugf("screen cleared")
 		}
@@ -558,6 +558,14 @@ func Display() bool {
 						_ = RefreshDisplay()
 					case "H":
 						config.Toggle("enableHeader")
+						RedrawRows(true)
+					case "m":
+						config.Toggle("rateMode")
+						if config.GetSwitchVal("rateMode") {
+							log.Status("metrics mode: real-time rate (/s)")
+						} else {
+							log.Status("metrics mode: cumulative total")
+						}
 						RedrawRows(true)
 					case "r":
 						config.Toggle("sortReversed")

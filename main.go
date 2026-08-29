@@ -8,16 +8,20 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 
-	"github.com/edsilegx/ctop/config"
-	"github.com/edsilegx/ctop/connector"
-	"github.com/edsilegx/ctop/container"
-	"github.com/edsilegx/ctop/cwidgets/compact"
-	"github.com/edsilegx/ctop/logging"
+	"github.com/edsilegx/ctop/internal/cwidgets/compact"
+	"github.com/edsilegx/ctop/internal/theme"
+	"github.com/edsilegx/ctop/internal/widgets"
+	"github.com/edsilegx/ctop/pkg/config"
+	"github.com/edsilegx/ctop/pkg/connector"
+	"github.com/edsilegx/ctop/pkg/container"
 	"github.com/edsilegx/ctop/pkg/exit"
-	"github.com/edsilegx/ctop/widgets"
+	"github.com/edsilegx/ctop/pkg/logging"
+	"github.com/edsilegx/ctop/pkg/update"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 )
@@ -40,31 +44,91 @@ var (
 	versionStr = fmt.Sprintf("ctop version %v, build %v %v", version, build, goVersion)
 )
 
+type stringSlice []string
+
+func (s *stringSlice) String() string {
+	return strings.Join(*s, ", ")
+}
+
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 // main parses CLI arguments, initializes subsystems, and starts the primary render loop.
 func main() {
 	defer panicExit()
 
+	if len(os.Args) > 1 && os.Args[1] == "update" {
+		if err := update.Run(version); err != nil {
+			fmt.Fprintf(os.Stderr, "update error: %v\n", err)
+			os.Exit(exit.ExitGeneral)
+		}
+		os.Exit(exit.ExitSuccess)
+	}
+
 	// parse command line arguments
 	var (
-		versionFlag     = flag.Bool("v", false, "output version information and exit")
-		helpFlag        = flag.Bool("h", false, "display this help dialog")
-		filterFlag      = flag.String("f", "", "filter containers")
-		activeOnlyFlag  = flag.Bool("a", false, "show active containers only")
-		sortFieldFlag   = flag.String("s", "", "select container sort field")
-		reverseSortFlag = flag.Bool("r", false, "reverse container sort order")
-		invertFlag      = flag.Bool("i", false, "invert default colors")
-		readOnlyFlag    = flag.Bool("ro", false, "read-only inspection mode (disables state modifications)")
-		downloadDirFlag = flag.String("download-dir", "", "default host directory for container file downloads")
-		connectorFlag   = flag.String("connector", "docker", "container connector to use")
+		versionFlag     bool
+		helpFlag        bool
+		filterFlag      string
+		activeOnlyFlag  bool
+		sortFieldFlag   string
+		reverseSortFlag bool
+		invertFlag      bool
+		iconsFlag       string
+		readOnlyFlag    bool
+		downloadDirFlag string
+		connectorFlag   string
+		tlsVerifyFlag   bool
+		tlsCAFlag       string
+		tlsCertFlag     string
+		tlsKeyFlag      string
+		cumulativeFlag  bool
+		rateFlag        bool
+		webFlag         string
+		urlPrefixFlag   string
+		headlessFlag    bool
+		hostFlags       stringSlice
 	)
+
+	flag.BoolVar(&versionFlag, "version", false, "output version information and exit")
+	flag.BoolVar(&helpFlag, "help", false, "display this help dialog")
+	flag.StringVar(&filterFlag, "filter", "", "filter containers by name, ID regex, or structured query")
+	flag.BoolVar(&activeOnlyFlag, "active", false, "show active (running) containers only (default: shows all)")
+	flag.StringVar(&sortFieldFlag, "sort", "", "select container sort field")
+	flag.BoolVar(&reverseSortFlag, "reverse", false, "reverse container sort order")
+	flag.BoolVar(&invertFlag, "invert", false, "invert default colors for light terminal backgrounds")
+	flag.StringVar(&iconsFlag, "icons", "", "icon style to use ('unicode' or 'nerd')")
+	flag.BoolVar(&readOnlyFlag, "read-only", false, "read-only inspection mode (disables state modifications)")
+	flag.StringVar(&downloadDirFlag, "download-dir", "", "default host directory for container file downloads")
+	flag.StringVar(&connectorFlag, "connector", "docker", "container connector to use")
+	flag.BoolVar(&tlsVerifyFlag, "tls-verify", false, "enforce TLS verification when connecting to Docker daemon")
+	flag.StringVar(&tlsCAFlag, "tls-ca", "", "path to CA certificate file for TLS/mTLS verification")
+	flag.StringVar(&tlsCertFlag, "tls-cert", "", "path to client TLS certificate file for mTLS authentication")
+	flag.StringVar(&tlsKeyFlag, "tls-key", "", "path to client TLS private key file for mTLS authentication")
+	flag.BoolVar(&cumulativeFlag, "cumulative", false, "show cumulative lifetime metrics (total bytes) instead of real-time throughput rates")
+	flag.BoolVar(&rateFlag, "rate", false, "show real-time throughput rates (bytes/sec) for network and I/O (default)")
+	flag.StringVar(&webFlag, "web", "", "start embedded read-only web dashboard and REST/SSE API on specified address (e.g. ':9090')")
+	flag.StringVar(&urlPrefixFlag, "url-prefix", "", "Base URL subpath when running behind reverse proxies (e.g. /probe)")
+	flag.BoolVar(&headlessFlag, "headless", false, "run in headless daemon mode without terminal UI (requires --web)")
+	flag.Var(&hostFlags, "host", "Docker host endpoint(s) to connect to (can be specified multiple times)")
+	flag.Usage = printHelp
 	flag.Parse()
 
-	if *versionFlag {
+	connector.SetGlobalTLSConfig(connector.TLSConfig{
+		Verify: tlsVerifyFlag,
+		CA:     tlsCAFlag,
+		Cert:   tlsCertFlag,
+		Key:    tlsKeyFlag,
+	})
+
+	if versionFlag {
 		fmt.Println(versionStr)
 		os.Exit(exit.ExitSuccess)
 	}
 
-	if *helpFlag {
+	if helpFlag {
 		printHelp()
 		os.Exit(exit.ExitSuccess)
 	}
@@ -79,36 +143,107 @@ func main() {
 	}
 
 	// override default config values with command line flags
-	if *filterFlag != "" {
-		config.Update("filterStr", *filterFlag)
+	if filterFlag != "" {
+		config.Update("filterStr", filterFlag)
 	}
 
-	if *downloadDirFlag != "" {
-		config.Update("downloadDir", *downloadDirFlag)
+	if downloadDirFlag != "" {
+		config.Update("downloadDir", downloadDirFlag)
 	}
 
-	if *readOnlyFlag {
+	if readOnlyFlag {
 		config.UpdateSwitch("readOnly", true)
 	}
 
-	// Ensure all containers (running, paused, stopped) are shown by default unless -a flag is passed
-	if *activeOnlyFlag {
+	// Ensure all containers (running, paused, stopped) are shown by default unless -a/--active flag is passed
+	if activeOnlyFlag {
 		config.UpdateSwitch("allContainers", false)
 	} else {
 		config.UpdateSwitch("allContainers", true)
 	}
 
-	if *sortFieldFlag != "" {
-		validSort(*sortFieldFlag)
-		config.Update("sortField", *sortFieldFlag)
+	if sortFieldFlag != "" {
+		validSort(sortFieldFlag)
+		config.Update("sortField", sortFieldFlag)
 	}
 
-	if *reverseSortFlag {
+	if reverseSortFlag {
 		config.Toggle("sortReversed")
 	}
 
+	if cumulativeFlag {
+		config.UpdateSwitch("rateMode", false)
+	} else if rateFlag {
+		config.UpdateSwitch("rateMode", true)
+	}
+
+	if iconsFlag != "" {
+		config.Update("icons", iconsFlag)
+	}
+	theme.SetIconStyle(config.GetVal("icons"))
+
+	// init connector
+	var (
+		cSuper *connector.ConnectorSuper
+		err    error
+	)
+	if len(hostFlags) > 0 {
+		if len(hostFlags) > 1 {
+			config.ColumnToggle("host")
+		}
+		cSuper = connector.NewConnectorSuper(func() (connector.Connector, error) {
+			return connector.NewMultiDockerConnector(hostFlags...)
+		})
+	} else {
+		cSuper, err = connector.ByName(connectorFlag)
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "permission denied") {
+				fmt.Fprintf(os.Stderr, "error connecting to Docker socket: permission denied (ensure current user belongs to the 'docker' group)\n")
+				os.Exit(exit.ExitDockerPermission)
+			}
+			if strings.Contains(errStr, "tls") || strings.Contains(errStr, "certificate") {
+				fmt.Fprintf(os.Stderr, "error initializing TLS connection: %v\n", err)
+				os.Exit(exit.ExitDockerTLS)
+			}
+			fmt.Fprintf(os.Stderr, "error initializing connector '%s': %v\n", connectorFlag, err)
+			os.Exit(exit.ExitConnector)
+		}
+	}
+	cursor = &GridCursor{cSuper: cSuper}
+
+	// start web server if requested
+	if webFlag != "" {
+		srv, cleanup, err := startWebServer(webFlag, version, urlPrefixFlag, cursor)
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "address already in use") || strings.Contains(errStr, "only one usage of each socket address") {
+				fmt.Fprintf(os.Stderr, "error starting web dashboard: port %s is already in use by another process\n", webFlag)
+				os.Exit(exit.ExitPortInUse)
+			}
+			fmt.Fprintf(os.Stderr, "error starting web dashboard: %v\n", err)
+			os.Exit(exit.ExitGeneral)
+		}
+		defer cleanup()
+		log.Infof("embedded web dashboard listening on %s (read-only)", srv.Addr())
+	}
+
+	// Headless daemon mode
+	if headlessFlag {
+		if webFlag == "" {
+			fmt.Fprintf(os.Stderr, "--headless mode requires --web <address>\n")
+			os.Exit(exit.ExitUsage)
+		}
+		fmt.Printf("ctop running in headless mode (read-only web dashboard on %s). Press Ctrl+C to exit.\n", webFlag)
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		<-sigChan
+		fmt.Println("\nshutting down ctop headless daemon...")
+		return
+	}
+
 	// init ui
-	if *invertFlag {
+	if invertFlag {
 		InvertColorMap()
 	}
 	initTheme()
@@ -121,14 +256,6 @@ func main() {
 	uiEvents = ui.PollEvents()
 
 	defer Shutdown()
-	// init grid, cursor, header
-	cSuper, err := connector.ByName(*connectorFlag)
-	if err != nil {
-		Shutdown()
-		fmt.Fprintf(os.Stderr, "error initializing connector '%s': %v\n", *connectorFlag, err)
-		os.Exit(exit.ExitConnector)
-	}
-	cursor = &GridCursor{cSuper: cSuper}
 	cGrid = compact.NewCompactGrid()
 	header = widgets.NewCTopHeader()
 	status = widgets.NewStatusLine()
@@ -168,14 +295,49 @@ func panicExit() {
 
 var helpMsg = `ctop - interactive container viewer
 
-usage: ctop [options]
+usage:
+  ctop [options]
+  ctop [command]
+
+commands:
+  update                 Check and install the latest ctop release
 
 options:
-`
+  General & Help:
+    --version            output version information and exit
+    --help               display this help dialog
+
+  Container Discovery & Filtering:
+    --filter string      filter containers by name, ID regex, or structured query
+    --active             show active (running) containers only (default: shows all)
+    --sort string        select container sort field (cpu, mem, mem %, net, io, pids, name, state, uptime, compose)
+    --reverse            reverse container sort order
+
+  Display, Theme & Metrics Mode:
+    --icons string       icon glyph style to use ('unicode' or 'nerd') (default: "unicode")
+    --invert             invert default colors for light terminal backgrounds
+    --rate               show real-time throughput rates (bytes/sec) for network and I/O (default: true)
+    --cumulative         show cumulative lifetime metrics (total bytes) instead of real-time rates
+
+  Web Dashboard & Remote Telemetry:
+    --web string         start embedded read-only web dashboard and REST/SSE API on specified address (e.g. ':9090')
+    --url-prefix string  Base URL subpath when running behind reverse proxies (e.g. /probe)
+    --headless           run in headless daemon mode without terminal UI (requires --web)
+
+  Remote Hosts & TLS Security:
+    --host string        Docker host endpoint(s) to monitor (can be specified multiple times)
+    --tls-verify         enforce TLS verification when connecting to Docker daemon
+    --tls-ca string      path to CA certificate file for TLS/mTLS verification (e.g. ~/.docker/ca.pem)
+    --tls-cert string    path to client TLS certificate file for mTLS authentication (e.g. ~/.docker/cert.pem)
+    --tls-key string     path to client TLS private key file for mTLS authentication (e.g. ~/.docker/key.pem)
+
+  Engine Connector & Operation Mode:
+    --connector string   container connector to use (default: "docker")
+    --read-only          read-only inspection mode (disables state modifications)
+    --download-dir string default host directory for container file downloads and log exports (default: ".")`
 
 func printHelp() {
 	fmt.Println(helpMsg)
-	flag.PrintDefaults()
-	fmt.Printf("\navailable connectors: ")
+	fmt.Printf("\navailable connectors:\n  ")
 	fmt.Println(strings.Join(connector.Enabled(), ", "))
 }

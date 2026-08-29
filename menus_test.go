@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edsilegx/ctop/config"
+	"github.com/edsilegx/ctop/pkg/config"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -242,14 +242,14 @@ func TestLogMenuAndReader(t *testing.T) {
 	mockEvents := make(chan ui.Event, 20)
 	mockEvents <- ui.Event{Type: ui.ResizeEvent}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"} // open directory prompt
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}        // open directory prompt
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Escape>"} // cancel
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"} // open directory prompt again
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}        // open directory prompt again
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "m"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "p"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // apply
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"} // export logs
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"}       // export logs
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "/"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
@@ -295,14 +295,14 @@ func TestFileExplorerMenu(t *testing.T) {
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "m"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "p"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}     // apply download target
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "u"}           // upload dialog
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // apply download target
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "u"}       // upload dialog
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}     // apply upload
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}           // refresh
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}           // quit
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // apply upload
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}       // refresh
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}       // quit
 	uiEvents = mockEvents
 
 	fn := FileExplorerMenu()
@@ -567,4 +567,3 @@ func TestGoroutineLeakVerification(t *testing.T) {
 			diff, initialGoroutines, finalGoroutines)
 	}
 }
-

@@ -5,9 +5,10 @@ package main
 import (
 	"testing"
 
-	"github.com/edsilegx/ctop/container"
-	"github.com/edsilegx/ctop/logging"
-	"github.com/edsilegx/ctop/models"
+	"github.com/edsilegx/ctop/pkg/container"
+	"github.com/edsilegx/ctop/pkg/diag"
+	"github.com/edsilegx/ctop/pkg/logging"
+	"github.com/edsilegx/ctop/pkg/models"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -27,7 +28,7 @@ func TestDebugDumpContainer(t *testing.T) {
 
 func TestDebugInspectAndQuote(t *testing.T) {
 	m := models.NewMetrics()
-	s := inspect(&m)
+	s := diag.Inspect(&m)
 	if s == "" {
 		t.Fatal("expected non-empty inspect output")
 	}

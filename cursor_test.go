@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edsilegx/ctop/connector"
-	"github.com/edsilegx/ctop/connector/collector"
-	"github.com/edsilegx/ctop/container"
-	"github.com/edsilegx/ctop/cwidgets/compact"
-	"github.com/edsilegx/ctop/models"
+	"github.com/edsilegx/ctop/internal/cwidgets/compact"
+	"github.com/edsilegx/ctop/pkg/connector"
+	"github.com/edsilegx/ctop/pkg/connector/collector"
+	"github.com/edsilegx/ctop/pkg/container"
+	"github.com/edsilegx/ctop/pkg/models"
 )
 
 type mockCursorCollector struct{}
@@ -28,9 +28,9 @@ func (m *mockCursorManager) Stop() error             { return nil }
 func (m *mockCursorManager) Remove() error           { return nil }
 func (m *mockCursorManager) Pause() error            { return nil }
 func (m *mockCursorManager) Unpause() error          { return nil }
-func (m *mockCursorManager) Restart() error                        { return nil }
-func (m *mockCursorManager) Exec(cmd []string) error               { return nil }
-func (m *mockCursorManager) Kill(sig string) error                 { return nil }
+func (m *mockCursorManager) Restart() error          { return nil }
+func (m *mockCursorManager) Exec(cmd []string) error { return nil }
+func (m *mockCursorManager) Kill(sig string) error   { return nil }
 func (m *mockCursorManager) Top(args string) (models.TopResult, error) {
 	return models.TopResult{}, nil
 }
@@ -41,15 +41,19 @@ func (m *mockCursorManager) ReadDir(path string) ([]models.FileInfo, error) {
 		{Name: "server", Path: "/app/server", IsDir: false, Size: 1024, Mode: "-rwxr-xr-x"},
 	}, nil
 }
+
 func (m *mockCursorManager) ReadFile(path string, maxBytes int64) (string, error) {
 	return "sample file content", nil
 }
+
 func (m *mockCursorManager) Download(srcPath, dstPath string) (int64, error) {
 	return 1024, nil
 }
+
 func (m *mockCursorManager) Upload(srcPath, dstPath string) error {
 	return nil
 }
+
 func (m *mockCursorManager) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
 	return nil
 }

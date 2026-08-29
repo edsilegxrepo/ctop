@@ -1,6 +1,6 @@
 NAME=ctop
 BIN=bin
-VERSION=$(shell cat VERSION)
+VERSION=$(shell cat version.txt)
 BUILD=$(shell git rev-parse --short HEAD)
 GO_LD_FLAGS="-w -X main.version=$(VERSION) -X main.build=$(BUILD)"
 GO_OPTS=-trimpath -buildmode=pie
@@ -12,7 +12,7 @@ build:
 	go mod download
 	mkdir -p $(BIN)
 	CGO_ENABLED=0 go build -tags release -ldflags $(GO_LD_FLAGS) $(GO_OPTS) -o $(BIN)/$(NAME)
-	$(BIN)/$(NAME) -v
+	$(BIN)/$(NAME) --version
 
 build-all:
 	mkdir -p $(BIN)

@@ -70,7 +70,7 @@
 
 `ctop` follows clean Go engineering practices and rigorous quality standards:
 
-- **High Test Coverage**: **83.9% statement coverage** across all 17 packages with fast execution speed, zero race conditions, zero deadlocks, and zero test artifact pollution.
+- **High Test Coverage**: **84.5% statement coverage** across all 23 packages with fast execution speed, zero race conditions, zero deadlocks, and zero test artifact pollution.
 - **Thread Safety**: Fully verified under `go test -race`. All shared structs (`container.Container`, `logging.safeMemoryBackend`, `widgets.TextView`) utilize fine-grained read/write mutexes (`sync.RWMutex`, `sync.Mutex`) or atomic primitives (`sync/atomic.Bool`).
 - **Deadlock-Free Design**: Clean separation between custom widget state locks and `termui.Block` draw routines, eliminating recursive mutex lockups.
 - **Platform Support**: Fully portable across **Windows** (native console & WSL) and **Linux** (**RHEL** and **Ubuntu**).
@@ -82,20 +82,80 @@ For test specifications, defect logs, and coverage reports, see [TESTING.md](TES
 
 ## 4. Command Line Arguments
 
-`ctop` can be configured at startup using the following command-line flags:
+`ctop` can be configured at startup using the following command-line flags, organized by operational category:
 
+#### General & Help
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `-v` | `bool` | `false` | Output version information and exit. |
-| `-h` | `bool` | `false` | Display help dialog and list available connectors. |
-| `-f` | `string` | `""` | Filter containers by name or ID regex. |
-| `-a` | `bool` | `false` | Show active (running) containers only (default: shows all). |
-| `-s` | `string` | `""` | Select container sort field (`cpu`, `mem`, `mem %`, `net`, `io`, `pids`, `name`, `state`, `uptime`). |
-| `-r` | `bool` | `false` | Reverse container sort order. |
-| `-i` | `bool` | `false` | Invert default terminal color palette (for light terminal backgrounds). |
-| `-ro` | `bool` | `false` | Read-only inspection mode (disables container lifecycle mutations). |
-| `-download-dir` | `string` | `"."` | Default host destination directory for file downloads and log exports. |
-| `-connector` | `string` | `docker` | Container engine connector to use (`docker`, `runc`, `mock`). |
+| `--version` | `bool` | `false` | Output version information and exit. |
+| `--help` | `bool` | `false` | Display help dialog and list available connectors. |
+
+#### Container Discovery & Filtering
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--filter` | `string` | `""` | Filter containers by name, ID regex, or structured key-value queries (`status=`, `health=`, `name=`, `image=`, `env=`, labels). |
+| `--active` | `bool` | `false` | Show active (running) containers only (default: shows all). |
+| `--sort` | `string` | `""` | Select container sort field (`cpu`, `mem`, `mem %`, `net`, `io`, `pids`, `name`, `state`, `uptime`, `compose`). |
+| `--reverse` | `bool` | `false` | Reverse container sort order. |
+
+#### Display, Theme & Metrics Mode
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--icons` | `string` | `unicode` | Icon glyph style to use (`unicode` or `nerd` for Nerd Font symbols). |
+| `--invert` | `bool` | `false` | Invert default terminal color palette (for light terminal backgrounds). |
+| `--rate` | `bool` | `true` | Show real-time throughput rates (`bytes/sec`) for network and I/O (default). |
+| `--cumulative` | `bool` | `false` | Show cumulative lifetime metrics (total bytes) instead of real-time throughput rates. |
+
+#### Web Dashboard & Remote Telemetry
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--web` | `string` | `""` | Start embedded read-only web dashboard and REST/SSE API on specified address (e.g. `:9090` or `127.0.0.1:9090`). |
+| `--url-prefix` | `string` | `""` | Base URL subpath when running behind reverse proxies (e.g. `/probe`). |
+| `--headless` | `bool` | `false` | Run in headless daemon mode without terminal UI (requires `--web`). |
+
+#### Remote Hosts & TLS Security
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--host` | `string` | `""` | Docker host endpoint(s) to monitor (can be specified multiple times: `local`, `tcp://`, `ssh://`, `unix://`). |
+| `--tls-verify` | `bool` | `false` | Enforce strict TLS certificate verification when connecting to remote Docker daemons. |
+| `--tls-ca` | `string` | `""` | Path to custom CA certificate file for TLS/mTLS verification (e.g. `~/.docker/ca.pem`). |
+| `--tls-cert` | `string` | `""` | Path to client TLS certificate file for mTLS authentication (e.g. `~/.docker/cert.pem`). |
+| `--tls-key` | `string` | `""` | Path to client TLS private key file for mTLS authentication (e.g. `~/.docker/key.pem`). |
+
+#### Engine Connector & Operation Mode
+| Flag | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--connector` | `string` | `docker` | Container engine connector to use (`docker`, `runc`, `mock`). |
+| `--read-only` | `bool` | `false` | Read-only inspection mode (disables container lifecycle mutations). |
+| `--download-dir` | `string` | `"."` | Default host destination directory for file downloads and log exports. |
+
+### CLI Subcommands
+
+| Command | Description | Example |
+| :--- | :--- | :--- |
+| `ctop update` | Query latest GitHub releases, verify assets, and perform atomic in-place binary upgrade. | `ctop update` |
+
+### Web Telemetry & Headless Daemon
+
+`ctop` includes a built-in, zero-dependency, **strictly read-only** embedded web dashboard and real-time Server-Sent Events (SSE) telemetry API:
+
+```bash
+# Launch ctop TUI and serve web dashboard simultaneously on port 9090
+ctop --web :9090
+
+# Run ctop as a headless background monitoring daemon (e.g. systemd or Docker container)
+ctop --headless --web :9090
+```
+
+#### REST & SSE API Surface (Read-Only)
+
+- **`GET /`**: Interactive HTML5 Canvas 2D telemetry dashboard.
+- **`GET /api/v1/health`**: Service liveness and readiness probe.
+- **`GET /api/v1/metrics`**: Aggregated cluster and host resource telemetry JSON.
+- **`GET /api/v1/containers`**: List of active container snapshots.
+- **`GET /api/v1/containers/{id}`**: Single container telemetry details.
+- **`GET /api/v1/stream`**: Real-time Server-Sent Events (SSE) stream (`text/event-stream`).
+- **`GET /api/v1/export`**: Complete telemetry snapshot JSON export.
 
 ---
 
@@ -116,14 +176,76 @@ ctop
 
 #### Run with Options
 ```bash
+# Run with default settings (Docker connector, show all containers)
+ctop
+
 # Show only active containers, sorted by memory usage
-ctop -a -s mem
+ctop --active --sort mem
 
-# Filter containers with 'redis' in the name
-ctop -f redis
+# Show only running containers
+ctop --active
 
-# Invert color scheme for light terminals
-ctop -i
+# Filter containers by name (e.g. containers with "app" in the name)
+ctop --filter app
+
+# Sort containers by CPU usage in descending order
+ctop --sort cpu --reverse
+
+# Use the runC connector instead of Docker
+ctop --connector runc
+
+# Multi-host container monitoring across local engine and remote servers
+ctop --host local --host tcp://192.168.1.50:2375 --host ssh://deploy@prod-server1.internal
+
+# Secure mTLS container monitoring with explicit client certificates
+ctop --host tcp://prod-node1.internal:2376 --tls-verify --tls-ca ~/.docker/ca.pem --tls-cert ~/.docker/cert.pem --tls-key ~/.docker/key.pem
+
+# Filter containers using structured multi-field query
+ctop --filter "status=running env=production image=redis"
+
+# Enable modern Nerd Font icon glyphs
+ctop --icons nerd
+
+# Invert color scheme for light terminal backgrounds
+ctop --invert
+
+# Self-update to latest release
+ctop update
+```
+
+### Multi-Host Monitoring Engine
+
+`ctop` can aggregate real-time telemetry from multiple local and remote Docker daemons simultaneously in a single unified view. When multiple `--host` flags are specified, the dynamic `HOST` column is automatically enabled:
+
+```bash
+# Monitor local daemon + staging swarm + production cluster
+ctop --host local --host tcp://10.0.0.12:2375 --host ssh://ubuntu@production.infra.net:2222
+```
+
+### Docker Context Auto-Resolution
+
+`ctop` natively mirrors the Docker CLI's context resolution hierarchy. It automatically detects and connects to the active Docker context configured in `~/.docker/config.json` (`currentContext`) or the `DOCKER_CONTEXT` environment variable without requiring manual socket path configuration:
+- **Colima**: Automatically resolves `unix://$HOME/.colima/default/docker.sock`.
+- **Rancher Desktop**: Automatically resolves Rancher's isolated socket metadata.
+- **Docker Desktop**: Resolves named desktop and cloud contexts.
+
+### Structured Multi-Field Filtering Syntax
+
+In addition to standard substring and regex searches, `ctop` supports structured key-value filter tokens that can be combined with space-separated `AND` logic:
+
+| Filter Syntax | Description | Example |
+| :--- | :--- | :--- |
+| `status=<state>` / `state=<state>` | Matches container state (`running`, `paused`, `exited`, `created`) | `status=running` |
+| `health=<status>` | Matches container healthcheck status (`healthy`, `unhealthy`, `starting`) | `health=healthy` |
+| `name=<substr>` | Matches container name substring | `name=api` |
+| `image=<substr>` / `ancestor=<substr>` | Matches container image name | `image=postgres` |
+| `compose=<project>` / `project=<name>` | Matches Docker Compose stack project name | `project=backend` |
+| `<label_key>=<value>` | Matches specific container label or metadata key-value pair | `environment=prod` |
+
+*Example combined query:*
+```bash
+# Display only healthy running containers in the prod environment with 'api' in the name
+ctop --filter "status=running health=healthy name=api environment=prod"
 ```
 
 ### Runtime Connector Configuration
@@ -133,10 +255,86 @@ ctop -i
 | Runtime | Environment Variable | Default Value | Description |
 | :--- | :--- | :--- | :--- |
 | **Docker** | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Daemon socket path or TCP address (`tcp://<host>:2376`). |
+| **Docker** | `DOCKER_CONTEXT` | `""` | Docker CLI context name (e.g. `colima`, `desktop-linux`). |
 | **Docker** | `DOCKER_TLS_VERIFY` | `0` | Enable mutual TLS verification for TCP endpoints. |
 | **Docker** | `DOCKER_CERT_PATH` | `""` | Directory containing `ca.pem`, `cert.pem`, and `key.pem`. |
 | **runC** | `RUNC_ROOT` | `/run/runc` | Path to runC container state root directory. |
 | **runC** | `RUNC_SYSTEMD_CGROUP` | `false` | When set to `1` or `true`, enables systemd cgroups integration. |
+
+---
+
+### Embedded Web Telemetry Dashboard & REST/SSE API
+
+`ctop` includes a zero-dependency, real-time embedded web telemetry server and browser dashboard accessible via the `--web` CLI option.
+
+#### 1. Starting the Web Server
+```bash
+# Start ctop with terminal UI + web dashboard on port 9090
+ctop --web :9090
+
+# Start ctop in headless daemon mode (ideal for Docker containers, background services, or CI/CD)
+ctop --web 0.0.0.0:9090 --headless
+
+# Run behind a reverse proxy subpath (e.g. https://metrics.internal/probe)
+ctop --web :9090 --url-prefix /probe
+```
+
+#### 2. Web Dashboard Features
+- **Cluster Summary Cards**: Total, running, paused, and stopped containers, aggregated CPU %, total memory usage/limit, and network & disk I/O throughput rates.
+- **HTML5 Canvas 2D Sparklines**: Real-time streaming graphs for Cluster CPU utilization, Memory allocation, and Network throughput (Rx/Tx).
+- **Interactive Container Drill-Down Modal**: Click any container row to open a full glassmorphic inspector:
+  - **4 Real-Time Sparkline Charts**: CPU %, Memory allocation, Network throughput (Rx/Tx), and Disk I/O rate (Read/Write).
+  - **Running Telemetry History**: Fixed-width rolling 5-sample live history table.
+  - **5 Inspection Tabs**:
+    - `[o] Overview & Metrics`: Live charts, 5-sample running history table, and runtime specs (Created, Uptime, Command, Entrypoint, User, IPs, Ports).
+    - `[v] Volumes & Mounts`: Destination, Source, Type (`volume`/`bind`), Mode (`rw`/`ro`), and Driver.
+    - `[n] Networking & Ports`: Network interfaces (IP, Gateway, MAC, CIDR prefix) and Port Forwarding cards.
+    - `[E] Process & Env`: Searchable environment variable key-value table with one-click copy buttons.
+    - `[P] In-Container Top`: Live process table queried from `/api/v1/containers/{id}/top`.
+  - **Keyboard Navigation**: Press `Esc` to close modal, or `o`, `v`, `n`, `e`, `p` to switch inspection tabs.
+
+#### 3. Telemetry Export & Clipboard Reports
+- **Cluster & Container JSON Export (`📥 Export JSON`)**: Downloads pretty-formatted (2-space indented) JSON containing complete system metrics, container metadata, and running telemetry samples.
+- **Plain-Text Report Copy (`📋 Copy Report`)**: Copies a structured, ASCII-aligned plain-text report for cluster or container metrics directly to the clipboard.
+
+#### 4. Automatic Secret & Credential Sanitization
+To prevent accidental credential disclosure on shared monitoring dashboards:
+- All environment variables and container labels matching sensitive patterns (`PASS`, `SECRET`, `KEY`, `TOKEN`, `AUTH`, `CERT`, `CRED`, `PRIVATE`, `DATABASE_URL`, `DB_URL`, `DSN`, `AWS_`, `ACCESS_KEY`, `SESSION_TOKEN`, `APIKEY`) are **strictly filtered out and excluded** from the web server payloads and browser dashboard.
+
+#### 5. REST & SSE API Reference (Read-Only)
+
+All endpoints strictly enforce `GET`/`HEAD` read-only access (mutating requests return `405 Method Not Allowed`):
+
+| Endpoint | Method | Description |
+| :--- | :---: | :--- |
+| `/api/v1/health` | `GET` | Server liveness probe, version, and uptime. |
+| `/api/v1/metrics` | `GET` | Aggregated cluster-wide CPU, memory, network, and disk I/O metrics. |
+| `/api/v1/containers` | `GET` | Array of all container metadata and telemetry snapshots. |
+| `/api/v1/containers/{id}` | `GET` | Detailed telemetry and inspect metadata for a specific container. |
+| `/api/v1/containers/{id}/top` | `GET` | Running process table inside the container namespace. |
+| `/api/v1/export` | `GET` | Pretty JSON download of cluster telemetry (supports `?container=<id>`). |
+| `/api/v1/stream` | `GET` | High-throughput Server-Sent Events (SSE) live telemetry feed. |
+
+#### 6. Reverse Proxy Configuration Examples
+
+**NGINX:**
+```nginx
+location /probe/ {
+    proxy_pass http://127.0.0.1:9090/probe/;
+    proxy_http_version 1.1;
+    proxy_set_header Connection '';
+    proxy_buffering off;
+    proxy_cache off;
+    chunked_transfer_encoding off;
+}
+```
+
+**Caddy:**
+```caddy
+handle_path /probe/* {
+    reverse_proxy 127.0.0.1:9090
+}
+```
 
 ---
 
@@ -168,12 +366,12 @@ curl -s localhost:9000
 ```text
 ctop - 18:50:00        3 containers (3 running)                  filter: 
 ─────────────────────────────────────────────────────────────────────────────
-NAME                 CID          CPU       MEM               NET RX/TX     IO R/W      PIDS
-● web-frontend       c8a412f10a8b [ 12%]   142.5M / 2.0G [ 7%]  1.2M / 4.8M   12K / 45K    8
-● redis-cache        91b34e12c019 [  2%]    45.1M / 1.0G [ 4%]  8.5M / 1.1M    0B / 120K   4
-● postgres-db        f419c83a992e [  8%]   512.0M / 8.0G [ 6%]  3.4M / 9.2M   45M / 12M   16
+NAME                 CID          CPU       MEM (Alloc / Total)   NET (Rx / Tx)   IO (Reads / Writes) PIDS
+● web-frontend       c8a412f10a8b [ 12%]   142.5M / 2.0G [ 7%]   1.2M / 4.8M     12K / 45K            8
+● redis-cache        91b34e12c019 [  2%]    45.1M / 1.0G [ 4%]   8.5M / 1.1M      0B / 120K           4
+● postgres-db        f419c83a992e [  8%]   512.0M / 8.0G [ 6%]   3.4M / 9.2M     45M / 12M           16
 ─────────────────────────────────────────────────────────────────────────────
-[a] all [f] filter [s] sort [g] group [c] columns [l] logs [o] open [e] exec [U] tune [h] help [q] quit
+[a] all [f] filter [s] sort [g] group [m] mode [c] columns [l] logs [o] open [e] exec [U] tune [h] help [q] quit
 ```
 
 #### 2. Multi-Tab Container Inspector (`[o]` key)
@@ -265,20 +463,20 @@ Directly adjust container limits and policies without container restarts or down
 The compact grid view prefixes container names with dynamic state and health badges:
 
 #### Container State
-| Indicator | Color | Description |
-| :--- | :--- | :--- |
-| `►` | Green | Container is currently running and active. |
-| `■` | Red | Container is stopped / exited. |
-| `‖` | Yellow | Container execution is paused. |
-| `◉` | Default | Container has been created but not started. |
+| Unicode | Nerd Font | Color | Description |
+| :---: | :---: | :--- | :--- |
+| `►` | `` / `` | Green | Container is currently running and active. |
+| `■` | `` | Red | Container is stopped / exited. |
+| `‖` | `` | Yellow | Container execution is paused. |
+| `◉` | `` | Default | Container has been created but not started. |
 
 #### Container Health Check
 If a container is configured with a Docker health check, a health badge appears beside the state indicator:
-| Health Indicator | Color | Description |
-| :--- | :--- | :--- |
-| `☼` | Green | Health check status is `healthy` (all probes passing). |
-| `◌` | Yellow | Health check status is `starting` (grace period). |
-| `⚠` | Red | Health check status is `unhealthy` (probes failing). |
+| Unicode | Nerd Font | Color | Description |
+| :---: | :---: | :--- | :--- |
+| `☼` | `` | Green | Health check status is `healthy` (all probes passing). |
+| `◌` | `` | Yellow | Health check status is `starting` (grace period). |
+| `⚠` | `` | Red | Health check status is `unhealthy` (probes failing). |
 
 ---
 

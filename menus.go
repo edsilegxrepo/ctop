@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edsilegx/ctop/config"
-	"github.com/edsilegx/ctop/container"
-	"github.com/edsilegx/ctop/cwidgets"
-	"github.com/edsilegx/ctop/cwidgets/single"
-	"github.com/edsilegx/ctop/theme"
-	"github.com/edsilegx/ctop/widgets"
-	"github.com/edsilegx/ctop/widgets/menu"
+	"github.com/edsilegx/ctop/internal/cwidgets"
+	"github.com/edsilegx/ctop/internal/cwidgets/single"
+	"github.com/edsilegx/ctop/internal/theme"
+	"github.com/edsilegx/ctop/internal/widgets"
+	"github.com/edsilegx/ctop/internal/widgets/menu"
+	"github.com/edsilegx/ctop/pkg/config"
+	"github.com/edsilegx/ctop/pkg/container"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 	"github.com/pkg/browser"
@@ -29,20 +29,24 @@ type MenuFn func() MenuFn
 var shouldExitApp bool
 
 var helpDialog = []menu.Item{
-	{Val: "<enter> - open container menu", Label: ""},
+	{Val: "<enter> - open container action menu", Label: ""},
 	{Val: "", Label: ""},
 	{Val: "[a] - toggle display of all containers", Label: ""},
 	{Val: "[f] - filter displayed containers", Label: ""},
 	{Val: "[g] - toggle Compose stack grouping", Label: ""},
 	{Val: "[h] - open this help dialog", Label: ""},
 	{Val: "[H] - toggle ctop header", Label: ""},
+	{Val: "[m] - toggle rate (/s) vs. cumulative total metrics", Label: ""},
 	{Val: "[s] - select container sort field", Label: ""},
 	{Val: "[r] - reverse container sort order", Label: ""},
 	{Val: "[o] - open container inspector (1-9 tabs)", Label: ""},
+	{Val: "[v] - open volumes & mounts tab", Label: ""},
+	{Val: "[n] - open networking & ports tab", Label: ""},
 	{Val: "[F] - in-container file explorer", Label: ""},
 	{Val: "[l] - view container logs ([t] timestamp, [/] filter, [s] save)", Label: ""},
-	{Val: "[e] - exec shell", Label: ""},
-	{Val: "[w] - open browser (first port is http)", Label: ""},
+	{Val: "[U] - live resource hot-tuning (CPU, Memory, Restart)", Label: ""},
+	{Val: "[e] - exec shell inside container", Label: ""},
+	{Val: "[w] - open web port in browser", Label: ""},
 	{Val: "[c] - configure columns", Label: ""},
 	{Val: "[S] - save current configuration to file", Label: ""},
 	{Val: "[q] - exit ctop", Label: ""},
@@ -491,11 +495,12 @@ func ResourceMenu() MenuFn {
 				return nil
 			} else if e.ID == "<Enter>" || e.ID == "1" || e.ID == "2" || e.ID == "3" {
 				val := m.SelectedValue()
-				if e.ID == "1" {
+				switch e.ID {
+				case "1":
 					val = "mem"
-				} else if e.ID == "2" {
+				case "2":
 					val = "cpu"
-				} else if e.ID == "3" {
+				case "3":
 					val = "restart"
 				}
 
@@ -578,13 +583,14 @@ func ResourceMenu() MenuFn {
 								break
 							} else if re.ID == "<Enter>" || re.ID == "1" || re.ID == "2" || re.ID == "3" || re.ID == "4" {
 								p := rm.SelectedValue()
-								if re.ID == "1" {
+								switch re.ID {
+								case "1":
 									p = "always"
-								} else if re.ID == "2" {
+								case "2":
 									p = "unless-stopped"
-								} else if re.ID == "3" {
+								case "3":
 									p = "on-failure"
-								} else if re.ID == "4" {
+								case "4":
 									p = "no"
 								}
 								if p != "" && p != "cancel" {
@@ -966,10 +972,10 @@ func LogMenu() MenuFn {
 						if exportDir == "" {
 							exportDir = "."
 						}
-						_ = os.MkdirAll(exportDir, 0755)
+						_ = os.MkdirAll(filepath.Clean(exportDir), 0o750)
 						exportFile := filepath.Join(exportDir, fmt.Sprintf("ctop_logs_%s_%s.log", c.GetMeta("name"), time.Now().Format("20060102_150405")))
 						lines := m.Lines()
-						if err := os.WriteFile(exportFile, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+						if err := os.WriteFile(exportFile, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
 							exportStatus = fmt.Sprintf("❌ Save err: %v", err)
 						} else {
 							exportStatus = fmt.Sprintf("✔ Saved to %s (%d lines)", exportFile, len(lines))

@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edsilegx/ctop/config"
-	"github.com/edsilegx/ctop/cwidgets/compact"
-	"github.com/edsilegx/ctop/cwidgets/single"
-	"github.com/edsilegx/ctop/models"
-	"github.com/edsilegx/ctop/widgets"
-	"github.com/edsilegx/ctop/widgets/menu"
+	"github.com/edsilegx/ctop/internal/cwidgets/compact"
+	"github.com/edsilegx/ctop/internal/cwidgets/single"
+	"github.com/edsilegx/ctop/internal/widgets"
+	"github.com/edsilegx/ctop/internal/widgets/menu"
+	"github.com/edsilegx/ctop/pkg/config"
+	"github.com/edsilegx/ctop/pkg/models"
 	ui "github.com/gizak/termui/v3"
 )
 

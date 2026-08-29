@@ -8,9 +8,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/edsilegx/ctop/config"
-	"github.com/edsilegx/ctop/container"
-	"github.com/edsilegx/ctop/logging"
+	"github.com/edsilegx/ctop/pkg/config"
+	"github.com/edsilegx/ctop/pkg/container"
+	"github.com/edsilegx/ctop/pkg/logging"
 	ui "github.com/gizak/termui/v3"
 )
 

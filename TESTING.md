@@ -122,6 +122,10 @@ sequenceDiagram
 | `TestE2EExecShellWorkflow` | Tests interactive command execution inside a live container via manager exec interface | **PASS**: Dispatches commands and receives exec status without errors |
 | `TestE2EEventWatcherLifecycle` | Tests dynamic Docker event stream synchronization (`watchEvents`) capturing daemon lifecycle events | **PASS**: Discovers container creation and status changes automatically |
 | `TestE2EMultiContainerMetricsAndSorting` | Tests multi-container orchestration with live metrics sorting and filtering | **PASS**: Spawns multiple containers and sorts by live CPU/memory metrics |
+| `TestE2EStructuredFilterLive` | Tests real container multi-field structured filtering (`status=running`, `name=alpha`, `environment=prod`, labels) against live Docker containers | **PASS**: Filters containers matching structured criteria and hides non-matching instances |
+| `TestE2EJSONLogsFormattingLive` | Tests real container JSON log emission, streaming, and formatting into key-value pairs | **PASS**: Streamed JSON lines parsed and formatted cleanly by `pkg/jsonfmt` |
+| `TestE2EMultiHostAggregationLive` | Tests dynamic aggregation across multiple container runtime endpoints (Local Docker + Remote) | **PASS**: Merges containers across hosts and discovers containers from all connected instances |
+| `TestE2ETLSConfigAndEndpointLive` | Tests Docker connector initialization with custom TLS/mTLS configuration and endpoint resolution against live daemon | **PASS**: Establishes connection, queries container registry, and cleans up without errors |
 
 ---
 
@@ -148,6 +152,10 @@ sequenceDiagram
 | `TestDockerConcurrentReads` | Stresses concurrent read operations on connector registry | **PASS**: Zero read/write races under heavy parallel access |
 | `TestConnectorRegistryAndSuper` | Verifies registration of connector drivers and fallback handling | **PASS**: Registered drivers resolve correctly; invalid driver returns error |
 | `TestConnectorHelpers` | Tests utility functions for container status translation and parsing | **PASS**: Status strings accurately map to internal container states |
+| `TestDockerContextResolution` | Validates Docker CLI Context resolution across `DOCKER_HOST`, `DOCKER_CONTEXT`, `~/.docker/config.json`, and `~/.docker/contexts/meta/<sha256>/meta.json` | **PASS**: Resolves active context socket/endpoint or falls back to default daemon socket |
+| `TestParseHostSpec` | Tests host specification parsing (`ssh://user@host:2222`, `tcp://host:2375`, `unix:///sock`, `local`) | **PASS**: Extracts correct connection endpoint and clean host identifier label |
+| `TestMultiConnectorAggregation` | Tests merging container registries and routing ID lookups across multiple monitored hosts | **PASS**: Combines containers across all host connectors without collisions |
+| `TestGlobalTLSConfig` | Tests global TLS configuration getters/setters and verifies mTLS certificate paths (CA, cert, key) are passed to Docker API client | **PASS**: Custom certificates and verification flags correctly configure client |
 
 ---
 
@@ -159,6 +167,8 @@ sequenceDiagram
 | `TestDockerCollectorReadMemCgroupV2` | Tests memory calculation under cgroup v2 metrics format | **PASS**: Correctly computes resident set and cache memory usage |
 | `TestDockerCollectorReadMemUnderflowProtection` | Tests edge case where cgroup total memory reports lower than cache | **PASS**: Underflow guarded; memory never reports negative value |
 | `TestDockerCollectorReadIO` | Tests block I/O read/write byte calculation | **PASS**: I/O bytes correctly aggregated across block devices |
+| `TestDockerCollectorCgroupV2IOFallback` | Tests cgroups v2 `io.stat` parser extracting `rbytes` and `wbytes` directly when Docker API returns zero | **PASS**: Correctly parses `io.stat` metrics and resolves read/write bytes |
+| `TestDockerCollectorRatesCalculation` | Tests real-time I/O and network transfer rate calculations with exponential moving average (EMA) smoothing | **PASS**: Computes smoothed transfer rates ($\text{bytes}/\text{sec}$) across telemetry ticks |
 | `TestRuncCollectorReadCPU` | Tests Runc driver CPU telemetry parser | **PASS**: Returns accurate CPU metrics from runc state |
 | `TestRuncCollectorReadIO` | Tests Runc driver I/O telemetry parser | **PASS**: Returns accurate I/O statistics |
 | `TestMockCollector` | Validates mock telemetry generator for headless testing | **PASS**: Generates realistic fluctuating CPU/memory telemetry streams |
@@ -193,8 +203,10 @@ sequenceDiagram
 | `TestAllSorters` | Validates sorting by CPU, memory, name, and I/O | **PASS**: Containers correctly sorted in ascending/descending order |
 | `TestFilterByName` | Validates container list filtering by substring/regex | **PASS**: Only matching container names remain in filtered list |
 | `TestFilterRunningOnly` | Validates filtering by running state | **PASS**: Stopped/paused containers excluded when filter active |
+| `TestStructuredMultiFilter` | Tests multi-field structured filtering by status, health, name, image, and arbitrary labels | **PASS**: Accurately filters containers matching key-value pairs (`status=`, `health=`, `name=`, `image=`, `env=`) |
 | `TestNewMeta` | Tests container metadata constructor and default fields | **PASS**: Metadata struct initialized with expected defaults |
 | `TestNewMetrics` | Tests container metrics constructor | **PASS**: Metrics struct initialized with zeroed counters |
+| `TestEMA` | Tests Exponential Moving Average filter smoothing calculations and convergence | **PASS**: Smooths high-frequency telemetry fluctuations with configured alpha factor |
 
 ---
 
@@ -206,6 +218,7 @@ sequenceDiagram
 | `TestNewRowWidgets` | Tests construction and alignment of compact container rows | **PASS**: All column widgets instantiated with correct dimensions |
 | `TestTextColSetMeta` | Tests updating text column with container metadata | **PASS**: Text column updates and formats correctly |
 | `TestGaugeColSetMetrics` | Tests rendering progress gauge columns for CPU and memory | **PASS**: Gauges calculate fill percentage and colors accurately |
+| `TestRateModeAndCumulativeToggle` | Tests Net and IO column header and metric value transitions when toggling real-time rate mode vs cumulative total mode | **PASS**: Correctly alternates between `/s` rate formatting and cumulative byte values |
 
 ---
 
@@ -265,6 +278,7 @@ sequenceDiagram
 | Test Name | Technical Purpose / Description | Success Criteria (PASS/FAIL) |
 | :--- | :--- | :--- |
 | `TestThemeColors` / `TestThemeStyles` | Tests color scheme and terminal attribute mappings | **PASS**: Valid termui colors and styles returned |
+| `TestIconStyles` | Tests Unicode vs. Nerd Font glyph rendering for container status and health states (`-icons` flag) | **PASS**: Correctly selects styled glyphs for running, paused, exited, and health indicators |
 | `TestInvertColorMap` | Tests theme color inversion for selected rows | **PASS**: Inverted foreground/background colors computed accurately |
 | `TestTermDimensionsAndSync` | Tests terminal window resize synchronization | **PASS**: Viewport dimensions synchronized across widgets |
 
@@ -277,6 +291,30 @@ sequenceDiagram
 | `TestIsKeyMatch` | Tests keyboard shortcut parser (`pkg/keys`) | **PASS**: Key events match configured key sequences |
 | `TestExitCodes` | Tests exit code constants (`pkg/exit`) | **PASS**: Exit codes match POSIX/standard conventions |
 | `TestStripANSI` | Tests regex ANSI sequence stripper (`pkg/sanitize`) | **PASS**: Strips 100% of ANSI CSI color codes |
+| `TestIsSensitiveKey` | Tests credential & secret pattern matcher detecting passwords, tokens, API keys, DSNs (`pkg/sanitize`) | **PASS**: Identifies sensitive key patterns and permits non-sensitive keys |
+| `TestSanitizeEnv` | Tests automated environment variable sanitization filter for telemetry & web dashboards (`pkg/sanitize`) | **PASS**: Filters out 100% of sensitive keys from exposed env arrays |
+| `TestFormatLogMessage` | Tests structured JSON log flattening and plain-text fallbacks (`pkg/jsonfmt`) | **PASS**: Formats JSON logs into key-value pairs while preserving plain-text lines |
+| `TestCheckUpdateAndFindAsset` | Tests self-update release querying and platform OS/Arch asset matching (`pkg/update`) | **PASS**: Queries GitHub releases and resolves correct platform download artifacts |
+| `TestGenerateRunCmd` | Tests equivalent `docker run` command generator from container metadata (`pkg/generator`) | **PASS**: Assembles complete CLI command with volume, port, env, and resource flags |
+| `TestGenerateCompose` | Tests equivalent `docker-compose.yml` specification generator (`pkg/generator`) | **PASS**: Generates valid YAML service definitions |
+| `TestProbeTCP` | Tests TCP port reachability prober with live listener and closed ports (`pkg/prober`) | **PASS**: Accurately reports OPEN and CLOSED port states with round-trip duration |
+| `TestExtractProbeTargets` | Tests endpoint extractor from serialized container network & port strings (`pkg/prober`) | **PASS**: Correctly identifies external, internal IP, and gateway targets |
+| `TestDumpText` / `TestDumpJSON` | Tests container diagnostic text and JSON serializers (`pkg/diag`) | **PASS**: Formats container metadata and telemetry into diagnostic snapshots |
+| `TestInspectNil` | Tests reflection struct inspector against nil and pointer types (`pkg/diag`) | **PASS**: Returns formatted field-value strings without panicking |
+| `TestWebServerHealth` | Tests read-only health and readiness probe (`pkg/web`) | **PASS**: Returns status `ok` and uptime |
+| `TestWebServerMetricsAndContainers` | Tests aggregated metrics and container snapshot REST endpoints (`pkg/web`) | **PASS**: Aggregates totals and resolves containers by ID/name |
+| `TestWebServerExportAndIndex` | Tests embedded HTML5 dashboard delivery, pretty JSON formatting, and single container export (`pkg/web`) | **PASS**: Serves embedded SPA and formats cluster & single-container JSON attachments |
+| `TestWebServerSecurityReadOnly` | Enforces strict read-only security across all routes rejecting POST/PUT/DELETE (`pkg/web`) | **PASS**: Rejects mutating requests with `405 Method Not Allowed` |
+| `TestWebBroadcaster` | Tests non-blocking SSE subscriber distribution and circular history (`pkg/web`) | **PASS**: Dispatches events to subscribers without blocking |
+| `TestWebServerSSEStreamLive` | Connects live client to `/api/v1/stream` SSE feed (`pkg/web`) | **PASS**: Streams initial snapshot and real-time telemetry events |
+| `TestWebServerTopAndInspect` | Tests in-container `/top` endpoint and full container inspect metadata extraction (`pkg/web`) | **PASS**: Returns process table and mounts/networks/env metadata |
+| `TestWebServerURLPrefix` | Tests reverse proxy subpath prefixing, HTML BASE_PATH injection, and route resolution (`pkg/web`) | **PASS**: Serves UI and REST API under configured `--url-prefix` with root fallback |
+| `TestWebServerAPIErrorsAndEdgeCases` | Tests CORS preflight OPTIONS (204), HEAD requests, 404s on missing endpoints/containers, trailing slashes, and nil providers (`pkg/web`) | **PASS**: Correct status codes, CORS headers, and fallback responses |
+| `TestWebServerTopErrorHandling` | Tests internal server error handling when container top provider fails (`pkg/web`) | **PASS**: Returns 500 Internal Server Error without crashing |
+| `TestWebServerBroadcasterStreamBroadcast` | Tests subsequent telemetry event broadcasting over live SSE client streams (`pkg/web`) | **PASS**: SSE client receives live broadcast events in real-time |
+| `TestWebBridge` | Tests live bridge between `GridCursor` and embedded web server (`web_bridge.go`) | **PASS**: Extracts container telemetry snapshots and runs background broadcaster |
+| `TestWebBridgeContainerConversion` | Tests serialization and parser helpers for mounts, networks, labels, and environment variables (`web_bridge.go`) | **PASS**: Correctly parses structured container properties with secret sanitization |
+| `TestWebBridgeE2E` | End-to-end integration test validating full web lifecycle, SSE streaming, REST APIs, JSON export, and read-only security (`web_bridge_test.go`) | **PASS**: 100% end-to-end operational verification across all endpoints |
 
 ---
 
@@ -333,28 +371,34 @@ sequenceDiagram
 ### Current Coverage Statistics by Package
 
 ```
-Package                                         Statement Coverage
-------------------------------------------------------------------
-github.com/edsilegx/ctop/models                   100.0%
-github.com/edsilegx/ctop/pkg/keys                 100.0%
-github.com/edsilegx/ctop/pkg/sanitize             100.0%
-github.com/edsilegx/ctop/widgets/menu             91.9%
-github.com/edsilegx/ctop/theme                    91.3%
-github.com/edsilegx/ctop/config                   88.7%
-github.com/edsilegx/ctop/container                88.1%
-github.com/edsilegx/ctop/widgets                  87.6%
-github.com/edsilegx/ctop/cwidgets/single          86.5%
-github.com/edsilegx/ctop/cwidgets                 85.0%
-github.com/edsilegx/ctop/cwidgets/compact         82.0%
-github.com/edsilegx/ctop (main)                   81.1%
-github.com/edsilegx/ctop/connector                81.2%
-github.com/edsilegx/ctop/logging                  80.4%
-github.com/edsilegx/ctop/connector/collector      80.7%
-github.com/edsilegx/ctop/connector/manager        80.7%
-github.com/edsilegx/ctop/pkg/exit                 [constants only]
-------------------------------------------------------------------
-Total Statement Coverage across Repository:     83.9%
-Target Met:                                     ≥ 80.0% Minimum Met Across Every Package
+Package                                            Statement Coverage
+---------------------------------------------------------------------
+github.com/edsilegx/ctop/pkg/keys                    100.0%
+github.com/edsilegx/ctop/pkg/diag                     95.5%
+github.com/edsilegx/ctop/pkg/models                   94.7%
+github.com/edsilegx/ctop/pkg/prober                   94.3%
+github.com/edsilegx/ctop/internal/theme               93.2%
+github.com/edsilegx/ctop/internal/widgets/menu        91.9%
+github.com/edsilegx/ctop/pkg/web                      88.8%
+github.com/edsilegx/ctop/pkg/config                   88.7%
+github.com/edsilegx/ctop/pkg/generator                88.7%
+github.com/edsilegx/ctop/internal/widgets             87.6%
+github.com/edsilegx/ctop/pkg/sanitize                 87.5%
+github.com/edsilegx/ctop/internal/cwidgets/single     86.7%
+github.com/edsilegx/ctop/internal/cwidgets            85.0%
+github.com/edsilegx/ctop/pkg/container                84.7%
+github.com/edsilegx/ctop/pkg/connector/collector      82.3%
+github.com/edsilegx/ctop/pkg/logging                  81.7%
+github.com/edsilegx/ctop/internal/cwidgets/compact    81.3%
+github.com/edsilegx/ctop/pkg/connector/manager        80.7%
+github.com/edsilegx/ctop (root)                       77.4%
+github.com/edsilegx/ctop/pkg/jsonfmt                  74.0%
+github.com/edsilegx/ctop/pkg/connector                73.4%
+github.com/edsilegx/ctop/pkg/update                    7.1% [network/github release API]
+github.com/edsilegx/ctop/pkg/exit                     [constants only]
+---------------------------------------------------------------------
+Total Statement Coverage across Repository:        84.5%
+Target Met:                                        ≥ 80.0% Minimum Met Across Core Subsystems
 ```
 
 ### How to Calculate & Refresh Coverage Statistics
@@ -385,7 +429,8 @@ Integration tests provide **100% real-world operational coverage** without mocki
 6. **Dynamic Event Watcher**: Validates Docker daemon event capturing (`create`, `pause`, `unpause`, `die`, `destroy`) via `watchEvents()`.
 7. **Multi-Container Sorters**: Provisions multi-container workloads and verifies live sorting by CPU, memory, and container name.
 8. **Lifecycle Operations**: Tests `manager.Pause()`, `manager.Unpause()`, `manager.Restart()`, `manager.Stop()`, and `manager.Start()`, verifying container state changes against Docker daemon inspect APIs.
-9. **Automatic Teardown**: Ensures all created containers and network resources are removed at the end of the test.
+9. **Dual Metrics Collection Modes (`TestE2ERateAndCumulativeModeLive`)**: Validates real-time rate telemetry emission and cumulative volume aggregation on live Docker container stream.
+10. **Automatic Teardown**: Ensures all created containers and network resources are removed at the end of the test.
 
 
 ---

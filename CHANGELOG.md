@@ -4,6 +4,26 @@ All notable changes to `ctop` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.1] - 2026-08-28
+
+### Added
+- **Embedded Web Telemetry Dashboard (`--web`)**: Built-in, zero-dependency, strictly read-only HTML5 Canvas 2D dashboard and Server-Sent Events (SSE) streaming server (`/api/v1/stream`).
+- **Interactive Container Drill-Down Inspector**: Per-container drill-down modal with 4 real-time sparklines (CPU, Memory, Net, Disk I/O), rolling 5-sample running history table, and 5 inspection tabs (`Overview`, `Volumes`, `Networking`, `Process & Env`, `In-Container Top`).
+- **Reverse Proxy Subpath Routing (`--url-prefix`)**: Added `--url-prefix <path>` CLI flag (e.g. `/probe`) with dynamic asset routing and base path injection for NGINX, Caddy, and Traefik reverse proxies.
+- **Headless Telemetry Daemon Mode (`--headless`)**: Pure background monitoring daemon mode without terminal UI initialization.
+- **Data Export & Clipboard Reporting**: One-click pretty-formatted JSON downloads (`/api/v1/export`) and formatted plain-text ASCII report clipboard copy for cluster and single-container views.
+- **Automated Secret & Credential Sanitization**: Automated regex filtering in `pkg/sanitize` stripping passwords, API keys, tokens, certificates, DSNs, and AWS credentials from web endpoints.
+
+### Changed
+- **TUI Header Modernization**: Refactored compact grid headers to `MEM (Alloc / Total)`, `NET (Rx / Tx)`, and `IO (Reads / Writes)`.
+- **Categorized CLI Help**: Structured `--help` output into 6 operational categories matching documentation.
+- **Architecture Modularization**: Decoupled core into headless public packages (`pkg/*`) and private visual components (`internal/*`).
+- **Stopped Container Uptime Formatting**: Blanked uptime duration (`—`) for stopped and exited containers.
+- **Comprehensive Test Suite**: Reached **84.5% total repository statement coverage** across all 23 packages with expanded unit, edge-case, and E2E integration test suites.
+
+### Security
+- **Strict Read-Only Web Surface**: Enforced read-only HTTP semantics across all endpoints with zero mutating Docker operations or command execution paths.
+
 ---
 
 ## [v0.9.0] - 2026-08-18

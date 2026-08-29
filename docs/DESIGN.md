@@ -105,7 +105,7 @@ import (
     "io"
     "time"
 
-    "github.com/edsilegx/ctop/models"
+    "github.com/edsilegx/ctop/pkg/models"
 )
 
 // Engine is the central interface for discovering, monitoring, and managing containers.

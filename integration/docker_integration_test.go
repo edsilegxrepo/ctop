@@ -7,13 +7,28 @@
 package integration
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/edsilegx/ctop/connector"
-	"github.com/edsilegx/ctop/connector/collector"
-	"github.com/edsilegx/ctop/connector/manager"
+	"github.com/edsilegx/ctop/internal/cwidgets/compact"
+	"github.com/edsilegx/ctop/pkg/config"
+	"github.com/edsilegx/ctop/pkg/connector"
+	"github.com/edsilegx/ctop/pkg/connector/collector"
+	"github.com/edsilegx/ctop/pkg/connector/manager"
+	"github.com/edsilegx/ctop/pkg/jsonfmt"
+	"github.com/edsilegx/ctop/pkg/models"
 	api "github.com/fsouza/go-dockerclient"
 )
 
@@ -329,4 +344,307 @@ func TestE2EMultiContainerMetricsAndSorting(t *testing.T) {
 	all.Filter()
 
 	t.Logf("E2E multi-container workflow successfully managed %d containers!", len(all))
+}
+
+func TestE2EStructuredFilterLive(t *testing.T) {
+	client := getDockerClient(t)
+
+	c1Name := fmt.Sprintf("ctop-e2e-filter-alpha-%d", time.Now().UnixNano())
+	c2Name := fmt.Sprintf("ctop-e2e-filter-beta-%d", time.Now().UnixNano())
+
+	ensureImage(t, client, testImage)
+	c1, err := client.CreateContainer(api.CreateContainerOptions{
+		Name: c1Name,
+		Config: &api.Config{
+			Image:  testImage,
+			Cmd:    []string{"sh", "-c", "sleep 30"},
+			Labels: map[string]string{"environment": "prod", "tier": "frontend"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create c1: %v", err)
+	}
+	defer client.RemoveContainer(api.RemoveContainerOptions{ID: c1.ID, Force: true})
+	_ = client.StartContainer(c1.ID, nil)
+
+	c2, err := client.CreateContainer(api.CreateContainerOptions{
+		Name: c2Name,
+		Config: &api.Config{
+			Image:  testImage,
+			Cmd:    []string{"sh", "-c", "sleep 30"},
+			Labels: map[string]string{"environment": "staging", "tier": "backend"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create c2: %v", err)
+	}
+	defer client.RemoveContainer(api.RemoveContainerOptions{ID: c2.ID, Force: true})
+	_ = client.StartContainer(c2.ID, nil)
+
+	time.Sleep(1 * time.Second)
+
+	dockerConn, err := connector.NewDocker()
+	if err != nil {
+		t.Fatalf("failed to init docker connector: %v", err)
+	}
+
+	// Wait for connector background inspect refresh to populate metadata
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		cont1, ok1 := dockerConn.Get(c1.ID)
+		cont2, ok2 := dockerConn.Get(c2.ID)
+		if ok1 && ok2 && cont1.GetMeta("name") != "" && cont2.GetMeta("name") != "" && cont1.GetMeta("state") == "running" && cont2.GetMeta("state") == "running" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	all := dockerConn.All()
+
+	// 1. Filter by name=alpha and environment=prod
+	config.Init()
+	config.UpdateSwitch("allContainers", true)
+	config.Update("filterStr", "status=running name=alpha environment=prod")
+	all.Filter()
+
+	cont1, ok1 := dockerConn.Get(c1.ID)
+	cont2, ok2 := dockerConn.Get(c2.ID)
+
+	if !ok1 || !ok2 {
+		t.Fatalf("expected both containers found in connector registry")
+	}
+
+	t.Logf("cont1: name=%s state=%s env=%s labels=%s display=%v", cont1.GetMeta("name"), cont1.GetMeta("state"), cont1.GetMeta("environment"), cont1.GetMeta("[LABELS]"), cont1.Display)
+	t.Logf("cont2: name=%s state=%s env=%s labels=%s display=%v", cont2.GetMeta("name"), cont2.GetMeta("state"), cont2.GetMeta("environment"), cont2.GetMeta("[LABELS]"), cont2.Display)
+
+	if !cont1.Display {
+		t.Errorf("expected cont1 (alpha/prod) to be displayed, got Display=false")
+	}
+	if cont2.Display {
+		t.Errorf("expected cont2 (beta/staging) to be hidden, got Display=true")
+	}
+
+	t.Log("E2E live structured multi-filter test passed!")
+}
+
+func TestE2EJSONLogsFormattingLive(t *testing.T) {
+	client := getDockerClient(t)
+
+	cName := fmt.Sprintf("ctop-e2e-jsonlog-%d", time.Now().UnixNano())
+	cmd := []string{"sh", "-c", `echo '{"level":"info","msg":"service started successfully","port":8080}' && sleep 10`}
+	c := createAndStartContainer(t, client, cName, cmd)
+	defer client.RemoveContainer(api.RemoveContainerOptions{ID: c.ID, Force: true})
+
+	time.Sleep(1 * time.Second)
+
+	logCollector := collector.NewDockerLogs(c.ID, client)
+	defer logCollector.Stop()
+
+	stream := logCollector.Stream()
+	select {
+	case line := <-stream:
+		formatted := jsonfmt.FormatLogMessage(line.Message)
+		t.Logf("Raw log line: %s", line.Message)
+		t.Logf("Formatted JSON log: %s", formatted)
+		if !strings.Contains(formatted, "level=info") || !strings.Contains(formatted, "service started successfully") {
+			t.Errorf("expected formatted JSON log with level=info and message, got '%s'", formatted)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for live JSON log stream")
+	}
+
+	t.Log("E2E live JSON logs formatting test passed!")
+}
+
+func TestE2EMultiHostAggregationLive(t *testing.T) {
+	liveDocker, err := connector.NewDocker()
+	if err != nil {
+		t.Fatalf("failed to init live docker connector: %v", err)
+	}
+
+	mockRemote, err := connector.NewMock()
+	if err != nil {
+		t.Fatalf("failed to init mock remote connector: %v", err)
+	}
+
+	mc := connector.NewMultiConnector()
+	mc.AddConnector("local-docker", liveDocker)
+	mc.AddConnector("remote-host-1", mockRemote)
+
+	all := mc.All()
+	if len(all) < len(mockRemote.All()) {
+		t.Fatalf("expected merged container count at least mock count %d, got %d", len(mockRemote.All()), len(all))
+	}
+
+	// Verify host resolution on containers
+	mockConts := mockRemote.All()
+	if len(mockConts) > 0 {
+		mID := mockConts[0].Id
+		if found, ok := mc.Get(mID); !ok || found == nil {
+			t.Fatalf("expected to find mock container %s across multi-connector", mID)
+		}
+	}
+
+	t.Log("E2E multi-host aggregation live test passed!")
+}
+
+func generateE2ETestCertificates(t *testing.T, dir string) (string, string, string) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"ctop E2E Test"},
+		},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	certPem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyPem := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+
+	caPath := filepath.Join(dir, "ca.pem")
+	certPath := filepath.Join(dir, "cert.pem")
+	keyPath := filepath.Join(dir, "key.pem")
+
+	_ = os.WriteFile(caPath, certPem, 0o600)
+	_ = os.WriteFile(certPath, certPem, 0o600)
+	_ = os.WriteFile(keyPath, keyPem, 0o600)
+
+	return caPath, certPath, keyPath
+}
+
+func TestE2ETLSConfigAndEndpointLive(t *testing.T) {
+	tempDir := t.TempDir()
+	caPath, certPath, keyPath := generateE2ETestCertificates(t, tempDir)
+
+	connector.SetGlobalTLSConfig(connector.TLSConfig{
+		Verify: false,
+		CA:     caPath,
+		Cert:   certPath,
+		Key:    keyPath,
+	})
+	defer connector.SetGlobalTLSConfig(connector.TLSConfig{})
+
+	// Spin up an actual mock TLS Docker daemon endpoint to test TLS connector handshake
+	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/_ping":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("OK"))
+		case "/info":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ID":"test-remote-node","Driver":"overlay2","Images":2,"Name":"node1","ServerVersion":"24.0.0"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("[]"))
+		}
+	}))
+	defer mockServer.Close()
+
+	if mockServer.Certificate() != nil {
+		serverCertPem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: mockServer.Certificate().Raw})
+		_ = os.WriteFile(caPath, serverCertPem, 0o600)
+	}
+
+	remoteConn, err := connector.NewDockerWithEndpoint(mockServer.URL, "remote-tls-node")
+	if err != nil {
+		t.Fatalf("failed to initialize remote endpoint connector: %v", err)
+	}
+	if remoteConn == nil {
+		t.Fatal("expected non-nil remote connector")
+	}
+
+	// Verify live local docker endpoint
+	localEndpoint := connector.ResolveDockerEndpoint()
+	if localEndpoint == "" {
+		localEndpoint = "unix:///var/run/docker.sock"
+	}
+
+	liveConn, err := connector.NewDockerWithEndpoint(localEndpoint, "live-local")
+	if err != nil {
+		t.Fatalf("failed to create live docker connector with custom endpoint: %v", err)
+	}
+
+	all := liveConn.All()
+	t.Logf("Live containers collected with endpoint connector: %d", len(all))
+	t.Log("E2E TLS and endpoint integration test passed!")
+}
+
+func TestE2ERateAndCumulativeModeLive(t *testing.T) {
+	client, err := api.NewClientFromEnv()
+	if err != nil {
+		t.Fatalf("failed to connect to docker daemon: %v", err)
+	}
+
+	containerName := fmt.Sprintf("ctop-e2e-rates-%d", time.Now().UnixNano())
+	createOpts := api.CreateContainerOptions{
+		Name: containerName,
+		Config: &api.Config{
+			Image: "alpine:latest",
+			Cmd:   []string{"/bin/sh", "-c", "while true; do dd if=/dev/urandom of=/tmp/test.dat bs=1k count=10 >/dev/null 2>&1; sleep 0.2; done"},
+		},
+		HostConfig: &api.HostConfig{
+			AutoRemove: false,
+		},
+	}
+
+	cont, err := client.CreateContainer(createOpts)
+	if err != nil {
+		t.Fatalf("failed to create live test container: %v", err)
+	}
+	defer func() {
+		_ = client.StopContainer(cont.ID, 1)
+		_ = client.RemoveContainer(api.RemoveContainerOptions{
+			ID:            cont.ID,
+			Force:         true,
+			RemoveVolumes: true,
+		})
+	}()
+
+	if err := client.StartContainer(cont.ID, nil); err != nil {
+		t.Fatalf("failed to start container: %v", err)
+	}
+
+	dockerCollector := collector.NewDocker(client, cont.ID)
+	dockerCollector.Start()
+	defer dockerCollector.Stop()
+
+	// Wait up to 5 seconds to receive streamed metrics
+	var m models.Metrics
+	select {
+	case metrics, ok := <-dockerCollector.Stream():
+		if !ok {
+			t.Fatal("metrics stream closed unexpectedly")
+		}
+		m = metrics
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for live metrics from Docker daemon")
+	}
+
+	row := compact.NewCompactRow()
+
+	// Validate widgets in rate mode
+	config.UpdateSwitch("rateMode", true)
+	row.SetMetrics(m)
+	t.Logf("Live container rate metrics: CPU=%d%% Mem=%d IORead=%d IOWrite=%d IORateRead=%d IORateWrite=%d NetRxRate=%d NetTxRate=%d",
+		m.CPUUtil, m.MemUsage, m.IOBytesRead, m.IOBytesWrite, m.IORateRead, m.IORateWrite, m.NetRxRate, m.NetTxRate)
+
+	// Validate widgets in cumulative mode
+	config.UpdateSwitch("rateMode", false)
+	row.SetMetrics(m)
+
+	t.Log("E2E live rate and cumulative mode metrics integration test passed!")
 }

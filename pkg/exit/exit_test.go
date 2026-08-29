@@ -25,4 +25,13 @@ func TestExitCodes(t *testing.T) {
 	if ExitUI != 5 {
 		t.Fatalf("expected ExitUI=5, got %d", ExitUI)
 	}
+	if ExitPortInUse != 6 {
+		t.Fatalf("expected ExitPortInUse=6, got %d", ExitPortInUse)
+	}
+	if ExitDockerPermission != 7 {
+		t.Fatalf("expected ExitDockerPermission=7, got %d", ExitDockerPermission)
+	}
+	if ExitDockerTLS != 8 {
+		t.Fatalf("expected ExitDockerTLS=8, got %d", ExitDockerTLS)
+	}
 }

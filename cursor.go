@@ -4,8 +4,8 @@ package main
 import (
 	"math"
 
-	"github.com/edsilegx/ctop/connector"
-	"github.com/edsilegx/ctop/container"
+	"github.com/edsilegx/ctop/pkg/connector"
+	"github.com/edsilegx/ctop/pkg/container"
 )
 
 // GridCursor manages the index and ID of the active container row and manages vertical scrolling.

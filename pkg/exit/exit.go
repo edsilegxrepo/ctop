@@ -15,4 +15,10 @@ const (
 	ExitConnector = 4
 	// ExitUI indicates terminal UI initialization or rendering subsystem failures.
 	ExitUI = 5
+	// ExitPortInUse indicates network port binding collision on web server startup.
+	ExitPortInUse = 6
+	// ExitDockerPermission indicates permission denied connecting to the Docker socket.
+	ExitDockerPermission = 7
+	// ExitDockerTLS indicates TLS or client certificate validation failure.
+	ExitDockerTLS = 8
 )

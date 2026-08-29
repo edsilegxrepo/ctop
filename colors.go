@@ -4,7 +4,7 @@ package main
 import (
 	"sync"
 
-	"github.com/edsilegx/ctop/theme"
+	"github.com/edsilegx/ctop/internal/theme"
 	ui "github.com/gizak/termui/v3"
 )
 

@@ -3,9 +3,9 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 
-	"github.com/edsilegx/ctop/container"
+	"github.com/edsilegx/ctop/pkg/container"
+	"github.com/edsilegx/ctop/pkg/diag"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -23,27 +23,7 @@ func dumpContainer(c *container.Container) {
 	if c == nil || log == nil {
 		return
 	}
-	msg := fmt.Sprintf("logging state for container: %s\n", c.Id)
-	for k, v := range c.Meta {
-		msg += fmt.Sprintf("Meta.%s = %s\n", k, v)
-	}
-	msg += inspect(&c.Metrics)
-	log.Infof(msg)
-}
-
-// inspect uses reflection to dynamically serialize all struct fields and values into a string.
-func inspect(i interface{}) (s string) {
-	val := reflect.ValueOf(i)
-	elem := val.Type().Elem()
-
-	eName := elem.String()
-	for i := 0; i < elem.NumField(); i++ {
-		field := elem.Field(i)
-		fieldVal := reflect.Indirect(val).Field(i)
-		s += fmt.Sprintf("%s.%s = ", eName, field.Name)
-		s += fmt.Sprintf("%v (%s)\n", fieldVal, field.Type)
-	}
-	return s
+	log.Infof(diag.DumpText(c.Id, c.Meta, &c.Metrics))
 }
 
 // quote wraps a string in double quotation marks.
