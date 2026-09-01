@@ -1,5 +1,16 @@
 // Package cwidgets defines UI update contracts and formatting helpers for container widgets.
-// Objective: Standardize property passing from container telemetry models to visual TermUI widgets.
+//
+// Objective:
+//
+//	Standardize property passing and telemetry bindings from container models to visual TermUI widgets.
+//
+// Core Components:
+//   - WidgetUpdater: Interface implemented by widgets consuming container metadata and telemetry metrics.
+//   - NullWidgetUpdater: Null-object pattern implementation ensuring safe transition states without nil checks.
+//
+// Data Flow:
+//
+//	Container Telemetry -> WidgetUpdater.SetMetrics() / SetMeta() -> Visual TermUI State.
 package cwidgets
 
 import (

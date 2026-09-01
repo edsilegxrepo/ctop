@@ -1,3 +1,12 @@
+// util.go provides binary byte formatting utilities converting raw byte counts into human-readable strings (KiB, MiB, GiB).
+//
+// Objective:
+//
+//	Deliver high-performance, allocation-efficient byte string formatting for terminal gauges, columns, and logs.
+//
+// Functionality:
+//   - Formats 32-bit and 64-bit byte counters into standard (1.5MiB) or compact/short (2M) notation.
+//   - Supports byte scales from Bytes (B) through Pebibytes (PiB).
 package cwidgets
 
 import (

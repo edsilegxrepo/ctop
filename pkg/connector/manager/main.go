@@ -1,5 +1,12 @@
-// Package manager defines container lifecycle control interfaces (Start, Stop, Pause, Unpause, Restart, Exec).
-// Objective: Abstract runtime lifecycle operations across Docker, runC, and Mock backends.
+// Package manager defines container lifecycle control interfaces (Start, Stop, Pause, Unpause, Restart, Exec, Top, Diffs, Files, Resources).
+//
+// Objective:
+//
+//	Abstract runtime lifecycle operations, interactive shell spawning, file transfers, and resource hot-tuning across Docker, runC, and Mock backends.
+//
+// Core Components:
+//   - Manager: Interface declaring all operational control methods executable on a container.
+//   - Docker: Manager implementation interacting via go-dockerclient API endpoints.
 package manager
 
 import (

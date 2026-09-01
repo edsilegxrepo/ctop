@@ -1,5 +1,11 @@
 // view_test.go validates TextView line splitting, word wrapping, and ANSI sequence stripping.
-// Test Strategy: Tests string slicing boundaries, limit alignments, and ANSI escape filter pipelines.
+//
+// Objective:
+//
+//	Verify string truncation, multiline splitting, and word boundary alignment across character width limits.
+//
+// Test Strategy:
+//   - Tests string slicing boundaries, limit alignments, and ANSI escape filter pipelines.
 package widgets
 
 import "testing"

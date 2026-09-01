@@ -1,4 +1,22 @@
 // web_bridge.go bridges ctop's container registry and telemetry collectors with the read-only embedded web server and SSE broadcaster.
+//
+// Objective:
+//
+//	Adapt ctop's live internal Container and Connector abstractions to the decoupled interfaces required
+//	by the pkg/web dashboard engine (ContainerProvider, LogsProvider, ExecInspectProvider, FileExplorerProvider, DiagnosticProvider).
+//
+// Core Components:
+//   - superContainerProvider: Adapter implementing web.ContainerProvider, web.LogsProvider, web.ExecInspectProvider, web.FileExplorerProvider, web.DiagnosticProvider.
+//   - StartWebBridge: Background coordinator orchestrating web server lifecycle and SSE telemetry broadcast ticker.
+//
+// Functionality:
+//   - Converts live container metrics and metadata into JSON-safe sanitized snapshots.
+//   - Tails and formats live log streams with ANSI stripping and JSON parsing.
+//   - Exposes container top processes, diffs, compose templates, files, and diagnostics via REST/SSE.
+//
+// Data Flow:
+//
+//	Connector Super / Containers -> superContainerProvider -> WebServer API Handlers / Broadcaster -> HTTP / SSE Clients.
 package main
 
 import (
@@ -37,29 +55,29 @@ func (p *superContainerProvider) GetContainerSnapshots() []web.ContainerSnapshot
 		}
 
 		snap := web.ContainerSnapshot{
-			ID:           c.Id,
-			Name:         c.Meta.Get("name"),
-			Image:        c.Meta.Get("image"),
-			State:        c.Meta.Get("state"),
-			Health:       c.Meta.Get("health"),
-			Host:         c.HostID,
-			Created:      c.Meta.Get("created"),
-			Uptime:       uptime,
-			CPUUtil:      nonNeg(c.CPUUtil),
-			MemUsage:     nonNeg(c.MemUsage),
-			MemLimit:     nonNeg(c.MemLimit),
-			MemPercent:   nonNeg(c.MemPercent),
-			MemRss:       nonNeg(c.MemRss),
-			MemCache:     nonNeg(c.MemCache),
-			NetRx:        nonNeg(c.NetRx),
-			NetTx:        nonNeg(c.NetTx),
-			NetRxRate:    nonNeg(c.NetRxRate),
-			NetTxRate:    nonNeg(c.NetTxRate),
-			IOBytesRead:  nonNeg(c.IOBytesRead),
-			IOBytesWrite: nonNeg(c.IOBytesWrite),
-			IORateRead:   nonNeg(c.IORateRead),
-			IORateWrite:  nonNeg(c.IORateWrite),
-			Pids:         nonNeg(c.Pids),
+			ID:               c.Id,
+			Name:             c.Meta.Get("name"),
+			Image:            c.Meta.Get("image"),
+			State:            c.Meta.Get("state"),
+			Health:           c.Meta.Get("health"),
+			Host:             c.HostID,
+			Created:          c.Meta.Get("created"),
+			Uptime:           uptime,
+			CPUUtil:          nonNeg(c.CPUUtil),
+			MemUsage:         nonNeg(c.MemUsage),
+			MemLimit:         nonNeg(c.MemLimit),
+			MemPercent:       nonNeg(c.MemPercent),
+			MemRss:           nonNeg(c.MemRss),
+			MemCache:         nonNeg(c.MemCache),
+			NetRx:            nonNeg(c.NetRx),
+			NetTx:            nonNeg(c.NetTx),
+			NetRxRate:        nonNeg(c.NetRxRate),
+			NetTxRate:        nonNeg(c.NetTxRate),
+			IOBytesRead:      nonNeg(c.IOBytesRead),
+			IOBytesWrite:     nonNeg(c.IOBytesWrite),
+			IORateRead:       nonNeg(c.IORateRead),
+			IORateWrite:      nonNeg(c.IORateWrite),
+			Pids:             nonNeg(c.Pids),
 			IPs:              c.Meta.Get("IPs"),
 			Ports:            c.Meta.Get("ports"),
 			WebPort:          c.Meta.Get("Web Port"),

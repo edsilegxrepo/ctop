@@ -1,4 +1,13 @@
 // Package generator produces equivalent docker run CLI commands and docker-compose.yml specifications from container metadata.
+//
+// Objective:
+//
+//	Reconstruct reproducible `docker run` command strings and YAML `docker-compose.yml` service definitions
+//	from inspected container metadata (ports, volumes, environment variables, restart policies).
+//
+// Core Components:
+//   - GenerateRunCmd: Builds multiline, escaped bash CLI command string.
+//   - GenerateCompose: Builds indented YAML compose service specification.
 package generator
 
 import (

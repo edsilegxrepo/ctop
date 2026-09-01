@@ -1,5 +1,12 @@
 // widgets_test.go validates CTopHeader, StatusLine, ErrorView, InputWidget, and TextView presentation controls.
-// Test Strategy: Verifies text formatting, cursor typing, backspace editing, and buffer drawing without terminal deadlocks.
+//
+// Objective:
+//
+//	Verify presentation widgets layout calculation, buffer population, cursor editing, and message queues.
+//
+// Test Strategy:
+//   - Verifies text formatting, cursor typing, backspace editing, and buffer drawing without terminal deadlocks.
+//   - Tests CTopHeader count/filter strings, StatusLine message queues, and ErrorView multiline append logic.
 package widgets
 
 import (

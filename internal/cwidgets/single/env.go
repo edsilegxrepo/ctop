@@ -10,9 +10,7 @@ import (
 	ui "github.com/gizak/termui/v3"
 )
 
-var (
-	envPattern = regexp.MustCompile(`(?P<KEY>[^=]+)=(?P<VALUE>.*)`)
-)
+var envPattern = regexp.MustCompile(`(?P<KEY>[^=]+)=(?P<VALUE>.*)`)
 
 type Env struct {
 	ui.Block

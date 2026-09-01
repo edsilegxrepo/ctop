@@ -1,4 +1,22 @@
 // debug.go provides runtime introspection, event logging, and container state dumping.
+//
+// Objective:
+//
+//	Facilitate troubleshooting and diagnostics by capturing raw UI events and container snapshots
+//	into the configured application log stream without interrupting UI loops.
+//
+// Core Components:
+//   - logEvent: UI event interceptor and formatter.
+//   - dumpContainer: Container telemetry and metadata snapshot exporter.
+//   - quote: String sanitization helper for log outputs.
+//
+// Functionality:
+//   - Formatted debug logging of incoming TermUI keyboard and window events.
+//   - Text serialization of active container runtime metrics and metadata.
+//
+// Data Flow:
+//
+//	TermUI Events / Container Snapshots -> debug.go -> pkg/logging (File / Socket / STDERR).
 package main
 
 import (

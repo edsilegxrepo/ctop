@@ -836,7 +836,7 @@ func TestSecureTokenFileOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to stat token file: %v", err)
 		}
-		if fi.Mode().Perm() != 0400 {
+		if fi.Mode().Perm() != 0o400 {
 			t.Fatalf("expected file permission 0400, got %v", fi.Mode().Perm())
 		}
 	}

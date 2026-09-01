@@ -1,5 +1,16 @@
 // Package theme provides visual styling, color palette mappings, style builders, and terminal dimension helpers.
-// Objective: Centralize TermUI colors, styling primitives, and headless terminal sizing.
+//
+// Objective:
+//
+//	Centralize TermUI colors, styling primitives, theme inversion (light/dark modes), and headless terminal sizing fallback.
+//
+// Core Components:
+//   - ColorMap: Active palette dictionary mapping logical token names to TermUI Color primitives.
+//   - TermDimensions / SyncTerm: Thread-safe terminal width and height resolution with headless fallbacks.
+//
+// Functionality:
+//   - InvertColorMap: Dynamic palette inversion for light background terminal environments.
+//   - Style(): High-level constructor returning TermUI Style primitives for text, borders, headers, and gauges.
 package theme
 
 import (

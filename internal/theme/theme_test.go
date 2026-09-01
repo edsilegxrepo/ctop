@@ -1,5 +1,12 @@
 // theme_test.go validates theme color lookup, style generation, color map inversion, and terminal dimension fallback.
-// Test Strategy: Verifies palette mappings, inverted mode toggling, and headless fallback sizing.
+//
+// Objective:
+//
+//	Verify palette lookup fallbacks, dynamic style generation, light/dark inversion, and headless dimension probing.
+//
+// Test Strategy:
+//   - Verifies palette mappings, inverted mode toggling, and headless fallback sizing.
+//   - Tests Color() and Style() resolution with existing and non-existent color keys.
 package theme
 
 import (

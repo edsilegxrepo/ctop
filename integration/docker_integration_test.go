@@ -1,9 +1,26 @@
 //go:build integration
 
 // Package integration provides live end-to-end integration tests executing against a real Docker daemon.
-// Objective: Verify real-world container provisioning, event-driven updates, metrics/log streaming, and lifecycle execution.
-// Test Strategy: Spawns live Alpine containers via local Docker daemon socket; tests connector discovery,
-// live collector telemetry channels, log multiplexing, interactive command execution, and automated resource teardown.
+//
+// Objective:
+//
+//	Verify real-world container provisioning, event-driven updates, metrics/log streaming, and lifecycle execution
+//	against live Docker engines, TLS-secured endpoints, and multi-host aggregation contexts.
+//
+// Core Components:
+//   - Live Alpine container runners: ephemeral container provisioning and background load generators.
+//   - Mock TLS Docker daemons: httptest.TLSServer instances validating client TLS handshakes and certificate parsing.
+//   - Multi-host aggregator fixtures: validating cross-host merged container lists and ID lookups.
+//
+// Test Strategy:
+//   - Spawns live Alpine containers via local Docker daemon socket; tests connector discovery,
+//     live collector telemetry channels, log multiplexing, interactive command execution, and automated resource teardown.
+//   - Validates live JSON log formatting, structured multi-field filtering, and rate vs. cumulative metric mode calculation.
+//   - Automatic skip logic (getDockerClient) when Docker daemon socket is unavailable.
+//
+// Data Flow:
+//
+//	Local/Remote Docker Socket -> Docker Connector -> Live Container Streams -> Validation Assertions.
 package integration
 
 import (
@@ -457,6 +474,7 @@ func TestE2EJSONLogsFormattingLive(t *testing.T) {
 }
 
 func TestE2EMultiHostAggregationLive(t *testing.T) {
+	_ = getDockerClient(t)
 	liveDocker, err := connector.NewDocker()
 	if err != nil {
 		t.Fatalf("failed to init live docker connector: %v", err)
@@ -567,7 +585,8 @@ func TestE2ETLSConfigAndEndpointLive(t *testing.T) {
 		t.Fatal("expected non-nil remote connector")
 	}
 
-	// Verify live local docker endpoint
+	// Verify live local docker endpoint if docker is available
+	_ = getDockerClient(t)
 	localEndpoint := connector.ResolveDockerEndpoint()
 	if localEndpoint == "" {
 		localEndpoint = "unix:///var/run/docker.sock"
@@ -584,10 +603,7 @@ func TestE2ETLSConfigAndEndpointLive(t *testing.T) {
 }
 
 func TestE2ERateAndCumulativeModeLive(t *testing.T) {
-	client, err := api.NewClientFromEnv()
-	if err != nil {
-		t.Fatalf("failed to connect to docker daemon: %v", err)
-	}
+	client := getDockerClient(t)
 
 	containerName := fmt.Sprintf("ctop-e2e-rates-%d", time.Now().UnixNano())
 	createOpts := api.CreateContainerOptions{

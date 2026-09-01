@@ -1,3 +1,12 @@
+// multi_test.go validates multi-host endpoint spec parsing and container aggregation across multiple connectors.
+//
+// Objective:
+//
+//	Verify endpoint URI parsing (ssh://, tcp://, unix://) and cross-host container discovery and retrieval.
+//
+// Test Strategy:
+//   - Unit tests verifying ParseHostSpec across local, SSH, TCP, and Unix socket targets.
+//   - Aggregator validation verifying merged container counts and ID lookups across multiple mock connectors.
 package connector
 
 import (

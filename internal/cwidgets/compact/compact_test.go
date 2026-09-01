@@ -1,5 +1,13 @@
 // compact_test.go validates compact grid row creation, column rendering, and cell value formatting.
-// Test Strategy: Verifies text and gauge column models with synthetic metadata and metrics.
+//
+// Objective:
+//
+//	Verify compact row widget construction, column width calculation, gauge cell rendering, and grid alignment.
+//
+// Test Strategy:
+//   - Verifies text and gauge column models with synthetic metadata and metrics.
+//   - Tests auto-expanding column width calculations across varying terminal dimensions.
+//   - Validates memory limit/usage gauge formatting and CPU utilization bar boundaries.
 package compact
 
 import (

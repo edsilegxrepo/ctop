@@ -1,5 +1,14 @@
 // Package update provides self-updating capabilities for ctop by querying GitHub releases,
 // downloading the platform-specific release binary, verifying checksums, and replacing the active binary.
+//
+// Objective:
+//
+//	Deliver secure in-place binary upgrades by querying GitHub release assets, downloading matching tar.gz archives,
+//	verifying SHA256 checksums, and performing atomic binary replacement.
+//
+// Core Components:
+//   - CheckUpdate: Queries GitHub release API for latest version tags.
+//   - ApplyUpdate: Streams, unpacks, and replaces the current executable.
 package update
 
 import (

@@ -1,6 +1,17 @@
 // Package logging provides thread-safe structured logging, ring buffer memory backends, status queues, and network stream listeners.
-// Objective: Deliver diagnostic logs and UI notification messages with optional remote streaming.
-// Data Flow: Application Events -> Logger -> Safe Memory Backend / File / Unix Socket / TCP Listener -> Status Line.
+//
+// Objective:
+//
+//	Deliver formatted diagnostic logs, in-memory circular event history, UI notification status queues, and optional remote TCP/Unix socket streaming.
+//
+// Core Components:
+//   - CTopLogger: Wrapper around go-logging providing level filtering, formatted outputs, and status queue dispatches.
+//   - safeMemoryBackend: Thread-safe circular memory buffer for log inspection.
+//   - loggingServer: Streaming TCP or Unix domain socket server broadcasting live log events.
+//
+// Data Flow:
+//
+//	Application Events -> Logger -> Safe Memory Backend / File / Unix Socket / TCP Listener -> Status Line.
 package logging
 
 import (

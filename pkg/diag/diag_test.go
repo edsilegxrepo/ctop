@@ -1,3 +1,12 @@
+// diag_test.go validates reflection dumping, structured report generation, and disk export encoding.
+//
+// Objective:
+//
+//	Verify that diagnostic reports accurately format metadata, sanitize secrets, build mount/network structs, and save to disk.
+//
+// Test Strategy:
+//   - Tests DumpText and DumpJSON against struct reflections.
+//   - Tests BuildReport and SaveReport creating valid JSON/Text files in t.TempDir().
 package diag
 
 import (

@@ -1,3 +1,11 @@
+// util_test.go validates binary byte formatting across full and short precision modes.
+//
+// Objective:
+//
+//	Verify exact string outputs for byte boundaries (0B, bytes, KiB, MiB, GiB, TiB).
+//
+// Test Strategy:
+//   - Table-driven unit test verifying byteFormat64 and byteFormat64Short across exact boundaries and fractions.
 package cwidgets
 
 import (

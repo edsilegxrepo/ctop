@@ -1,6 +1,16 @@
 // Package container models active container entities, their telemetry channels, lifecycle controls, and visual row widgets.
-// Objective: Bridge raw metrics collectors and managers with UI widget updaters and filtering/sorting logic.
-// Data Flow: Collector Stream -> Container.Read() -> Container.Metrics -> CompactRow / SingleView Updaters.
+//
+// Objective:
+//
+//	Bridge raw metrics collectors and lifecycle managers with UI widget updaters, sort comparators, and filtering predicates.
+//
+// Core Components:
+//   - Container: Thread-safe model encapsulating metrics, metadata, compact row widgets, collector, and manager.
+//   - Containers: Slice wrapper providing sorting (Sort), filtering (Filter), and group classification (GroupByCompose).
+//
+// Data Flow:
+//
+//	Collector Stream -> Container.Read() -> Container.Metrics -> CompactRow / SingleView Updaters.
 package container
 
 import (

@@ -1,4 +1,12 @@
 // Package service provides system service generation and management helpers for background daemon operation.
+//
+// Objective:
+//
+//	Generate and inspect systemd service unit configurations for headless background telemetry collection.
+//
+// Core Components:
+//   - SystemdUnitTemplate: Standard unit definition specifying restart policies, environment variables, and web flags.
+//   - GenerateSystemdUnit: Populates the unit template with the absolute binary path.
 package service
 
 import (
@@ -63,7 +71,8 @@ func Run(args []string) error {
 		unitContent := GenerateSystemdUnit(execPath)
 		unitPath := "/etc/systemd/system/ctop.service"
 
-		if err := os.WriteFile(filepath.Clean(unitPath), []byte(unitContent), 0644); err != nil {
+		// #nosec G306 -- Systemd service units in /etc/systemd/system require 0644 world-readable permissions for systemctl discovery
+		if err := os.WriteFile(filepath.Clean(unitPath), []byte(unitContent), 0o644); err != nil {
 			return fmt.Errorf("failed to write %s (ensure sudo/root permissions): %w", unitPath, err)
 		}
 		fmt.Printf("✓ Installed systemd service to %s\n", unitPath)

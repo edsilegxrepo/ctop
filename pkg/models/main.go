@@ -1,6 +1,17 @@
 // Package models defines core telemetry, container metadata, and log data structures.
-// Objective: Provide lightweight, standardized domain types for container metrics, log lines, and metadata.
-// Data Flow: Connector Telemetry Stream -> Models (Metrics, Log, Meta) -> Container -> UI Widgets.
+//
+// Objective:
+//
+//	Provide lightweight, standardized domain types for container metrics, log lines, and metadata.
+//
+// Core Components:
+//   - Metrics: Real-time resource utilization struct (CPU, Memory, Network, I/O rates, PIDs).
+//   - Log: Timestamped log line record.
+//   - Meta: Key-value container configuration and inspection metadata dictionary.
+//
+// Data Flow:
+//
+//	Connector Telemetry Stream -> Models (Metrics, Log, Meta) -> Container -> UI Widgets.
 package models
 
 import "time"

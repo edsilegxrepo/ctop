@@ -293,9 +293,9 @@ ctop --web :9090 --url-prefix /probe
     - `[P] In-Container Top`: Live process table queried from `/api/v1/containers/{id}/top`.
   - **Keyboard Navigation**: Press `Esc` to close modal, or `o`, `v`, `n`, `e`, `p` to switch inspection tabs.
 
-#### 3. Telemetry Export & Clipboard Reports
+#### 3. Telemetry Export & Interactive Reports
 - **Cluster & Container JSON Export (`📥 Export JSON`)**: Downloads pretty-formatted (2-space indented) JSON containing complete system metrics, container metadata, and running telemetry samples.
-- **Plain-Text Report Copy (`📋 Copy Report`)**: Copies a structured, ASCII-aligned plain-text report for cluster or container metrics directly to the clipboard.
+- **Interactive Plain-Text Report Viewer (`📋 View Report`)**: Opens a dedicated report viewer popup displaying the complete structured ASCII-aligned telemetry report, with one-click actions to copy directly to clipboard (`📋 Copy to Clipboard`) or download as a `.txt` file (`📥 Download .txt`).
 
 #### 4. Automatic Secret & Credential Sanitization
 To prevent accidental credential disclosure on shared monitoring dashboards:
@@ -393,18 +393,20 @@ MEMORY BREAKDOWN                       METADATA
   Swap: 0 B | Kernel: 4.2 MB             Ports: 0.0.0.0:8080->8080/tcp
 ```
 
-The multi-tab inspector provides deep inspection across 9 specialized tabs:
+The multi-tab inspector provides deep inspection across 11 specialized tabs:
 - **`[1]` Overview & Metrics**: Real-time telemetry sparklines (CPU, Memory, Net Rx/Tx, Disk I/O), memory breakdown (RSS, Cache, Swap, Kernel Memory, OOM Kill detection), and container metadata.
-- **`[2]` Volumes & Mounts**: Storage bindings table showing Destination path, Source path, Mount Type (`volume`/`bind`/`tmpfs`), and Access Mode (`rw`/`ro`).
-- **`[3]` Networking & Ports**: Network interface table (Name, IP, Gateway, MAC, Subnet), published host port bindings (`0.0.0.0:8080 -> 80/tcp`), and live TCP reachability probes for external host and internal container endpoints (`[p]` to re-probe).
-- **`[4]` Process & Env**: Runtime execution parameters, Linux Capabilities (`CapAdd`/`CapDrop`), Security Options (Seccomp, AppArmor), Healthcheck probe timeline, and environment variables with sensitive variable masking (`[u]` to toggle).
-- **`[5]` In-Container Top**: Live running process table inside the container namespace (`PID`, `USER`, `TIME`, `CMD`).
-- **`[6]` Filesystem Diff**: Real-time filesystem changes on the writable layer with Added (`[A]`), Changed (`[C]`), and Deleted (`[D]`) status indicators.
-- **`[7]` Recreate / Compose**: Equivalent `docker run` command and `docker-compose.yml` specification generator.
-- **`[8]` Labels & Compose**: Docker Compose orchestration tags and container labels.
-- **`[9]` In-Container Files**: Interactive directory browser, in-TUI file previewer (`<Enter>`/`<Space>`), host download exporter (`[d]`), and host file uploader (`[u]` to upload host files/directories into the container).
+- **`[2]` Live Logs**: Real-time container stdout/stderr log stream viewer with timestamp toggle, keyword filtering, and disk export.
+- **`[3]` Volumes & Mounts**: Storage bindings table showing Destination path, Source path, Mount Type (`volume`/`bind`/`tmpfs`), and Access Mode (`rw`/`ro`).
+- **`[4]` Networking & Ports**: Network interface table (Name, IP, Gateway, MAC, Subnet), published host port bindings (`0.0.0.0:8080 -> 80/tcp`), and live TCP reachability probes for external host and internal container endpoints (`[p]` to re-probe).
+- **`[5]` Process & Env**: Runtime execution parameters, Linux Capabilities (`CapAdd`/`CapDrop`), Security Options (Seccomp, AppArmor), Healthcheck probe timeline, and environment variables with sensitive variable masking (`[u]` to toggle).
+- **`[6]` Image Details**: Detailed container image metadata, layer hierarchy, labels, and tags.
+- **`[7]` In-Container Top**: Live running process table inside the container namespace (`PID`, `USER`, `TIME`, `CMD`).
+- **`[8]` Filesystem Diff**: Real-time filesystem changes on the writable layer with Added (`[A]`), Changed (`[C]`), and Deleted (`[D]`) status indicators.
+- **`[9]` Recreate / Compose**: Equivalent `docker run` command and `docker-compose.yml` specification generator.
+- **`[0]` Labels & Compose**: Docker Compose orchestration tags and container labels.
+- **`[F]` In-Container Files**: Interactive directory browser, in-TUI file previewer (`<Enter>`/`<Space>`), host download exporter (`[d]`), and host file uploader (`[u]` to upload host files/directories into the container).
 
-*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-9`, or class hotkeys (`o`, `v`, `n`, `E`, `P`, `D`, `G`, `L`, `F`) to switch views. Use `u` to toggle environment variable secret masks. In File Explorer: `d` downloads to host, `u` uploads from host, `D` customizes download directory. In Network tab: `p` runs live TCP port probes. Use `↑`/`↓` to scroll.
+*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-9`/`0`/`F`, or class hotkeys (`o`, `l`, `v`, `n`, `E`, `i`, `P`, `D`, `G`, `L`, `F`) to switch views. Use `u` to toggle environment variable secret masks. In File Explorer: `d` downloads to host, `u` uploads from host, `D` customizes download directory. In Network tab: `p` runs live TCP port probes. Use `↑`/`↓` to scroll.
 
 #### 3. Log Stream Drawer (`[l]` key)
 ```text

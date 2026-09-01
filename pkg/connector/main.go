@@ -1,6 +1,17 @@
-// Package connector abstracts container runtime engines (Docker, runC, Mock) behind a unified discovery interface.
-// Objective: Manage daemon discovery, automatic reconnection supervision, and container registry caching.
-// Data Flow: Host Runtime Socket -> Connector Driver -> ConnectorSuper -> GridCursor -> Container Models.
+// Package connector abstracts container runtime engines (Docker, runC, Mock, Multi-Host) behind a unified discovery interface.
+//
+// Objective:
+//
+//	Manage daemon discovery, automatic reconnection supervision, and container registry caching across single or multiple host endpoints.
+//
+// Core Components:
+//   - Connector: Primary interface defining container enumeration (All), single retrieval (Get), and disconnection detection (Wait).
+//   - ConnectorSuper: Resilient connection supervisor providing reconnect-on-failure loops.
+//   - MultiConnector: Aggregator multiplexing multiple host connectors into a single virtual container registry.
+//
+// Data Flow:
+//
+//	Host Runtime Sockets (Docker / runC) -> Connector Driver -> ConnectorSuper -> Container Registry -> ctop UI / Web Dashboard.
 package connector
 
 import (

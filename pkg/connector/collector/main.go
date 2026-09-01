@@ -1,6 +1,16 @@
 // Package collector implements continuous telemetry and log streaming for container runtimes.
-// Objective: Stream real-time CPU, memory, network, and I/O metrics along with timestamped log entries.
-// Data Flow: Daemon Stats / Cgroups -> Collector -> models.Metrics Channel -> Container Model.
+//
+// Objective:
+//
+//	Stream real-time CPU, memory, network, and I/O metrics along with timestamped log entries from underlying container daemons and cgroup pseudo-filesystems.
+//
+// Core Components:
+//   - Collector: Interface providing metric streaming channels, log collector access, and lifecycle control.
+//   - LogCollector: Interface providing multiplexed container log streams.
+//
+// Data Flow:
+//
+//	Daemon Stats / Cgroups -> Collector -> models.Metrics Channel -> Container Model.
 package collector
 
 import (

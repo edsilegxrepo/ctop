@@ -48,7 +48,7 @@ flowchart TD
     end
 
     subgraph WebLayer ["Embedded Web Telemetry Subsystem (pkg/web)"]
-        WebBridge["web_bridge.go<br/>(cursorContainerProvider)"]
+        WebBridge["web_bridge.go<br/>(superContainerProvider)"]
         Broadcaster["Broadcaster<br/>(SSE Ring Buffer)"]
         WebServer["web.Server<br/>(Read-Only REST & SSE)"]
         WebDashboard["HTML5 Canvas 2D SPA<br/>(Browser Clients)"]
@@ -136,10 +136,10 @@ The TUI is built using the `termui` library and is composed of several custom in
 #### h. Embedded Web Telemetry & SSE Server (`pkg/web/` and `web_bridge.go`)
 `ctop` provides a zero-dependency, real-time embedded web telemetry server and browser dashboard accessible via the `--web <address>` CLI option:
 
-- **`web_bridge.go` (`cursorContainerProvider`):** Bridges runtime domain models (`GridCursor`, `Container`) to the web subsystem. Converts live container metrics into immutable `web.ContainerSnapshot` representations using `c.RLock()`.
+- **`web_bridge.go` (`superContainerProvider`):** Bridges runtime domain models (`ConnectorSuper`, `Container`) to the web subsystem. Converts live container metrics into immutable `web.ContainerSnapshot` representations using `c.RLock()`.
 - **Automatic Secret & Credential Sanitizer (`pkg/sanitize`):** Filters out sensitive environment variables and labels matching password/token/key patterns before serialization to guarantee zero credential exposure on web dashboards.
 - **SSE Broadcaster (`pkg/web/broadcaster.go`):** High-throughput, non-blocking Server-Sent Events hub streaming point-in-time telemetry (`/api/v1/stream`) to connected browser clients with automatic keepalives.
-- **Embedded SPA Dashboard (`pkg/web/dashboard.html`):** Single-page web application embedded via `//go:embed`. Features dark glassmorphism styling, live container metrics overview, search filtering, rate mode toggle, real-time HTML5 Canvas 2D telemetry sparklines, downloadable pretty-formatted JSON export buttons, clipboard plain-text report copy buttons, and a per-container drill-down inspection modal with live CPU/memory/network/disk graphs, a 5-row running metric history table, and inspect tabs (`[o] overview & metrics`, `[v] volumes & mounts`, `[n] networking & ports`, `[E] process & env`, `[P] in-container top`).
+- **Embedded SPA Dashboard (`pkg/web/dashboard.html`):** Single-page web application embedded via `//go:embed`. Features dark glassmorphism styling, live container metrics overview, search filtering, rate mode toggle, real-time HTML5 Canvas 2D telemetry sparklines, downloadable pretty-formatted JSON export buttons, plain-text interactive Report Viewer modal (one-click copy to clipboard, download .txt), and a per-container drill-down inspection modal with live CPU/memory/network/disk graphs, a 5-row running metric history table, and inspect tabs (`[o] overview & metrics`, `[v] volumes & mounts`, `[n] networking & ports`, `[E] process & env`, `[P] in-container top`).
 - **Read-Only REST API & Reverse Proxy Routing (`pkg/web/server.go`):** Exposes `/api/v1/health`, `/api/v1/metrics`, `/api/v1/containers`, `/api/v1/containers/{id}`, `/api/v1/containers/{id}/top`, and `/api/v1/export` (supporting cluster and `?container=<id>` pretty JSON downloads). Supports subpath prefixing via `--url-prefix <subpath>` (e.g. `/probe`) for seamless NGINX, Caddy, or Traefik reverse proxy integration. Strictly enforces read-only access (rejects `POST`/`PUT`/`DELETE` with 405 Method Not Allowed; exposes zero Docker mutator or exec commands).
 - **Headless Daemon Mode (`--headless`):** Allows running `ctop` purely as a background telemetry server (e.g. within Docker or systemd) without initializing terminal UI libraries.
 
@@ -280,9 +280,9 @@ ctop/
 │   │   │   ├── gauge.go          # CPUCol, CpuScaledCol, MemCol (MEM Alloc / Total with adaptive color scales)
 │   │   │   ├── status.go         # Status glyph column with color-coded operational state icons
 │   │   │   └── util.go           # Compact row width and coordinate alignment helpers
-│   │   └── single/               # 9-Tab detailed single-container inspector view
+│   │   └── single/               # 11-Tab detailed single-container inspector view
 │   │       ├── main.go           # Single view controller, tab navigation, scroll bounds clamping, key delegation
-│   │       ├── tabbar.go         # Tab selection bar with tab indices [1..9]
+│   │       ├── tabbar.go         # Tab selection bar with tab indices [1..9, 0, F]
 │   │       ├── cpu.go            # CPU utilization gauge and historical sparkline chart
 │   │       ├── mem.go            # Memory usage gauge, RSS/Cache/Swap breakdown, and historical sparkline chart
 │   │       ├── net.go            # Network Rx/Tx volume gauges and transfer rate sparklines
@@ -291,12 +291,13 @@ ctop/
 │   │       ├── mounts.go         # Storage volumes and mount bindings table (destination, source, type, mode)
 │   │       ├── network.go        # Network adapters table, port bindings, and live TCP reachability prober
 │   │       ├── process.go        # Linux capabilities, security options, and environment variables with secret masking
+│   │       ├── image.go          # Container image metadata, layers, and configuration properties
 │   │       ├── top.go            # In-container live process table viewer (PID, USER, TIME, COMMAND)
 │   │       ├── diff.go           # Writable filesystem layer changes table (Added, Changed, Deleted)
 │   │       ├── generator.go      # Equivalent `docker run` command and `docker-compose.yml` snippet display
+│   │       ├── labels.go         # Container label key-value table viewer
 │   │       ├── explorer.go       # In-container interactive file explorer with download and viewing capabilities
 │   │       ├── logs.go           # Live log stream viewer with timestamp toggle, keyword filter, and export
-│   │       ├── labels.go         # Container label key-value table viewer
 │   │       └── hist.go           # Rolling circular ring buffer for sparkline telemetry history
 │   │
 │   ├── widgets/                  # General-purpose TUI presentation components

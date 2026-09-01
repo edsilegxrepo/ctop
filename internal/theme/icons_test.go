@@ -1,3 +1,11 @@
+// icons_test.go validates icon style toggles (Unicode vs Nerd Font) and state/health glyph resolution.
+//
+// Objective:
+//
+//	Ensure glyph lookups return correct Unicode and Nerd Font code points for all container states and health checks.
+//
+// Test Strategy:
+//   - Tests SetIconStyle switching and verifies StatusGlyph, HealthGlyph, and ExtGlyph outputs.
 package theme
 
 import (

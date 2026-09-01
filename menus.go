@@ -1,4 +1,27 @@
 // menus.go provides modal dialogs and interactive menus for Help, Filters, Sorting, Columns, Logs, Container Actions, and Shell execution.
+//
+// Objective:
+//
+//	Provide interactive modal overlays for runtime configuration, container control operations
+//	(start, stop, pause, kill, remove, restart, resource hot-tuning), in-container shell spawning,
+//	log tailing with search/export, and column/theme customizations.
+//
+// Core Components:
+//   - MenuFn: Recursive closure signature returning the next modal window or nil upon dismissal.
+//   - HelpMenu / FilterMenu / SortMenu / ColumnsMenu: Configuration & layout modal dialogs.
+//   - ContainerMenu / SignalMenu / ResourceMenu / FileExplorerMenu: Lifecycle & container administration modals.
+//   - LogMenu: High-throughput log viewer supporting regex filtering, timestamps, and disk export.
+//   - ExecShell: Interactive pseudoterminal launcher dropping user into in-container bash/sh.
+//
+// Functionality:
+//   - Modal navigation (j/k, Up/Down, Enter, Esc).
+//   - Container lifecycle invocation via container.Manager interfaces.
+//   - Live resource hot-tuning (Memory limits, CPU quotas, Restart policies).
+//   - Diagnostic report generation and web browser port launcher.
+//
+// Data Flow:
+//
+//	User Keystroke -> Menu Event Loop -> Container Manager / Config Engine -> Terminal Modal Redraw.
 package main
 
 import (

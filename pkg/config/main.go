@@ -1,6 +1,22 @@
 // Package config provides thread-safe runtime configuration, default options, parameter toggling, and column layout management.
-// Objective: Manage in-memory configuration state with TOML persistence and environment variable overrides.
-// Data Flow: Default Parameters -> TOML File / CLI Overrides -> GlobalParams/GlobalSwitches -> UI Consumers.
+//
+// Objective:
+//
+//	Manage in-memory configuration state with TOML persistence and environment variable overrides.
+//
+// Core Components:
+//   - GlobalParams: String and integer parameters (e.g. filterStr, sortField, downloadDir).
+//   - GlobalSwitches: Boolean toggle switches (e.g. allContainers, sortReversed).
+//   - GlobalColumns: Column definitions, orderings, and visibility flags.
+//
+// Functionality:
+//   - Thread-safe parameter and switch getter/setter API.
+//   - TOML configuration file loading and saving with atomic file writes.
+//   - Column reordering and toggling.
+//
+// Data Flow:
+//
+//	Default Parameters -> TOML File / CLI Overrides -> GlobalParams/GlobalSwitches -> UI Consumers.
 package config
 
 import (

@@ -1,5 +1,14 @@
 // debug_test.go tests event logging, container structure dumping, and reflection serialization.
-// Test Strategy: Verifies nil receiver resilience, log event formatting, and reflection string output against model structs.
+//
+// Objective:
+//
+//	Verify debug logging helpers and container state dumpers safely format inputs without panics,
+//	even when passed uninitialized loggers, nil containers, or special character event keys.
+//
+// Test Strategy:
+//   - Verifies nil receiver resilience, log event formatting, and reflection string output against model structs.
+//   - Tests empty and populated container metadata serialization.
+//   - Confirms quoting and escape behavior for raw terminal event identifiers.
 package main
 
 import (

@@ -1,3 +1,18 @@
+// Package web implements the read-only embedded HTTP dashboard, REST APIs, and Server-Sent Events (SSE) broadcaster.
+//
+// Objective:
+//
+//	Provide a modern, responsive web monitoring dashboard streaming real-time container metrics,
+//	logs, top processes, compose generators, diagnostics, and in-container file exploration over HTTP/SSE.
+//
+// Core Components:
+//   - Server: HTTP multiplexer serving embedded assets and REST endpoints under an optional prefix.
+//   - Broadcaster: High-capacity Server-Sent Events hub fanning out telemetry to connected browsers.
+//   - Middleware: Bearer token authentication, Security Headers (nosniff, clickjacking guards), Read-Only guards.
+//
+// Data Flow:
+//
+//	Container Snapshots -> Broadcaster -> SSE Stream -> Browser Client (Vanilla JS Dashboard).
 package web
 
 import (
@@ -51,12 +66,12 @@ func WriteSecureTokenFile(filePath, token string) (string, error) {
 		targetPath = DefaultAuthTokenPath()
 	}
 	dir := filepath.Dir(targetPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 	// Remove existing read-only file if present before re-creating
 	_ = os.Remove(targetPath)
-	if err := os.WriteFile(targetPath, []byte(strings.TrimSpace(token)+"\n"), 0400); err != nil {
+	if err := os.WriteFile(targetPath, []byte(strings.TrimSpace(token)+"\n"), 0o400); err != nil {
 		return "", fmt.Errorf("failed to write secure token file %s: %w", targetPath, err)
 	}
 	return targetPath, nil
@@ -659,8 +674,10 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(content))
+			// #nosec G705 -- Content-Type is strictly text/plain with nosniff header, preventing browser HTML/XSS interpretation
+			_, _ = w.Write([]byte(content)) // nosemgrep
 			return
 		}
 		http.Error(w, `{"error":"File reading not supported by provider"}`, http.StatusNotImplemented)

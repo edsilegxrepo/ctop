@@ -1,4 +1,13 @@
 // Package prober performs non-blocking TCP network reachability probes against container endpoints.
+//
+// Objective:
+//
+//	Evaluate live network connectivity, TCP port open/closed states, round-trip latency, and gateway health.
+//
+// Core Components:
+//   - ProbeResult: Telemetry struct storing target host:port, status ("OPEN", "CLOSED", "TIMEOUT"), and latency duration.
+//   - ProbeTCP: Context-bounded TCP dialer executing asynchronous health checks.
+//   - ExtractProbeTargets: Inspects container port mappings and gateway IPs to construct candidate probe targets.
 package prober
 
 import (

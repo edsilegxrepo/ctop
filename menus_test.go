@@ -1,5 +1,15 @@
 // menus_test.go validates interactive modal dialogs (Help, Filter, Sort, Columns, Container actions, Logs).
-// Test Strategy: Pre-buffered event channels supplying deterministic keyboard sequences to verify state mutations and clean modal dismissals without blocking.
+//
+// Objective:
+//
+//	Verify modal lifecycle handling, keyboard navigation, configuration state mutations, container action
+//	dispatching (Signals, Resources, Files, Shell), log viewer streaming, and rapid open/close stress testing.
+//
+// Test Strategy:
+//   - Pre-buffered event channels supplying deterministic keyboard sequences to verify state mutations and clean modal dismissals without blocking.
+//   - Tests confirm dialogs with both positive confirmation and cancellation flows.
+//   - High-throughput stress tests simulating thousands of log lines through the modal log reader.
+//   - Goroutine leak detection verifying zero leaked background workers after modal exit.
 package main
 
 import (

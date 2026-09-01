@@ -1,7 +1,27 @@
 // Package main is the entry point for ctop, a top-like real-time container metrics monitor.
-// Objective: Parse CLI arguments, initialize configuration/logging/UI, coordinate container connector
-// discovery, and drive the interactive terminal event loop.
-// Data Flow: CLI Flags -> Config/Theme -> Connector -> GridCursor -> TermUI Render Loop.
+//
+// Objective:
+//
+//	Parse command-line options, initialize configuration, logging, and theme engines, coordinate
+//	container connector discovery (Docker, runc, multi-host), spin up optional background web/headless servers,
+//	and drive the interactive terminal event loop.
+//
+// Core Components:
+//   - main(): CLI entrypoint orchestrating subcommands (--service, --update, --version, --help), web daemon initialization, and TUI startup.
+//   - GridCursor: Thread-safe cursor managing filtered container navigation and viewport offsets.
+//   - CompactGrid / CTopHeader / StatusLine / ErrorView: Core TermUI widgets rendering the primary screen layout.
+//   - ConnectorSuper: Connector supervisor discovering and polling container runtimes.
+//   - WebServer: Optional HTTP/JSON + SSE live dashboard daemon.
+//
+// Functionality:
+//   - Command-line argument parsing and validation.
+//   - Multi-connector daemon discovery and context aggregation.
+//   - Headless background service execution with systemd integration.
+//   - Graceful shutdown on SIGINT/SIGTERM with terminal restoration.
+//
+// Data Flow:
+//
+//	CLI Flags -> Config/Theme/Logging -> Connector Supervision -> GridCursor -> TermUI Render Loop / Web Broadcaster.
 package main
 
 import (

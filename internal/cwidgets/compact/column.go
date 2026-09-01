@@ -1,3 +1,12 @@
+// column.go registers all available table column constructors and defines column interfaces.
+//
+// Objective:
+//
+//	Provide a modular column registry allowing users to toggle, reorder, and configure individual table columns.
+//
+// Core Components:
+//   - CompactCol: Interface for table column renderers.
+//   - allCols: Registry map linking column identifiers ("status", "name", "id", "cpu", "mem", "net", "io", "pids", "uptime") to constructor functions.
 package compact
 
 import (

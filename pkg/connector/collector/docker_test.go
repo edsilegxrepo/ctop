@@ -1,5 +1,13 @@
 // docker_test.go validates CPU, memory, network, and I/O calculations from Docker engine stats API payloads.
-// Test Strategy: Unit tests verifying boundary math (uint8 CPU overflow, zero limits) and mock HTTP JSON streaming.
+//
+// Objective:
+//
+//	Verify resource parsing math, multi-core scaled percentages, zero division guards, and mock HTTP SSE metric streams.
+//
+// Test Strategy:
+//   - Unit tests verifying boundary math (uint8 CPU overflow >255 cores, zero limits) and mock HTTP JSON streaming.
+//   - Tests memory caching exclusions (inactive_file / active_file cgroup v1 & v2 buffers).
+//   - Rate calculations verifying EMA smoothing and delta throughput measurements.
 package collector
 
 import (

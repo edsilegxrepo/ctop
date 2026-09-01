@@ -1,3 +1,15 @@
+// web_bridge_test.go validates the web server bridge adapters, SSE live broadcasting, REST API endpoints, and live container conversion.
+//
+// Objective:
+//
+//	Verify end-to-end functionality of the web dashboard integration, including container telemetry snapshotting,
+//	real-time SSE streaming, HTTP endpoint responses, file previewing, top processes, and error handling.
+//
+// Test Strategy:
+//   - Unit tests against mock connector fixtures verifying provider conversion logic.
+//   - Integration tests spinning up actual HTTP listeners on dynamic ports (`127.0.0.1:0`).
+//   - Live SSE stream consumption verifying event formatting and event subscriber lifecycle.
+//   - URL prefix routing and authentication token validation.
 package main
 
 import (

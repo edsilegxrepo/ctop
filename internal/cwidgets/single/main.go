@@ -1,3 +1,23 @@
+// Package single implements the full-screen, multi-tab container inspection view.
+//
+// main.go orchestrates sub-widget lifecycles, tab navigation, layout alignment, and telemetry dispatch.
+//
+// Objective:
+//
+//	Provide an in-depth, multi-dimensional terminal inspector displaying real-time graphs, logs, mounts,
+//	networking, process trees, images, filesystem diffs, generator templates, and in-container file explorers.
+//
+// Core Components:
+//   - Single: Parent TermUI widget managing 11 child inspection sub-widgets and the TabBar header.
+//   - Sub-widgets: Cpu, Mem, IO, Net, Env, Mounts, Network, Image, Logs, Process, Top, Diff, Generator, Labels, Explorer.
+//
+// Functionality:
+//   - Implements cwidgets.WidgetUpdater to receive streaming container telemetry.
+//   - Tab switching, keyboard navigation, vertical scrolling, and secret masking.
+//
+// Data Flow:
+//
+//	Container Telemetry -> Single.SetMetrics() / SetMeta() -> Sub-Widgets -> TermUI Draw Buffer.
 package single
 
 import (
@@ -5,15 +25,11 @@ import (
 	"sync"
 
 	"github.com/edsilegx/ctop/internal/theme"
-	"github.com/edsilegx/ctop/pkg/logging"
 	"github.com/edsilegx/ctop/pkg/models"
 	ui "github.com/gizak/termui/v3"
 )
 
-var (
-	log      = logging.Init()
-	colWidth = [2]int{65, 0} // left,right column width
-)
+var colWidth = [2]int{65, 0} // left,right column width
 
 // Single manages the multi-tab container detailed inspection view.
 type Single struct {

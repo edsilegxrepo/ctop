@@ -126,6 +126,7 @@ sequenceDiagram
 | `TestE2EJSONLogsFormattingLive` | Tests real container JSON log emission, streaming, and formatting into key-value pairs | **PASS**: Streamed JSON lines parsed and formatted cleanly by `pkg/jsonfmt` |
 | `TestE2EMultiHostAggregationLive` | Tests dynamic aggregation across multiple container runtime endpoints (Local Docker + Remote) | **PASS**: Merges containers across hosts and discovers containers from all connected instances |
 | `TestE2ETLSConfigAndEndpointLive` | Tests Docker connector initialization with custom TLS/mTLS configuration and endpoint resolution against live daemon | **PASS**: Establishes connection, queries container registry, and cleans up without errors |
+| `TestE2ERateAndCumulativeModeLive` | Tests real-time throughput rate calculations and cumulative metrics mode transitions on live Docker container | **PASS**: Emits rate and cumulative metric streams accurately without errors |
 
 ---
 
@@ -232,7 +233,7 @@ sequenceDiagram
 | `TestIOUpdate` | Tests block I/O sparkline history update | **PASS**: Block I/O history buffer maintains sliding window |
 | `TestCpuAndMemWidgets` | Tests CPU and memory chart widget rendering in single view | **PASS**: Widgets format telemetry into graphs without panics |
 | `TestEnvAndInfoWidgets` | Tests container environment variables and inspection table rendering with default secret masking | **PASS**: Environment keys rendered with masked secrets and unmask toggles |
-| `TestSingleView` | Tests full single container inspection view orchestration across all 9 tabs | **PASS**: Sub-views position and redraw cleanly |
+| `TestSingleView` | Tests full single container inspection view orchestration across all 11 tabs | **PASS**: Sub-views position and redraw cleanly |
 | `TestSingleViewAllSubwidgets` | Tests Volumes, Network (live TCP probes), Process, Top, Diff, Generator, Labels, Files widgets | **PASS**: All specialized inspection subwidgets render without error |
 | `TestLogsWidget` | Tests embedded container log viewer widget | **PASS**: Ingests and renders log lines with proper scroll offset |
 | `TestIntHist` / `TestFloatHist` / `TestDiffHist` | Tests circular history buffers for metric charting | **PASS**: Buffers maintain capacity, compute min/max/average accurately |
@@ -301,17 +302,29 @@ sequenceDiagram
 | `TestExtractProbeTargets` | Tests endpoint extractor from serialized container network & port strings (`pkg/prober`) | **PASS**: Correctly identifies external, internal IP, and gateway targets |
 | `TestDumpText` / `TestDumpJSON` | Tests container diagnostic text and JSON serializers (`pkg/diag`) | **PASS**: Formats container metadata and telemetry into diagnostic snapshots |
 | `TestInspectNil` | Tests reflection struct inspector against nil and pointer types (`pkg/diag`) | **PASS**: Returns formatted field-value strings without panicking |
+| `TestBuildReportAndExport` | Tests structured diagnostic report construction and disk export (`pkg/diag`) | **PASS**: Builds comprehensive JSON/Text reports and saves to disk |
+| `TestGenerateSystemdUnit` | Tests systemd service unit template formatting (`pkg/service`) | **PASS**: Generates valid unit with binary path and daemon flags |
+| `TestRunServiceCommands` | Tests systemd install/uninstall/status command dispatching (`pkg/service`) | **PASS**: Outputs configuration diagnostics without errors |
 | `TestWebServerHealth` | Tests read-only health and readiness probe (`pkg/web`) | **PASS**: Returns status `ok` and uptime |
 | `TestWebServerMetricsAndContainers` | Tests aggregated metrics and container snapshot REST endpoints (`pkg/web`) | **PASS**: Aggregates totals and resolves containers by ID/name |
 | `TestWebServerExportAndIndex` | Tests embedded HTML5 dashboard delivery, pretty JSON formatting, and single container export (`pkg/web`) | **PASS**: Serves embedded SPA and formats cluster & single-container JSON attachments |
 | `TestWebServerSecurityReadOnly` | Enforces strict read-only security across all routes rejecting POST/PUT/DELETE (`pkg/web`) | **PASS**: Rejects mutating requests with `405 Method Not Allowed` |
 | `TestWebBroadcaster` | Tests non-blocking SSE subscriber distribution and circular history (`pkg/web`) | **PASS**: Dispatches events to subscribers without blocking |
+| `TestBroadcasterMaxSubscribers` | Tests broadcaster subscriber capacity bounding and eviction (`pkg/web`) | **PASS**: Bounded subscriber capacity prevents memory leaks |
 | `TestWebServerSSEStreamLive` | Connects live client to `/api/v1/stream` SSE feed (`pkg/web`) | **PASS**: Streams initial snapshot and real-time telemetry events |
 | `TestWebServerTopAndInspect` | Tests in-container `/top` endpoint and full container inspect metadata extraction (`pkg/web`) | **PASS**: Returns process table and mounts/networks/env metadata |
 | `TestWebServerURLPrefix` | Tests reverse proxy subpath prefixing, HTML BASE_PATH injection, and route resolution (`pkg/web`) | **PASS**: Serves UI and REST API under configured `--url-prefix` with root fallback |
 | `TestWebServerAPIErrorsAndEdgeCases` | Tests CORS preflight OPTIONS (204), HEAD requests, 404s on missing endpoints/containers, trailing slashes, and nil providers (`pkg/web`) | **PASS**: Correct status codes, CORS headers, and fallback responses |
 | `TestWebServerTopErrorHandling` | Tests internal server error handling when container top provider fails (`pkg/web`) | **PASS**: Returns 500 Internal Server Error without crashing |
 | `TestWebServerBroadcasterStreamBroadcast` | Tests subsequent telemetry event broadcasting over live SSE client streams (`pkg/web`) | **PASS**: SSE client receives live broadcast events in real-time |
+| `TestWebServerAuthToken` | Tests bearer token validation middleware against authorized and unauthorized requests (`pkg/web`) | **PASS**: Returns 200 for valid token, 401 for missing/invalid token |
+| `TestWebServerSchema` | Tests OpenAPI / JSON schema definitions returned by telemetry endpoints (`pkg/web`) | **PASS**: Returns valid schema JSON matching data types |
+| `TestBroadcasterRingBuffer` | Tests circular ring buffer storage for historical telemetry data (`pkg/web`) | **PASS**: Correctly preserves recent samples and evicts old entries |
+| `TestWebServerPathTraversalRejection` | Tests path traversal rejection in file and diff endpoints (`pkg/web`) | **PASS**: Rejects `../` attempts with 403/400 errors |
+| `TestGenerateAuthToken` | Tests cryptographically secure random authentication token generation (`pkg/web`) | **PASS**: Generates 32-character high-entropy hex token |
+| `TestSecureTokenFileOperations` | Tests atomic token file read, write, and secure permission handling (`pkg/web`) | **PASS**: Writes token with 0600 permissions and reads back accurately |
+| `TestWebServerDiffAndFiles` | Tests in-container filesystem diff and directory browsing endpoints (`pkg/web`) | **PASS**: Returns structured changes and directory entries |
+| `TestWebServerProbes` | Tests container TCP network reachability probe endpoint (`pkg/web`) | **PASS**: Returns active endpoint probe status and round-trip latency |
 | `TestWebBridge` | Tests live bridge between `GridCursor` and embedded web server (`web_bridge.go`) | **PASS**: Extracts container telemetry snapshots and runs background broadcaster |
 | `TestWebBridgeContainerConversion` | Tests serialization and parser helpers for mounts, networks, labels, and environment variables (`web_bridge.go`) | **PASS**: Correctly parses structured container properties with secret sanitization |
 | `TestWebBridgeE2E` | End-to-end integration test validating full web lifecycle, SSE streaming, REST APIs, JSON export, and read-only security (`web_bridge_test.go`) | **PASS**: 100% end-to-end operational verification across all endpoints |
@@ -354,7 +367,7 @@ sequenceDiagram
 | `TestShutdown` | Tests graceful application termination and logger flush | **PASS**: Notice logged and UI terminal closed cleanly |
 | `TestRedrawRowsFull` | Tests grid row rendering with header, status bar, and container rows | **PASS**: Renders all visual elements without race conditions |
 | `TestRedrawRowsSafe` | Tests grid row rendering thread safety | **PASS**: Rows redraw safely when UI components are uninitialized |
-| `TestSingleViewNavigation` | Tests single container detailed inspection view across all 9 tabs | **PASS**: Handles resize and scrolling events without errors |
+| `TestSingleViewNavigation` | Tests single container detailed inspection view across all 11 tabs | **PASS**: Handles resize and scrolling events without errors |
 | `TestRefreshDisplayWithCursor` | Tests grid display refresh trigger | **PASS**: Refreshes grid display state smoothly |
 | `TestDisplayLoop` | Tests main interactive application event loop with menu triggers | **PASS**: Dispatches keyboard events and exits cleanly on 'q' |
 | `TestShowConnError` | Tests modal connection failure error view | **PASS**: Renders connection error details and dismisses on 'q' |

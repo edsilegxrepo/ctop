@@ -1,5 +1,12 @@
 // Package keys defines keyboard shortcut bindings and key event matching for terminal interactions.
-// Objective: Centralize TermUI key code mapping to abstract navigation and hotkeys.
+//
+// Objective:
+//
+//	Centralize TermUI key code mapping to abstract navigation and hotkeys into logical action names.
+//
+// Core Components:
+//   - KeyMap: Canonical map binding logical action names ("up", "down", "pgup", "pgdown", "exit", "help") to termui key identifiers.
+//   - IsKeyMatch: Action predicate matching incoming event IDs against registered key chords.
 package keys
 
 // KeyMap maps standard terminal actions to corresponding termui/termbox key event identifiers.

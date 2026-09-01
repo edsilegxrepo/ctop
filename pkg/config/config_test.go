@@ -1,5 +1,12 @@
 // config_test.go tests parameter mutation, switch toggling, TOML serialization, path resolution, and column management.
-// Test Strategy: Isolated filesystem tests using t.TempDir() to verify TOML encoding, path fallback rules, and column reordering.
+//
+// Objective:
+//
+//	Verify configuration lifecycle, TOML round-trip persistence, default value fallback, and column ordering.
+//
+// Test Strategy:
+//   - Isolated filesystem tests using t.TempDir() to verify TOML encoding, path fallback rules, and column reordering.
+//   - Tests parameter updates and boolean switch toggles with concurrency protection.
 package config
 
 import (

@@ -1,5 +1,12 @@
 // menu_test.go validates interactive menu item manipulation, dynamic item deletion, alphabetical sorting, and buffer drawing.
-// Test Strategy: Verifies cursor clamping, item index adjustments, sorting invariants, and tooltip rendering.
+//
+// Objective:
+//
+//	Verify modal menu items management, cursor navigation clamping, separator skipping, tooltip drawing, and sorting stability.
+//
+// Test Strategy:
+//   - Verifies cursor clamping, item index adjustments, sorting invariants, and tooltip rendering.
+//   - Tests item addition, deletion, and selection queries with synthetic keyboard events.
 package menu
 
 import (

@@ -1,4 +1,12 @@
 // Package jsonfmt detects and pretty-prints structured JSON log entries into readable dot-notation key-value pairs.
+//
+// Objective:
+//
+//	Transform minified or nested JSON log payloads into aligned, human-readable terminal/log strings while passing raw text through unmodified.
+//
+// Functionality:
+//   - IsJSON: High-speed heuristic check for JSON structure.
+//   - FormatLogMessage: Unmarshals and flattens nested JSON hierarchies into dot notation (e.g. `http.status=200`).
 package jsonfmt
 
 import (

@@ -1,5 +1,17 @@
 // Package menu provides customizable interactive modal menus, selectable item lists, tooltips, and sorting dialogs.
-// Objective: Offer flexible list selection components for sorting, filtering, columns, and contextual actions.
+//
+// Objective:
+//
+//	Deliver flexible list selection components for sorting, filtering, columns, and contextual actions.
+//
+// Core Components:
+//   - Menu: TermUI modal window with cursor selection, scrolling, and contextual tooltips.
+//   - Items / Item: Selectable menu row abstractions with labels, values, and separator support.
+//   - ToolTip: Dynamic hover helper explaining active menu items.
+//
+// Functionality:
+//   - Cursor navigation (Up, Down, PgUp, PgDown, Home, End).
+//   - Dynamic item filtering, alphabetical sorting, and deletion.
 package menu
 
 import (

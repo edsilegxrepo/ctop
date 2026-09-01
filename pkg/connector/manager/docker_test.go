@@ -1,5 +1,14 @@
 // docker_test.go validates container process management, multiplexed stream writers, and Docker API endpoints.
-// Test Strategy: Tests frame writers, non-closable stream readers, and mock HTTP Docker REST handlers for Start/Stop/Pause/Unpause/Restart/Remove.
+//
+// Objective:
+//
+//	Verify Docker container actions (Start, Stop, Pause, Kill, Exec, Top, ReadDir, ReadFile, Upload, Download, UpdateResources)
+//	against mock HTTP Docker daemon endpoints and stream multiplexers.
+//
+// Test Strategy:
+//   - Tests frame writers, non-closable stream readers, and mock HTTP Docker REST handlers for Start/Stop/Pause/Unpause/Restart/Remove.
+//   - Validates tar archive creation and streaming for in-container file upload and download operations.
+//   - Verifies Top process output parsing and live resource update payloads.
 package manager
 
 import (

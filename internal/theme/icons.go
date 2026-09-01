@@ -1,3 +1,12 @@
+// icons.go manages glyph rendering sets supporting both standard Unicode and Nerd Font icon suites.
+//
+// Objective:
+//
+//	Provide visually appealing status indicators, health symbols, and file type icons across diverse terminal font capabilities.
+//
+// Functionality:
+//   - Toggles between IconStyleUnicode and IconStyleNerd.
+//   - StatusGlyph / HealthGlyph / ExtGlyph: Resolves container states, health statuses, and file extensions to runes.
 package theme
 
 import (

@@ -1,5 +1,14 @@
 // single_test.go validates detailed single-container inspection widgets (CPU/Mem sparklines, environment tables, network/IO diffs).
-// Test Strategy: Tests history ring buffers, multiline table generators, and metric delta calculations.
+//
+// Objective:
+//
+//	Verify detailed inspection widget models, history ring buffer calculations, table row formatting,
+//	and sparkline coordinate conversions.
+//
+// Test Strategy:
+//   - Tests history ring buffers, multiline table generators, and metric delta calculations.
+//   - Verifies CPU utilization, memory limit/usage sparkline series, and network rate converters.
+//   - Validates secret masking across environment variable tables and label trees.
 package single
 
 import (
@@ -488,7 +497,7 @@ func TestSingleTabNavigation(t *testing.T) {
 
 	buf := ui.NewBuffer(image.Rect(0, 0, 120, 40))
 
-	// Iterate through each of 9 tabs
+	// Iterate through all 11 tabs
 	for tab := 0; tab < TotalTabs; tab++ {
 		s.SetTab(tab)
 		if s.ActiveTab != tab {

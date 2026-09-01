@@ -1,4 +1,24 @@
+// Package main provides the entrypoint, terminal UI coordinators, menus, and web server bridge for ctop.
+//
 // cursor.go coordinates user navigation, selection highlighting, and viewport pagination across container rows.
+//
+// Objective:
+//
+//	Maintain a thread-safe representation of the active container list, cursor selection position,
+//	and viewport scroll offsets. Ensures smooth keyboard navigation and consistent selection across refreshes.
+//
+// Core Components:
+//   - GridCursor: Thread-safe state container tracking the filtered container list, active selection ID,
+//     and connector supervisor references.
+//
+// Functionality:
+//   - Container selection (Up, Down, PgUp, PgDown, Home, End, SetIdx).
+//   - Persistent selection tracking by container ID across dynamic container additions/removals.
+//   - Synchronized list filtering and sorting updates.
+//
+// Data Flow:
+//
+//	Connector Super / Sorters -> GridCursor.Refresh() -> GridCursor.filtered -> Compact Grid UI Rendering.
 package main
 
 import (

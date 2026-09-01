@@ -1,4 +1,18 @@
 // Package diag provides introspection, container state dumping, reflection inspection, and JSON/Text diagnostic report exporting.
+//
+// Objective:
+//
+//	Generate structured point-in-time diagnostic reports (sanitized metadata, metrics, mounts, networks,
+//	top processes, generated compose/run commands) and serialize them to disk in JSON or text formats.
+//
+// Core Components:
+//   - ContainerReport: Comprehensive data structure holding full container runtime topology and state.
+//   - BuildReport: Aggregates raw container metadata and metrics into a ContainerReport.
+//   - SaveReport: Writes formatted report artifacts (JSON, Text, or Both) to the configured download directory.
+//
+// Data Flow:
+//
+//	Container Snapshots -> diag.BuildReport() -> diag.SaveReport() -> Disk File (.json / .txt).
 package diag
 
 import (
@@ -179,78 +193,78 @@ func FormatTextReport(r *ContainerReport) string {
 	divider := strings.Repeat("-", 80)
 
 	b.WriteString(line + "\n")
-	b.WriteString(fmt.Sprintf("  CONTAINER DIAGNOSTIC REPORT: %s (%s)\n", r.Name, r.ID))
-	b.WriteString(fmt.Sprintf("  Generated: %s UTC | ctop\n", r.Timestamp.Format("2006-01-02 15:04:05")))
+	fmt.Fprintf(&b, "  CONTAINER DIAGNOSTIC REPORT: %s (%s)\n", r.Name, r.ID)
+	fmt.Fprintf(&b, "  Generated: %s UTC | ctop\n", r.Timestamp.Format("2006-01-02 15:04:05"))
 	b.WriteString(line + "\n\n")
 
 	// Section 1: Status & Runtime
 	b.WriteString("[ STATUS & RUNTIME ]\n")
-	b.WriteString(fmt.Sprintf("  Container Name   : %s\n", r.Name))
-	b.WriteString(fmt.Sprintf("  Container ID     : %s\n", r.ID))
-	b.WriteString(fmt.Sprintf("  State            : %s\n", r.State))
+	fmt.Fprintf(&b, "  Container Name   : %s\n", r.Name)
+	fmt.Fprintf(&b, "  Container ID     : %s\n", r.ID)
+	fmt.Fprintf(&b, "  State            : %s\n", r.State)
 	if r.Health != "" {
-		b.WriteString(fmt.Sprintf("  Health Status    : %s\n", r.Health))
+		fmt.Fprintf(&b, "  Health Status    : %s\n", r.Health)
 	}
-	b.WriteString(fmt.Sprintf("  Created          : %s\n", r.Created))
-	b.WriteString(fmt.Sprintf("  Uptime           : %s\n", r.Uptime))
+	fmt.Fprintf(&b, "  Created          : %s\n", r.Created)
+	fmt.Fprintf(&b, "  Uptime           : %s\n", r.Uptime)
 	if r.Host != "" {
-		b.WriteString(fmt.Sprintf("  Host Node        : %s\n", r.Host))
+		fmt.Fprintf(&b, "  Host Node        : %s\n", r.Host)
 	}
 	b.WriteString("\n")
 
 	// Section 2: Resource Usage & Telemetry
 	b.WriteString("[ RESOURCE USAGE & TELEMETRY ]\n")
-	b.WriteString(fmt.Sprintf("  CPU Utilization  : %d%%\n", r.CPUUtil))
-	b.WriteString(fmt.Sprintf("  Memory Usage     : %s / %s (%d%%)\n", formatBytes(r.MemUsage), formatBytes(r.MemLimit), r.MemPercent))
-	b.WriteString(fmt.Sprintf("  Network I/O      : Rx: %s (%s/s) | Tx: %s (%s/s)\n", formatBytes(r.NetRx), formatBytes(r.NetRxRate), formatBytes(r.NetTx), formatBytes(r.NetTxRate)))
-	b.WriteString(fmt.Sprintf("  Disk I/O         : Read: %s (%s/s) | Write: %s (%s/s)\n", formatBytes(r.IOBytesRead), formatBytes(r.IORateRead), formatBytes(r.IOBytesWrite), formatBytes(r.IORateWrite)))
-	b.WriteString(fmt.Sprintf("  Active PIDs      : %d processes\n", r.Pids))
+	fmt.Fprintf(&b, "  CPU Utilization  : %d%%\n", r.CPUUtil)
+	fmt.Fprintf(&b, "  Memory Usage     : %s / %s (%d%%)\n", formatBytes(r.MemUsage), formatBytes(r.MemLimit), r.MemPercent)
+	fmt.Fprintf(&b, "  Network I/O      : Rx: %s (%s/s) | Tx: %s (%s/s)\n", formatBytes(r.NetRx), formatBytes(r.NetRxRate), formatBytes(r.NetTx), formatBytes(r.NetTxRate))
+	fmt.Fprintf(&b, "  Disk I/O         : Read: %s (%s/s) | Write: %s (%s/s)\n", formatBytes(r.IOBytesRead), formatBytes(r.IORateRead), formatBytes(r.IOBytesWrite), formatBytes(r.IORateWrite))
+	fmt.Fprintf(&b, "  Active PIDs      : %d processes\n", r.Pids)
 	b.WriteString("\n")
 
 	// Section 3: Base Image & Execution
 	b.WriteString("[ BASE IMAGE & EXECUTION ]\n")
-	b.WriteString(fmt.Sprintf("  Image Name / Tag : %s\n", r.Image))
+	fmt.Fprintf(&b, "  Image Name / Tag : %s\n", r.Image)
 	if r.ImageID != "" {
-		b.WriteString(fmt.Sprintf("  Image Digest/ID  : %s\n", r.ImageID))
+		fmt.Fprintf(&b, "  Image Digest/ID  : %s\n", r.ImageID)
 	}
 	if r.Platform != "" {
-		b.WriteString(fmt.Sprintf("  Platform / OS    : %s\n", r.Platform))
+		fmt.Fprintf(&b, "  Platform / OS    : %s\n", r.Platform)
 	}
 	if r.ImageSize != "" {
-		b.WriteString(fmt.Sprintf("  Virtual Size     : %s\n", r.ImageSize))
+		fmt.Fprintf(&b, "  Virtual Size     : %s\n", r.ImageSize)
 	}
 	if r.ImageLayers != "" {
-		b.WriteString(fmt.Sprintf("  RootFS Layers    : %s\n", r.ImageLayers))
+		fmt.Fprintf(&b, "  RootFS Layers    : %s\n", r.ImageLayers)
 	}
 	if r.ImageAuthor != "" {
-		b.WriteString(fmt.Sprintf("  Author           : %s\n", r.ImageAuthor))
+		fmt.Fprintf(&b, "  Author           : %s\n", r.ImageAuthor)
 	}
 	if r.ImageCreated != "" {
-		b.WriteString(fmt.Sprintf("  Image Created    : %s\n", r.ImageCreated))
+		fmt.Fprintf(&b, "  Image Created    : %s\n", r.ImageCreated)
 	}
 	if r.DockerVersion != "" {
-		b.WriteString(fmt.Sprintf("  Docker Engine    : %s\n", r.DockerVersion))
+		fmt.Fprintf(&b, "  Docker Engine    : %s\n", r.DockerVersion)
 	}
 	if r.Entrypoint != "" {
-		b.WriteString(fmt.Sprintf("  ENTRYPOINT       : %s\n", r.Entrypoint))
+		fmt.Fprintf(&b, "  ENTRYPOINT       : %s\n", r.Entrypoint)
 	}
 	if r.Command != "" {
-		b.WriteString(fmt.Sprintf("  CMD              : %s\n", r.Command))
+		fmt.Fprintf(&b, "  CMD              : %s\n", r.Command)
 	}
 	if r.WorkDir != "" {
-		b.WriteString(fmt.Sprintf("  Working Dir      : %s\n", r.WorkDir))
+		fmt.Fprintf(&b, "  Working Dir      : %s\n", r.WorkDir)
 	}
 	if r.User != "" {
-		b.WriteString(fmt.Sprintf("  User             : %s\n", r.User))
+		fmt.Fprintf(&b, "  User             : %s\n", r.User)
 	}
 	if r.ImagePorts != "" {
-		b.WriteString(fmt.Sprintf("  Exposed Ports    : %s\n", r.ImagePorts))
+		fmt.Fprintf(&b, "  Exposed Ports    : %s\n", r.ImagePorts)
 	}
 	if r.ImageVolumes != "" {
-		b.WriteString(fmt.Sprintf("  Image Volumes    : %s\n", r.ImageVolumes))
+		fmt.Fprintf(&b, "  Image Volumes    : %s\n", r.ImageVolumes)
 	}
 	if r.RestartPolicy != "" {
-		b.WriteString(fmt.Sprintf("  Restart Policy   : %s\n", r.RestartPolicy))
+		fmt.Fprintf(&b, "  Restart Policy   : %s\n", r.RestartPolicy)
 	}
 	b.WriteString("\n")
 
@@ -258,13 +272,13 @@ func FormatTextReport(r *ContainerReport) string {
 	b.WriteString("[ NETWORK CONFIGURATION & PORTS ]\n")
 	if len(r.Networks) > 0 {
 		for _, net := range r.Networks {
-			b.WriteString(fmt.Sprintf("  • %-16s : %s/%d (Gateway: %s, MAC: %s)\n", net.Name, net.IPAddress, net.PrefixLen, net.Gateway, net.Mac))
+			fmt.Fprintf(&b, "  • %-16s : %s/%d (Gateway: %s, MAC: %s)\n", net.Name, net.IPAddress, net.PrefixLen, net.Gateway, net.Mac)
 		}
 	} else if r.IPs != "" {
-		b.WriteString(fmt.Sprintf("  • IPs            : %s\n", r.IPs))
+		fmt.Fprintf(&b, "  • IPs            : %s\n", r.IPs)
 	}
 	if r.Ports != "" {
-		b.WriteString(fmt.Sprintf("  • Port Mappings  : %s\n", strings.ReplaceAll(r.Ports, "\n", ", ")))
+		fmt.Fprintf(&b, "  • Port Mappings  : %s\n", strings.ReplaceAll(r.Ports, "\n", ", "))
 	}
 	b.WriteString("\n")
 
@@ -272,7 +286,7 @@ func FormatTextReport(r *ContainerReport) string {
 	if len(r.Mounts) > 0 {
 		b.WriteString("[ MOUNTED VOLUMES & STORAGE ]\n")
 		for _, m := range r.Mounts {
-			b.WriteString(fmt.Sprintf("  • %-24s -> %s (%s, %s)\n", m.Destination, m.Source, m.Type, m.Mode))
+			fmt.Fprintf(&b, "  • %-24s -> %s (%s, %s)\n", m.Destination, m.Source, m.Type, m.Mode)
 		}
 		b.WriteString("\n")
 	}
@@ -281,7 +295,7 @@ func FormatTextReport(r *ContainerReport) string {
 	if len(r.Env) > 0 {
 		b.WriteString("[ ENVIRONMENT VARIABLES (Sanitized) ]\n")
 		for _, env := range r.Env {
-			b.WriteString(fmt.Sprintf("  • %s\n", env))
+			fmt.Fprintf(&b, "  • %s\n", env)
 		}
 		b.WriteString("\n")
 	}
@@ -295,7 +309,7 @@ func FormatTextReport(r *ContainerReport) string {
 		}
 		sort.Strings(labelKeys)
 		for _, k := range labelKeys {
-			b.WriteString(fmt.Sprintf("  • %-32s = %s\n", k, r.Labels[k]))
+			fmt.Fprintf(&b, "  • %-32s = %s\n", k, r.Labels[k])
 		}
 		b.WriteString("\n")
 	}
@@ -306,14 +320,14 @@ func FormatTextReport(r *ContainerReport) string {
 		if r.GeneratedRunCmd != "" {
 			b.WriteString("  --- Equivalent Docker Run Command ---\n")
 			for _, line := range strings.Split(r.GeneratedRunCmd, "\n") {
-				b.WriteString(fmt.Sprintf("  %s\n", line))
+				fmt.Fprintf(&b, "  %s\n", line)
 			}
 			b.WriteString("\n")
 		}
 		if r.GeneratedCompose != "" {
 			b.WriteString("  --- Equivalent docker-compose.yml ---\n")
 			for _, line := range strings.Split(r.GeneratedCompose, "\n") {
-				b.WriteString(fmt.Sprintf("  %s\n", line))
+				fmt.Fprintf(&b, "  %s\n", line)
 			}
 			b.WriteString("\n")
 		}

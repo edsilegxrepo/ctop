@@ -1,5 +1,15 @@
 // Package widgets provides custom TermUI presentation components (Header, StatusLine, ErrorView, TextView, Input).
-// Objective: Render terminal headers, status notifications, scrollable text buffers, and prompt inputs.
+//
+// Objective:
+//
+//	Render terminal headers, status notifications, scrollable text buffers, and prompt inputs.
+//
+// Core Components:
+//   - CTopHeader: Application header rendering clock, total container counts, and active filter strings.
+//   - StatusLine: Ephemeral footer status bar displaying success/error feedback messages.
+//   - ErrorView: Full-screen error viewport used during daemon disconnection.
+//   - Input: Interactive text input box for modal prompt queries.
+//   - TextView: Scrollable multiline text viewer.
 package widgets
 
 import (

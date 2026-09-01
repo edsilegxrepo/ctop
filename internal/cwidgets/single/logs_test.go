@@ -1,4 +1,12 @@
 // logs_test.go validates container log buffering, ANSI code stripping, and export operations.
+//
+// Objective:
+//
+//	Verify log entry ingestion, timestamp formatting, ANSI color escape code stripping, and disk export helpers.
+//
+// Test Strategy:
+//   - Tests raw ANSI escape sequence removal preserving message readability.
+//   - Verifies ring buffer capacity caps and timestamp toggle switches.
 package single
 
 import (

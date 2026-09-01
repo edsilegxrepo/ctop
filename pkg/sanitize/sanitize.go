@@ -1,5 +1,13 @@
-// Package sanitize provides text sanitation and ANSI escape sequence stripping utilities.
-// Objective: Clean log messages and container output strings to prevent terminal rendering glitches.
+// Package sanitize provides text sanitation, ANSI escape sequence stripping, and secret masking utilities.
+//
+// Objective:
+//
+//	Clean log messages, telemetry fields, and environment variables to prevent terminal rendering glitches and protect sensitive credentials.
+//
+// Core Components:
+//   - StripANSI: Strips CSI, OSC, and control escape codes.
+//   - IsSensitiveKey: Regex pattern matcher identifying API keys, tokens, passwords, and secrets.
+//   - SanitizeEnv: Masks secret values before dashboard or telemetry serialization.
 package sanitize
 
 import (

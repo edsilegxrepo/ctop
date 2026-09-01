@@ -1,4 +1,25 @@
 // grid.go manages UI screen rendering, layout calculations, terminal resize events, and the primary application loop.
+//
+// Objective:
+//
+//	Orchestrate the terminal visual hierarchy for both compact multi-container grid views and
+//	multi-tab single-container inspection views. Dispatches keyboard events and manages display loops.
+//
+// Core Components:
+//   - Display: Main event loop managing compact grid rendering, cursor movement, and menu dispatch.
+//   - SingleView / SingleViewWithTab: Full-screen container inspection view supporting 11 distinct tabs.
+//   - RedrawRows: Thread-safe rendering function synchronizing container widgets with the terminal display.
+//   - ShowConnError: Resilient reconnection modal displaying daemon connectivity errors.
+//
+// Functionality:
+//   - Multi-tab container inspection (Metrics, Logs, Mounts, Network, Process, Image, Top, Diff, Generator, Labels, Files).
+//   - Dynamic terminal dimension synchronization and widget layout recalculations.
+//   - Diagnostic report generation and file export orchestration.
+//   - Active TCP prober triggering and background log streaming.
+//
+// Data Flow:
+//
+//	TermUI Event Queue / Tick Timer -> grid.go (Event Loop) -> Widgets Render -> Termbox Framebuffer.
 package main
 
 import (
@@ -290,7 +311,7 @@ func SingleViewWithTab(initialTab int) MenuFn {
 							refreshExplorerDir(parent)
 						}
 						continue
-					} else if e.ID == "/" || e.ID == "f" || e.ID == "F" {
+					} else if e.ID == "/" || e.ID == "f" {
 						input := widgets.NewInput()
 						input.Title = "Filter Files (*, ? wildcard supported, Enter: Apply, Esc: Clear)"
 						input.Data = ex.Explorer.Filter

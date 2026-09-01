@@ -1,3 +1,23 @@
+// Package compact implements the primary multi-container compact table grid view.
+//
+// grid.go coordinates row placement, column alignment, scrolling offsets, and grid buffer rendering.
+//
+// Objective:
+//
+//	Render a responsive, multi-column container metrics table with auto-expanding name columns,
+//	fixed-width gauge bars (CPU, Memory), status indicators, and network/IO throughput rates.
+//
+// Core Components:
+//   - CompactGrid: TermUI Block widget rendering the collection of active container rows and table header.
+//   - CompactHeader: Table column titles aligned with row column offsets.
+//
+// Functionality:
+//   - Dynamic row height calculation and viewport offset scrolling.
+//   - Layout alignment across variable terminal widths.
+//
+// Data Flow:
+//
+//	Container Rows -> CompactGrid.Align() -> TermUI Draw Buffer.
 package compact
 
 import (

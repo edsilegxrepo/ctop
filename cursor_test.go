@@ -1,5 +1,15 @@
 // cursor_test.go validates container list navigation, selection bounds clamping, page calculation, and list resets.
-// Test Strategy: Unit tests against mock container fixtures verifying index calculation, boundary checks, and thread-safe refreshes.
+//
+// Objective:
+//
+//	Verify thread-safe cursor state management, boundary conditions (empty list, out-of-bounds selection,
+//	container deletions), page scrolling arithmetic, and list refreshes under concurrent access.
+//
+// Test Strategy:
+//   - Unit tests against mock container fixtures verifying index calculation, boundary checks, and thread-safe refreshes.
+//   - Synthetic cursor movement sequences (Up, Down, PgUp, PgDown, Home, End, SetIdx).
+//   - Deletion resilience: verifies cursor falls back gracefully when selected container disappears.
+//   - Thread-safe snapshotting: tests concurrent reads/writes with race detection.
 package main
 
 import (

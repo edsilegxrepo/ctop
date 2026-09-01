@@ -325,7 +325,7 @@ func (dc *Docker) ReadDir(dirPath string) ([]models.FileInfo, error) {
 
 	pr, pw := io.Pipe()
 	go func() {
-		defer pw.Close()
+		defer func() { _ = pw.Close() }()
 		_ = dc.client.DownloadFromContainer(dc.id, api.DownloadFromContainerOptions{
 			Path:         cleanPath,
 			OutputStream: pw,
@@ -539,7 +539,7 @@ func (dc *Docker) ReadFile(filePath string, maxBytes int64) (string, error) {
 
 	pr, pw := io.Pipe()
 	go func() {
-		defer pw.Close()
+		defer func() { _ = pw.Close() }()
 		_ = dc.client.DownloadFromContainer(dc.id, api.DownloadFromContainerOptions{
 			Path:         cleanFilePath,
 			OutputStream: pw,
@@ -886,6 +886,7 @@ func (dc *Docker) Upload(srcHostPath, dstContainerPath string) error {
 	}
 
 	cleanSrc := absSrc
+	// #nosec G304 -- cleanSrc is validated host path from filepath.Abs/filepath.Clean
 	srcFile, err := os.Open(cleanSrc)
 	if err != nil {
 		return err

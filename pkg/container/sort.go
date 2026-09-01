@@ -1,4 +1,13 @@
 // sort.go implements comparator functions, sort registries, and filtering logic for container collections.
+//
+// Objective:
+//
+//	Provide multi-field sorting algorithms (CPU, Memory, Network, I/O, PIDs, State, Uptime) and rich structured filtering.
+//
+// Functionality:
+//   - Sorters: Map of comparator functions with state-priority tie-breaking.
+//   - Filter(): Multi-field expression evaluator supporting regex, wildcard, state, name, label, and environment queries.
+//   - GroupByCompose(): Organizes containers by docker-compose project/service metadata.
 package container
 
 import (
@@ -31,7 +40,9 @@ func getStateScore(s string) int {
 
 var (
 	idSorter   = func(c1, c2 *Container) bool { return strings.ToLower(c1.Id) < strings.ToLower(c2.Id) }
-	nameSorter = func(c1, c2 *Container) bool { return strings.ToLower(c1.GetMeta("name")) < strings.ToLower(c2.GetMeta("name")) }
+	nameSorter = func(c1, c2 *Container) bool {
+		return strings.ToLower(c1.GetMeta("name")) < strings.ToLower(c2.GetMeta("name"))
+	}
 )
 
 // Sorters maps configurable column keys (cpu, mem, io, net, pids, state, uptime) to comparator functions.

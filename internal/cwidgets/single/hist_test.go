@@ -1,3 +1,11 @@
+// hist_test.go validates circular history ring buffers used for CPU/memory sparkline visualizations.
+//
+// Objective:
+//
+//	Verify fixed-capacity ring buffer append logic, current value caching, and capacity bounding.
+//
+// Test Strategy:
+//   - Tests IntHist and FloatHist fifo rotation, max capacity preservation, and value getters.
 package single
 
 import (
