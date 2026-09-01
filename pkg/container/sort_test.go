@@ -80,6 +80,44 @@ func TestAllSorters(t *testing.T) {
 	}
 }
 
+func TestStateThenAlphaSort(t *testing.T) {
+	config.Init()
+	config.Update("sortField", "state")
+	config.UpdateSwitch("sortReversed", false)
+	config.UpdateSwitch("groupByCompose", false)
+
+	cTraefik := newTestContainer("1", "traefik-proxy", "running", 0, 100, 10)
+	cAuthelia := newTestContainer("2", "authelia-sso", "running", 0, 29, 9)
+	cPostgres := newTestContainer("3", "postgresqldb", "running", 0, 26, 9)
+	cMysql := newTestContainer("4", "mysqldb", "running", 0, 448, 37)
+	cVault := newTestContainer("5", "Vault", "exited", 0, 0, 0)
+	cOracle := newTestContainer("6", "oracledb", "exited", 0, 0, 0)
+	cMssql := newTestContainer("7", "mssqldb", "exited", 0, 0, 0)
+	cKdc := newTestContainer("8", "kdc-e2e-server", "exited", 0, 0, 0)
+	cHana := newTestContainer("9", "hanadb", "exited", 0, 0, 0)
+
+	containers := Containers{cTraefik, cAuthelia, cVault, cOracle, cMssql, cKdc, cHana, cPostgres, cMysql}
+	containers.Sort()
+
+	expected := []string{
+		"authelia-sso",
+		"mysqldb",
+		"postgresqldb",
+		"traefik-proxy",
+		"hanadb",
+		"kdc-e2e-server",
+		"mssqldb",
+		"oracledb",
+		"Vault",
+	}
+
+	for i, exp := range expected {
+		if containers[i].GetMeta("name") != exp {
+			t.Fatalf("at index %d: expected %s, got %s", i, exp, containers[i].GetMeta("name"))
+		}
+	}
+}
+
 func TestFilterByName(t *testing.T) {
 	config.Init()
 	config.Update("filterStr", "bet")

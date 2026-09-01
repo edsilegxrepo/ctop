@@ -82,6 +82,13 @@ func (m *Mock) ReadFile(filePath string, maxBytes int64) (string, error) {
 	return "sample file content", nil
 }
 
+func (m *Mock) SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error) {
+	return []models.FileInfo{
+		{Name: "config.json", Path: "/app/config.json", IsDir: false, Size: 154, Mode: "-rw-r--r--", ModTime: "2026-08-18 12:00:00"},
+		{Name: "app.log", Path: "/var/log/app.log", IsDir: false, Size: 2048, Mode: "-rw-r--r--", ModTime: "2026-08-18 12:00:00"},
+	}, nil
+}
+
 func (m *Mock) Download(srcPath, dstPath string) (int64, error) {
 	return 154, nil
 }

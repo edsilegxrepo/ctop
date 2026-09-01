@@ -9,7 +9,9 @@ import (
 type Broadcaster struct {
 	mu             sync.RWMutex
 	subscribers    map[chan TelemetryEvent]struct{}
-	history        []TelemetryEvent
+	ring           []TelemetryEvent
+	head           int
+	count          int
 	maxHistory     int
 	maxSubscribers int
 }
@@ -18,7 +20,7 @@ type Broadcaster struct {
 func NewBroadcaster() *Broadcaster {
 	return &Broadcaster{
 		subscribers:    make(map[chan TelemetryEvent]struct{}),
-		history:        make([]TelemetryEvent, 0, 100),
+		ring:           make([]TelemetryEvent, 0, 100),
 		maxHistory:     5000,
 		maxSubscribers: 256,
 	}
@@ -42,8 +44,14 @@ func (b *Broadcaster) SetMaxHistory(limit int) {
 		limit = 1000
 	}
 	b.maxHistory = limit
-	if len(b.history) > b.maxHistory {
-		b.history = b.history[len(b.history)-b.maxHistory:]
+	if len(b.ring) > b.maxHistory {
+		b.ring = b.ring[:b.maxHistory]
+		if b.count > b.maxHistory {
+			b.count = b.maxHistory
+		}
+		if b.head >= b.maxHistory {
+			b.head = 0
+		}
 	}
 }
 
@@ -81,10 +89,14 @@ func (b *Broadcaster) Broadcast(event TelemetryEvent) {
 		event.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	// Append to circular history
-	b.history = append(b.history, event)
-	if len(b.history) > b.maxHistory {
-		b.history = b.history[1:]
+	// Insert into circular ring buffer (zero slice reslicing reallocation)
+	if len(b.ring) < b.maxHistory {
+		b.ring = append(b.ring, event)
+		b.count++
+		b.head = (b.head + 1) % b.maxHistory
+	} else {
+		b.ring[b.head] = event
+		b.head = (b.head + 1) % b.maxHistory
 	}
 
 	// Non-blocking broadcast to active subscribers
@@ -102,10 +114,29 @@ func (b *Broadcaster) GetLatestEvent() TelemetryEvent {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if len(b.history) == 0 {
+	if b.count == 0 {
 		return TelemetryEvent{}
 	}
-	return b.history[len(b.history)-1]
+	idx := (b.head - 1 + len(b.ring)) % len(b.ring)
+	return b.ring[idx]
+}
+
+// GetHistory returns a snapshot slice of all historical events in chronological order.
+func (b *Broadcaster) GetHistory() []TelemetryEvent {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.count == 0 {
+		return nil
+	}
+	out := make([]TelemetryEvent, b.count)
+	if len(b.ring) < b.maxHistory {
+		copy(out, b.ring)
+		return out
+	}
+	n := copy(out, b.ring[b.head:])
+	copy(out[n:], b.ring[:b.head])
+	return out
 }
 
 // SubscriberCount returns the current count of connected subscribers.

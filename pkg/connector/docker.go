@@ -343,6 +343,15 @@ func (cm *Docker) refresh(c *container.Container) {
 		if svc := insp.Config.Labels["com.docker.compose.service"]; svc != "" {
 			c.SetMeta("composeService", svc)
 		}
+		if num := insp.Config.Labels["com.docker.compose.container-number"]; num != "" {
+			c.SetMeta("composeNumber", num)
+		}
+		if oneoff := insp.Config.Labels["com.docker.compose.oneoff"]; oneoff != "" {
+			c.SetMeta("composeOneoff", oneoff)
+		}
+		if ver := insp.Config.Labels["com.docker.compose.version"]; ver != "" {
+			c.SetMeta("composeVersion", ver)
+		}
 	}
 
 	if len(insp.Config.Entrypoint) > 0 {
@@ -434,6 +443,79 @@ func (cm *Docker) refresh(c *container.Container) {
 		c.SetMeta("exitCode", fmt.Sprintf("%d", insp.State.ExitCode))
 	}
 	c.SetMeta("oomKilled", fmt.Sprintf("%t", insp.State.OOMKilled))
+
+	if insp.Image != "" {
+		c.SetMeta("imageId", insp.Image)
+		img, err := cm.client.InspectImage(insp.Image)
+		if err != nil && insp.Config.Image != "" {
+			img, err = cm.client.InspectImage(insp.Config.Image)
+		}
+		if err == nil && img != nil {
+			if len(img.RepoTags) > 0 {
+				c.SetMeta("imageRepoTags", strings.Join(img.RepoTags, ", "))
+			}
+			if len(img.RepoDigests) > 0 {
+				c.SetMeta("imageRepoDigests", strings.Join(img.RepoDigests, "\n"))
+			}
+			if img.Architecture != "" {
+				archStr := img.Architecture
+				if img.OS != "" {
+					archStr = fmt.Sprintf("%s/%s", img.OS, img.Architecture)
+				}
+				c.SetMeta("imageArch", archStr)
+			}
+			if img.Author != "" {
+				c.SetMeta("imageAuthor", img.Author)
+			}
+			if !img.Created.IsZero() {
+				c.SetMeta("imageCreated", img.Created.Format("Mon Jan 02 15:04:05 2006"))
+			}
+			if img.DockerVersion != "" {
+				c.SetMeta("imageDockerVersion", img.DockerVersion)
+			}
+			if img.Size > 0 {
+				c.SetMeta("imageSize", fmt.Sprintf("%.2f MB (%d bytes)", float64(img.Size)/(1024*1024), img.Size))
+			}
+			if len(img.RootFS.Layers) > 0 {
+				c.SetMeta("imageLayers", fmt.Sprintf("%d layers", len(img.RootFS.Layers)))
+				c.SetMeta("imageLayerList", strings.Join(img.RootFS.Layers, "\n"))
+			}
+			if img.Config != nil {
+				if len(img.Config.Entrypoint) > 0 {
+					c.SetMeta("imageEntrypoint", strings.Join(img.Config.Entrypoint, " "))
+				}
+				if len(img.Config.Cmd) > 0 {
+					c.SetMeta("imageCmd", strings.Join(img.Config.Cmd, " "))
+				}
+				if img.Config.WorkingDir != "" {
+					c.SetMeta("imageWorkdir", img.Config.WorkingDir)
+				}
+				if img.Config.User != "" {
+					c.SetMeta("imageUser", img.Config.User)
+				}
+				if len(img.Config.Env) > 0 {
+					c.SetMeta("imageEnv", strings.Join(img.Config.Env, ";;"))
+				}
+				if len(img.Config.Labels) > 0 {
+					c.SetMeta("imageLabels", labelsFormat(img.Config.Labels))
+				}
+				var expPorts []string
+				for p := range img.Config.ExposedPorts {
+					expPorts = append(expPorts, string(p))
+				}
+				if len(expPorts) > 0 {
+					c.SetMeta("imageExposedPorts", strings.Join(expPorts, ", "))
+				}
+				var vols []string
+				for v := range img.Config.Volumes {
+					vols = append(vols, v)
+				}
+				if len(vols) > 0 {
+					c.SetMeta("imageVolumes", strings.Join(vols, ", "))
+				}
+			}
+		}
+	}
 	c.SetState(insp.State.Status)
 }
 
@@ -506,6 +588,15 @@ func (cm *Docker) refreshAll() {
 			}
 			if svc := i.Labels["com.docker.compose.service"]; svc != "" {
 				c.SetMeta("composeService", svc)
+			}
+			if num := i.Labels["com.docker.compose.container-number"]; num != "" {
+				c.SetMeta("composeNumber", num)
+			}
+			if oneoff := i.Labels["com.docker.compose.oneoff"]; oneoff != "" {
+				c.SetMeta("composeOneoff", oneoff)
+			}
+			if ver := i.Labels["com.docker.compose.version"]; ver != "" {
+				c.SetMeta("composeVersion", ver)
 			}
 		}
 		cm.needsRefresh <- c.Id

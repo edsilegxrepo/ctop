@@ -10,27 +10,31 @@ import (
 
 const (
 	TabMetrics   = 0
-	TabVolumes   = 1
-	TabNetwork   = 2
-	TabProcess   = 3
-	TabTop       = 4
-	TabDiff      = 5
-	TabGenerator = 6
-	TabLabels    = 7
-	TabFiles     = 8
-	TotalTabs    = 9
+	TabLogs      = 1
+	TabVolumes   = 2
+	TabNetwork   = 3
+	TabProcess   = 4
+	TabImage     = 5
+	TabTop       = 6
+	TabDiff      = 7
+	TabGenerator = 8
+	TabLabels    = 9
+	TabFiles     = 10
+	TotalTabs    = 11
 )
 
 var TabTitles = []string{
 	"1: Overview",
-	"2: Mounts",
-	"3: Network",
-	"4: Env/Process",
-	"5: Top",
-	"6: Diff",
-	"7: Recreate",
-	"8: Labels",
-	"9: Files",
+	"2: Logs",
+	"3: Mounts",
+	"4: Network",
+	"5: Env/Proc",
+	"6: Image",
+	"7: Top",
+	"8: Diff",
+	"9: Recreate",
+	"0: Labels",
+	"F: Files",
 }
 
 // TabBar widget renders the top navigation header for class-based views.
@@ -53,9 +57,9 @@ func NewTabBar() *TabBar {
 func (w *TabBar) Draw(buf *ui.Buffer) {
 	w.Block.Draw(buf)
 
-	activeStyle := theme.Style("status.warn")
-	inactiveStyle := theme.Style("par.text.fg")
-	hintStyle := theme.Style("label.fg")
+	activeStyle := ui.NewStyle(theme.Color("status.warn"), theme.Color("bg"), ui.ModifierBold)
+	inactiveStyle := theme.Style("grid.header.fg")
+	hintStyle := theme.Style("grid.header.fg")
 
 	x := w.Inner.Min.X + 1
 	y := w.Inner.Min.Y

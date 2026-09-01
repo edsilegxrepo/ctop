@@ -11,11 +11,13 @@ import (
 
 // ProbeResult holds individual endpoint reachability telemetry
 type ProbeResult struct {
-	Label    string        // e.g. "External (IPv4)", "Internal IP", "Gateway"
-	Target   string        // e.g. "127.0.0.1:8080"
-	Status   string        // "OPEN", "CLOSED", "TIMEOUT"
-	Duration time.Duration // Round-trip connection time
-	Success  bool          // True if connection succeeded
+	Label     string        // e.g. "External (IPv4)", "Internal IP", "Gateway"
+	Target    string        // e.g. "127.0.0.1:8080"
+	Status    string        // "OPEN", "CLOSED", "TIMEOUT"
+	Duration  time.Duration // Round-trip connection time
+	Success   bool          // True if connection succeeded
+	Seq       int           // Probe cycle sequence number
+	Timestamp time.Time     // Timestamp of probe completion
 }
 
 // ProbeTCP performs a single TCP dial against target within specified timeout.

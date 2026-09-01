@@ -107,12 +107,23 @@ func (w *Process) GetHeight() int {
 func (w *Process) Draw(buf *ui.Buffer) {
 	w.Block.Draw(buf)
 
-	keyStyle := theme.Style("label.fg")
+	keyStyle := theme.Style("grid.header.fg")
 	valStyle := theme.Style("par.text.fg")
 	sepStyle := theme.Style("border.fg")
 	sepCell := ui.NewCell(ui.VERTICAL_LINE, sepStyle)
 
-	col0Width := 16
+	maxKeyLen := 16
+	for _, row := range w.Rows {
+		if len(row[0]) > maxKeyLen {
+			maxKeyLen = len(row[0])
+		}
+	}
+	col0Width := maxKeyLen + 2
+	maxAllowedCol0 := (w.Inner.Max.X - w.Inner.Min.X) * 45 / 100
+	if maxAllowedCol0 > 16 && col0Width > maxAllowedCol0 {
+		col0Width = maxAllowedCol0
+	}
+
 	sepX := w.Inner.Min.X + col0Width
 	valX := sepX + 2
 
@@ -130,6 +141,11 @@ func (w *Process) Draw(buf *ui.Buffer) {
 
 		key := row[0]
 		val := row[1]
+
+		maxKeyW := sepX - w.Inner.Min.X - 2
+		if maxKeyW > 0 && len(key) > maxKeyW {
+			key = key[:maxKeyW]
+		}
 
 		buf.SetString(key, keyStyle, image.Pt(w.Inner.Min.X+1, y))
 		buf.SetCell(sepCell, image.Pt(sepX, y))

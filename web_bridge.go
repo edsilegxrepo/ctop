@@ -4,22 +4,25 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/edsilegx/ctop/pkg/connector"
+	"github.com/edsilegx/ctop/pkg/generator"
 	"github.com/edsilegx/ctop/pkg/sanitize"
 	"github.com/edsilegx/ctop/pkg/web"
 )
 
-type cursorContainerProvider struct {
-	cursor *GridCursor
+type superContainerProvider struct {
+	cSuper *connector.ConnectorSuper
 }
 
-func (p *cursorContainerProvider) GetContainerSnapshots() []web.ContainerSnapshot {
-	if p.cursor == nil || p.cursor.cSuper == nil {
+func (p *superContainerProvider) GetContainerSnapshots() []web.ContainerSnapshot {
+	if p.cSuper == nil {
 		return nil
 	}
-	cSource, err := p.cursor.cSuper.Get()
+	cSource, err := p.cSuper.Get()
 	if err != nil || cSource == nil {
 		return nil
 	}
@@ -57,20 +60,37 @@ func (p *cursorContainerProvider) GetContainerSnapshots() []web.ContainerSnapsho
 			IORateRead:   nonNeg(c.IORateRead),
 			IORateWrite:  nonNeg(c.IORateWrite),
 			Pids:         nonNeg(c.Pids),
-			IPs:          c.Meta.Get("IPs"),
-			Ports:        c.Meta.Get("ports"),
-			WebPort:      c.Meta.Get("Web Port"),
-			Command:      c.Meta.Get("cmd"),
-			Entrypoint:   c.Meta.Get("entrypoint"),
-			WorkDir:      c.Meta.Get("workdir"),
-			User:         c.Meta.Get("user"),
-			RestartPol:   c.Meta.Get("restartPolicy"),
-			MemLimitStr:  c.Meta.Get("memLimit"),
-			Env:          parseEnv(c.Meta.Get("[ENV-VAR]")),
-			Labels:       parseLabels(c.Meta.Get("[LABELS]")),
-			Mounts:       parseMounts(c.Meta.Get("[MOUNTS]")),
-			Networks:     parseNetworks(c.Meta.Get("[NETWORKS]")),
-			Timestamp:    time.Now().UTC(),
+			IPs:              c.Meta.Get("IPs"),
+			Ports:            c.Meta.Get("ports"),
+			WebPort:          c.Meta.Get("Web Port"),
+			Command:          c.Meta.Get("cmd"),
+			Entrypoint:       c.Meta.Get("entrypoint"),
+			WorkDir:          c.Meta.Get("workdir"),
+			User:             c.Meta.Get("user"),
+			RestartPol:       c.Meta.Get("restartPolicy"),
+			MemLimitStr:      c.Meta.Get("memLimit"),
+			ImageID:          c.Meta.Get("imageId"),
+			ImageArch:        c.Meta.Get("imageArch"),
+			ImageSize:        c.Meta.Get("imageSize"),
+			ImageLayers:      c.Meta.Get("imageLayers"),
+			ImageAuthor:      c.Meta.Get("imageAuthor"),
+			ImageCreated:     c.Meta.Get("imageCreated"),
+			ImageDockerVer:   c.Meta.Get("imageDockerVersion"),
+			ImageLabels:      parseLabels(c.Meta.Get("imageLabels")),
+			ImageEnv:         parseEnv(c.Meta.Get("imageEnv")),
+			ImageCmd:         c.Meta.Get("imageCmd"),
+			ImageEntrypoint:  c.Meta.Get("imageEntrypoint"),
+			ImageWorkDir:     c.Meta.Get("imageWorkDir"),
+			ImageUser:        c.Meta.Get("imageUser"),
+			ImageVolumes:     c.Meta.Get("imageVolumes"),
+			ImagePorts:       c.Meta.Get("imagePorts"),
+			GeneratedRunCmd:  generator.GenerateRunCmd(c.Meta),
+			GeneratedCompose: generator.GenerateCompose(c.Meta),
+			Env:              parseEnv(c.Meta.Get("[ENV-VAR]")),
+			Labels:           parseLabels(c.Meta.Get("[LABELS]")),
+			Mounts:           parseMounts(c.Meta.Get("[MOUNTS]")),
+			Networks:         parseNetworks(c.Meta.Get("[NETWORKS]")),
+			Timestamp:        time.Now().UTC(),
 		}
 		c.RUnlock()
 		list = append(list, snap)
@@ -78,11 +98,11 @@ func (p *cursorContainerProvider) GetContainerSnapshots() []web.ContainerSnapsho
 	return list
 }
 
-func (p *cursorContainerProvider) GetContainerTop(id string) (web.TopResult, error) {
-	if p.cursor == nil || p.cursor.cSuper == nil {
+func (p *superContainerProvider) GetContainerTop(id string) (web.TopResult, error) {
+	if p.cSuper == nil {
 		return web.TopResult{}, fmt.Errorf("connector unavailable")
 	}
-	cSource, err := p.cursor.cSuper.Get()
+	cSource, err := p.cSuper.Get()
 	if err != nil || cSource == nil {
 		return web.TopResult{}, fmt.Errorf("connector unavailable")
 	}
@@ -99,6 +119,118 @@ func (p *cursorContainerProvider) GetContainerTop(id string) (web.TopResult, err
 		}
 	}
 	return web.TopResult{}, fmt.Errorf("container not found")
+}
+
+func (p *superContainerProvider) GetContainerDiff(id string) ([]web.DiffChange, error) {
+	if p.cSuper == nil {
+		return nil, fmt.Errorf("connector unavailable")
+	}
+	cSource, err := p.cSuper.Get()
+	if err != nil || cSource == nil {
+		return nil, fmt.Errorf("connector unavailable")
+	}
+	for _, c := range cSource.All() {
+		if c.Id == id || strings.HasPrefix(c.Id, id) || strings.EqualFold(c.Meta.Get("name"), id) {
+			changes, err := c.Changes()
+			if err != nil {
+				return nil, err
+			}
+			var res []web.DiffChange
+			for _, ch := range changes {
+				kindStr := "C"
+				switch ch.Kind {
+				case 1:
+					kindStr = "A"
+				case 2:
+					kindStr = "D"
+				}
+				res = append(res, web.DiffChange{
+					Path: ch.Path,
+					Kind: kindStr,
+				})
+			}
+			return res, nil
+		}
+	}
+	return nil, fmt.Errorf("container not found")
+}
+
+func (p *superContainerProvider) ReadContainerDir(id string, dirPath string) ([]web.FileEntry, error) {
+	if p.cSuper == nil {
+		return nil, fmt.Errorf("connector unavailable")
+	}
+	cSource, err := p.cSuper.Get()
+	if err != nil || cSource == nil {
+		return nil, fmt.Errorf("connector unavailable")
+	}
+	for _, c := range cSource.All() {
+		if c.Id == id || strings.HasPrefix(c.Id, id) || strings.EqualFold(c.Meta.Get("name"), id) {
+			entries, err := c.ReadDir(dirPath)
+			if err != nil {
+				return nil, err
+			}
+			var res []web.FileEntry
+			for _, ent := range entries {
+				res = append(res, web.FileEntry{
+					Name:    ent.Name,
+					Path:    ent.Path,
+					IsDir:   ent.IsDir,
+					Size:    ent.Size,
+					Mode:    ent.Mode,
+					ModTime: ent.ModTime,
+				})
+			}
+			return res, nil
+		}
+	}
+	return nil, fmt.Errorf("container not found")
+}
+
+func (p *superContainerProvider) ReadContainerFile(id string, filePath string, maxBytes int64) (string, error) {
+	if p.cSuper == nil {
+		return "", fmt.Errorf("connector unavailable")
+	}
+	cSource, err := p.cSuper.Get()
+	if err != nil || cSource == nil {
+		return "", fmt.Errorf("connector unavailable")
+	}
+	for _, c := range cSource.All() {
+		if c.Id == id || strings.HasPrefix(c.Id, id) || strings.EqualFold(c.Meta.Get("name"), id) {
+			return c.ReadFile(filePath, maxBytes)
+		}
+	}
+	return "", fmt.Errorf("container not found")
+}
+
+func (p *superContainerProvider) SearchContainerFiles(id string, basePath string, pattern string, maxResults int) ([]web.FileEntry, error) {
+	if p.cSuper == nil {
+		return nil, fmt.Errorf("connector unavailable")
+	}
+	cSource, err := p.cSuper.Get()
+	if err != nil || cSource == nil {
+		return nil, fmt.Errorf("connector unavailable")
+	}
+	for _, c := range cSource.All() {
+		if c.Id == id || strings.HasPrefix(c.Id, id) || strings.EqualFold(c.Meta.Get("name"), id) {
+			entries, err := c.SearchFiles(basePath, pattern, maxResults)
+			if err != nil {
+				return nil, err
+			}
+			var res []web.FileEntry
+			for _, ent := range entries {
+				res = append(res, web.FileEntry{
+					Name:    ent.Name,
+					Path:    ent.Path,
+					IsDir:   ent.IsDir,
+					Size:    ent.Size,
+					Mode:    ent.Mode,
+					ModTime: ent.ModTime,
+				})
+			}
+			return res, nil
+		}
+	}
+	return nil, fmt.Errorf("container not found")
 }
 
 func parseMounts(raw string) []web.MountInfo {
@@ -135,7 +267,9 @@ func parseNetworks(raw string) []web.NetworkInfo {
 		if len(fields) >= 4 {
 			prefix := 0
 			if len(fields) >= 5 {
-				_, _ = fmt.Sscanf(fields[4], "%d", &prefix)
+				if p, err := strconv.Atoi(fields[4]); err == nil {
+					prefix = p
+				}
 			}
 			res = append(res, web.NetworkInfo{
 				Name:      fields[0],
@@ -181,12 +315,15 @@ func nonNeg[T ~int | ~int64](v T) T {
 	return v
 }
 
-func startWebServer(addr string, version string, urlPrefix string, cursor *GridCursor) (*web.Server, func(), error) {
+func startWebServer(addr string, version string, urlPrefix string, cSuper *connector.ConnectorSuper) (*web.Server, func(), error) {
+	addr = strings.TrimSpace(addr)
 	if !strings.Contains(addr, ":") {
-		addr = ":" + addr
+		addr = "127.0.0.1:" + addr
+	} else if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
 	}
 
-	prov := &cursorContainerProvider{cursor: cursor}
+	prov := &superContainerProvider{cSuper: cSuper}
 	broadcaster := web.NewBroadcaster()
 	srv := web.NewServer(addr, version, prov, broadcaster, urlPrefix)
 

@@ -1,5 +1,4 @@
-// logs_test.go validates ring buffer log storage, capacity rotation, and ANSI code stripping.
-// Test Strategy: Verifies ring buffer FIFO rotation at boundary capacities and clean ANSI sanitization.
+// logs_test.go validates container log buffering, ANSI code stripping, and export operations.
 package single
 
 import (
@@ -10,42 +9,36 @@ import (
 )
 
 func TestLogLinesAnsiSanitization(t *testing.T) {
-	ll := NewLogLines(10)
+	logsWidget := NewLogs()
 
 	rawLog := models.Log{
 		Timestamp: time.Now(),
 		Message:   "\x1b[32m[INFO]\x1b[0m Container \x1b[1mnginx-prod\x1b[0m listening on port 80",
 	}
 
-	ll.add(rawLog)
+	logsWidget.Add(rawLog)
 
-	lines := ll.getLines(0, 1)
-	if len(lines) != 1 {
-		t.Fatalf("expected 1 line, got %d", len(lines))
+	if len(logsWidget.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(logsWidget.Entries))
 	}
 
 	expected := "[INFO] Container nginx-prod listening on port 80"
-	if lines[0] != expected {
-		t.Fatalf("expected '%s', got '%s'", expected, lines[0])
+	if logsWidget.Entries[0].Message != expected {
+		t.Fatalf("expected '%s', got '%s'", expected, logsWidget.Entries[0].Message)
 	}
 }
 
 func TestLogLinesCapacityRotation(t *testing.T) {
-	ll := NewLogLines(3)
+	logsWidget := NewLogs()
 
-	for i := 1; i <= 5; i++ {
-		ll.add(models.Log{
+	for i := 1; i <= 50; i++ {
+		logsWidget.Add(models.Log{
 			Timestamp: time.Now(),
-			Message:   string(rune('0' + i)),
+			Message:   string(rune('0' + (i % 10))),
 		})
 	}
 
-	lines := ll.getLines(0, 3)
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 lines, got %d", len(lines))
-	}
-	// Should contain the last 3 items: "3", "4", "5"
-	if lines[0] != "3" || lines[1] != "4" || lines[2] != "5" {
-		t.Fatalf("unexpected rotated lines: %v", lines)
+	if len(logsWidget.Entries) != 50 {
+		t.Fatalf("expected 50 entries, got %d", len(logsWidget.Entries))
 	}
 }

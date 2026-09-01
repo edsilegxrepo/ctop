@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/edsilegx/ctop/internal/cwidgets"
@@ -17,6 +18,7 @@ type Explorer struct {
 	ui.Block
 	CurrentDir      string
 	Entries         []models.FileInfo
+	Filter          string
 	CursorPos       int
 	Previewing      bool
 	PreviewTxt      string
@@ -32,11 +34,12 @@ func NewExplorer() *Explorer {
 		Block:           *ui.NewBlock(),
 		CurrentDir:      "/",
 		Entries:         []models.FileInfo{},
+		Filter:          "",
 		CursorPos:       0,
 		HostDownloadDir: ".",
 		empty:           true,
 	}
-	exp.Title = "IN-CONTAINER FILE EXPLORER [Enter: Open | v: View | d: Download | u: Upload | D: Target | Backspace: Parent | q: Exit]"
+	exp.Title = "IN-CONTAINER FILE EXPLORER [Enter: Open | v: View | /: Filter | f: Deep Search | d: Download | u: Upload | D: Target | q: Exit]"
 	exp.BorderStyle = theme.Style("border.fg")
 	exp.TitleStyle = theme.Style("label.fg")
 	exp.SetRect(0, 0, colWidth[0], 6)
@@ -56,9 +59,39 @@ func (w *Explorer) Set(dirPath string, entries []models.FileInfo) {
 	w.CurrentDir = dirPath
 	w.Entries = entries
 	w.empty = len(entries) == 0
-	if w.CursorPos >= len(w.totalItems()) {
+	if w.CursorPos >= len(w.TotalItems()) {
 		w.CursorPos = 0
 	}
+}
+
+// SetFilter sets the active wildcard or substring name filter.
+func (w *Explorer) SetFilter(filterStr string) {
+	w.Filter = strings.TrimSpace(filterStr)
+	if w.CursorPos >= len(w.TotalItems()) {
+		w.CursorPos = 0
+	}
+}
+
+func (w *Explorer) matchFilter(name string) bool {
+	if w.Filter == "" {
+		return true
+	}
+	p := strings.ToLower(w.Filter)
+	target := strings.ToLower(name)
+
+	// If pattern contains wildcard * or ?
+	if strings.ContainsAny(p, "*?") {
+		if matched, err := path.Match(p, target); err == nil && matched {
+			return true
+		}
+		if matched, err := filepath.Match(p, target); err == nil && matched {
+			return true
+		}
+		return false
+	}
+
+	// Substring match
+	return strings.Contains(target, p)
 }
 
 // SetStatus sets a temporary status/notification message.
@@ -84,7 +117,7 @@ func (w *Explorer) ClearPreview() {
 	w.PreviewTxt = ""
 }
 
-func (w *Explorer) totalItems() []models.FileInfo {
+func (w *Explorer) TotalItems() []models.FileInfo {
 	var items []models.FileInfo
 	if w.CurrentDir != "/" && w.CurrentDir != "" {
 		parentPath := path.Dir(w.CurrentDir)
@@ -98,13 +131,17 @@ func (w *Explorer) totalItems() []models.FileInfo {
 			Mode:  "drwxr-xr-x",
 		})
 	}
-	items = append(items, w.Entries...)
+	for _, entry := range w.Entries {
+		if w.matchFilter(entry.Name) {
+			items = append(items, entry)
+		}
+	}
 	return items
 }
 
 // Selected returns the currently highlighted FileInfo.
 func (w *Explorer) Selected() (models.FileInfo, bool) {
-	items := w.totalItems()
+	items := w.TotalItems()
 	if len(items) == 0 || w.CursorPos < 0 || w.CursorPos >= len(items) {
 		return models.FileInfo{}, false
 	}
@@ -118,9 +155,45 @@ func (w *Explorer) Up() {
 }
 
 func (w *Explorer) Down() {
-	items := w.totalItems()
+	items := w.TotalItems()
 	if w.CursorPos < len(items)-1 {
 		w.CursorPos++
+	}
+}
+
+func (w *Explorer) Home() {
+	w.CursorPos = 0
+}
+
+func (w *Explorer) End() {
+	items := w.TotalItems()
+	if len(items) > 0 {
+		w.CursorPos = len(items) - 1
+	}
+}
+
+func (w *Explorer) PgUp(step int) {
+	if step <= 0 {
+		step = 10
+	}
+	w.CursorPos -= step
+	if w.CursorPos < 0 {
+		w.CursorPos = 0
+	}
+}
+
+func (w *Explorer) PgDown(step int) {
+	items := w.TotalItems()
+	if step <= 0 {
+		step = 10
+	}
+	if len(items) == 0 {
+		w.CursorPos = 0
+		return
+	}
+	w.CursorPos += step
+	if w.CursorPos >= len(items) {
+		w.CursorPos = len(items) - 1
 	}
 }
 
@@ -129,7 +202,7 @@ func (w *Explorer) GetHeight() int {
 	if w.Previewing {
 		return len(strings.Split(w.PreviewTxt, "\n")) + 6
 	}
-	items := w.totalItems()
+	items := w.TotalItems()
 	base := 6
 	if w.StatusMsg != "" {
 		base += 2
@@ -188,8 +261,12 @@ func (w *Explorer) Draw(buf *ui.Buffer) {
 		y++
 	}
 
-	// Breadcrumb and Host target bar
-	pathInfo := fmt.Sprintf("📁 Directory: %-30s   ⬇ Host Target: %s [D: change]", w.CurrentDir, w.HostDownloadDir)
+	// Breadcrumb, Filter, and Host target bar
+	filterBadge := ""
+	if w.Filter != "" {
+		filterBadge = fmt.Sprintf("   🔍 Filter: [%s]", w.Filter)
+	}
+	pathInfo := fmt.Sprintf("📁 Directory: %s%s   ⬇ Host Target: %s [D: change]", w.CurrentDir, filterBadge, w.HostDownloadDir)
 	buf.SetString(pathInfo, headerStyle, image.Pt(w.Inner.Min.X+1, y))
 	y++
 
@@ -202,17 +279,28 @@ func (w *Explorer) Draw(buf *ui.Buffer) {
 	buf.SetString(sepLine, theme.Style("border.fg"), image.Pt(w.Inner.Min.X+1, y))
 	y++
 
-	items := w.totalItems()
+	items := w.TotalItems()
 	if len(items) == 0 {
 		buf.SetString("   (empty directory)", fileStyle, image.Pt(w.Inner.Min.X+1, y))
 		return
 	}
 
-	for idx, item := range items {
-		if y >= w.Inner.Max.Y {
-			break
-		}
+	visibleRows := w.Inner.Max.Y - y
+	if visibleRows <= 0 {
+		return
+	}
 
+	offset := 0
+	if w.CursorPos >= visibleRows {
+		offset = w.CursorPos - visibleRows + 1
+	}
+	end := offset + visibleRows
+	if end > len(items) {
+		end = len(items)
+	}
+
+	for idx := offset; idx < end; idx++ {
+		item := items[idx]
 		isSelected := idx == w.CursorPos
 		icon := "📄"
 		style := fileStyle

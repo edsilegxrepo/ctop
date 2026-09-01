@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edsilegx/ctop/internal/theme"
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/prober"
 	ui "github.com/gizak/termui/v3"
 )
@@ -33,6 +34,7 @@ type Network struct {
 	Ports    string
 	IPs      string
 	Probes   []ProbeResult
+	ProbeSeq int
 	mu       sync.Mutex
 	probing  bool
 	cancel   context.CancelFunc
@@ -45,7 +47,7 @@ func NewNetwork() *Network {
 		Networks: []NetworkInfo{},
 		Probes:   []ProbeResult{},
 	}
-	nw.Title = "NETWORKING & PORTS [p: run TCP probe]"
+	nw.Title = "NETWORKING & PORTS [p: re-probe]"
 	nw.BorderStyle = theme.Style("border.fg")
 	nw.TitleStyle = theme.Style("label.fg")
 	nw.SetRect(0, 0, colWidth[0], 6)
@@ -268,6 +270,13 @@ func (w *Network) RunProbes() {
 		}
 
 		w.mu.Lock()
+		w.ProbeSeq++
+		seq := w.ProbeSeq
+		now := time.Now()
+		for i := range results {
+			results[i].Seq = seq
+			results[i].Timestamp = now
+		}
 		w.Probes = results
 		w.mu.Unlock()
 	}()
@@ -373,7 +382,12 @@ func (w *Network) Draw(buf *ui.Buffer) {
 
 	// Section 3: Live Connectivity & Port Probes
 	if y < w.Inner.Max.Y {
-		buf.SetString("[ Live TCP Port & Connectivity Probes ] (Press 'p' to re-probe)", subHeaderStyle, image.Pt(w.Inner.Min.X+1, y))
+		interval := config.GetVal("probeInterval")
+		if interval == "" {
+			interval = "5s"
+		}
+		title := fmt.Sprintf("[ Live TCP Port & Connectivity Probes ] (Auto-probes every %s, press 'p' to re-probe)", interval)
+		buf.SetString(title, subHeaderStyle, image.Pt(w.Inner.Min.X+1, y))
 		y++
 
 		probes := make([]ProbeResult, len(w.Probes))
@@ -387,14 +401,25 @@ func (w *Network) Draw(buf *ui.Buffer) {
 				if y >= w.Inner.Max.Y {
 					break
 				}
-				statusColor := theme.Style("status.healthy")
-				badge := fmt.Sprintf("[✔ %s (%.1fms)]", pr.Status, float64(pr.Duration.Microseconds())/1000.0)
+				statusColor := theme.Style("status.ok")
+				badge := fmt.Sprintf("[✓ %s (%.1fms)]", pr.Status, float64(pr.Duration.Microseconds())/1000.0)
 				if !pr.Success {
-					statusColor = theme.Style("status.error")
-					badge = fmt.Sprintf("[❌ %s]", pr.Status)
+					statusColor = theme.Style("status.danger")
+					badge = fmt.Sprintf("[✗ %s]", pr.Status)
 				}
-				buf.SetString(fmt.Sprintf("  • %-22s: %-22s ──► ", pr.Label, pr.Target), valStyle, image.Pt(w.Inner.Min.X+2, y))
-				buf.SetString(badge, statusColor, image.Pt(w.Inner.Min.X+54, y))
+				dateStr := pr.Timestamp.Format("2006-01-02 15:04:05")
+				if w.Inner.Dx() < 110 {
+					dateStr = pr.Timestamp.Format("15:04:05")
+				}
+				meta := ""
+				if pr.Seq > 0 {
+					meta = fmt.Sprintf("#%d %s", pr.Seq, dateStr)
+				}
+				buf.SetString(fmt.Sprintf("  • %-20s: %-21s ──► ", pr.Label, pr.Target), valStyle, image.Pt(w.Inner.Min.X+2, y))
+				buf.SetString(fmt.Sprintf("%-24s", badge), statusColor, image.Pt(w.Inner.Min.X+50, y))
+				if meta != "" {
+					buf.SetString(meta, theme.Style("label.fg"), image.Pt(w.Inner.Min.X+76, y))
+				}
 				y++
 			}
 		} else {

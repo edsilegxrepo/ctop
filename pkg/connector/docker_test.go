@@ -59,6 +59,12 @@ func (d *dummyManager) ReadFile(path string, maxBytes int64) (string, error) {
 	return "dummy file content", nil
 }
 
+func (d *dummyManager) SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error) {
+	return []models.FileInfo{
+		{Name: "app.log", Path: "/app/app.log", IsDir: false, Mode: "-rw-r--r--"},
+	}, nil
+}
+
 func (d *dummyManager) Download(srcPath, dstPath string) (int64, error) {
 	return 1024, nil
 }

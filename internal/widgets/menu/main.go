@@ -5,6 +5,7 @@ package menu
 import (
 	"image"
 	"sort"
+	"strings"
 
 	"github.com/edsilegx/ctop/internal/theme"
 	ui "github.com/gizak/termui/v3"
@@ -119,10 +120,17 @@ func (m *Menu) Draw(buf *ui.Buffer) {
 		}
 		x := m.Inner.Min.X + m.padding[0]
 		style := m.TextStyle
-		if m.Selectable && n == m.cursorPos {
+		txt := item.Text()
+		if strings.HasPrefix(txt, "──") {
+			style = theme.Style("label.fg")
+			avail := m.Inner.Max.X - m.padding[0] - x - len(txt)
+			if avail > 0 {
+				txt = txt + " " + strings.Repeat("─", avail-1)
+			}
+		} else if m.Selectable && n == m.cursorPos {
 			style = m.SelectedText
 		}
-		buf.SetString(item.Text(), style, image.Pt(x, y+n))
+		buf.SetString(txt, style, image.Pt(x, y+n))
 	}
 
 	if m.toolTip != nil {

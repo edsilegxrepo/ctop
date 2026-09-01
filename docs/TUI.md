@@ -1,52 +1,48 @@
-# TUI Modernization Architecture & Alignment Plan
+# TUI Modernization Architecture: `tview` + `tcell/v2`
 
-This document outlines the architectural blueprint and phased implementation plan to modernize the `ctop` Terminal User Interface (TUI) stack, aligning it with the modern Charm ecosystem (**Bubble Tea** + **Lip Gloss**) as implemented in [`netping`](file:///e:/data/devel/build/code/private/netping/).
+This document outlines the architectural blueprint and implementation specification for the modernized `ctop` Terminal User Interface (TUI) stack, utilizing **`tview`** and **`tcell/v2`** with an executive corporate color palette.
 
 ---
 
-## 1. Executive Summary & Motivation
+## 1. Executive Summary & Architectural Motivation
 
-The current `ctop` TUI relies on `github.com/gizak/termui/v3` and the unmaintained `github.com/nsf/termbox-go` backend. While functional, this legacy stack presents key architectural and operational limitations:
+The previous `termui`/`termbox-go` and string-concatenation stacks presented critical limitations:
+- **`termbox-go`**: Susceptible to Win32 console handle errors in Windows pipes and SSH sessions.
+- **String-Concatenation (`View() string`)**: Vulnerable to line-wrapping and scrollback drift on variable window sizes and floating overlays.
 
-- **Legacy Win32 Console API Handles**: `termbox-go` uses low-level Win32 console handles that are susceptible to `"The handle is invalid"` panics in Windows pipes, CI runners, and SSH sessions.
-- **Imperative Coordinate Calculations**: Widgets manually calculate 2D bounding boxes (`SetRect(x1, y1, x2, y2)`), leading to rigid layout code and ghost artifacting on resize.
-- **Limited Visual Palette**: Restricted to basic 8/16 ANSI terminal colors with coarse ASCII block characters for gauges.
-- **Global Synchronization Overhead**: Imperative rendering loops require global mutex locking across views.
+### The Target Architecture (`tview` + `tcell/v2`)
 
-### The Target Architecture (Charm Ecosystem)
-
-Aligning with `netping` replaces imperative cell rendering with **The Elm Architecture (TEA)**:
+`tview` on top of `tcell/v2` operates on an in-memory **2D Screen Cell Buffer with hardware double buffering**:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    tea.Program (Event Loop)                 │
+│                 tview.Application (Event Loop)              │
+│                Driven by tcell.Screen (2D Buffer)           │
 └──────────────────────────────┬──────────────────────────────┘
                                │
             ┌──────────────────┴──────────────────┐
             ▼                                     ▼
-   tea.Model.Update(msg)                 tea.Model.View()
-   - Handles tea.KeyMsg, ticks,          - Pure string builder
-     metrics, and resize events          - Lip Gloss declarative styles
-   - Returns updated model & commands    - TrueColor (24-bit) & sub-cell bars
+     tview.Pages (Root)                    tview.Table / Flex
+  - Native floating modals              - Fixed column headers
+  - Background preserved                - Built-in scroll & clamp
+  - Zero line-wrap shifts               - TrueColor (24-bit) palette
 ```
 
 ---
 
-## 2. Visual & Technical Comparison
+## 2. Executive Corporate Palette
 
-| Dimension | Current Stack (`termui` / `termbox`) | Target Stack (`Bubble Tea` / `Lip Gloss`) |
-| :--- | :--- | :--- |
-| **Architecture** | Imperative 2D cell coordinate math | Declarative Functional State Machine (The Elm Architecture) |
-| **Color Rendering** | 8/16 ANSI palette | **24-bit TrueColor (16.7M colors)** + 256-color adaptive fallback |
-| **Metric Gauges** | Coarse single-character full blocks (`■`) | **High-resolution sub-cell fractional bars** (`▏▎▍▌▋▊▉█`) |
-| **Borders & Badges** | Rigid ASCII/single-line box borders | **Rounded borders** (`╭─╮`), pill badges (`[ RUNNING ]`), soft drop shadows |
-| **Windows Support** | Raw Win32 Console API handles | Native Virtual Terminal Processing (`x/term`, `coninput`) |
-| **Mouse Interaction** | Limited coordinate interception | Full mouse wheel & click support in log viewports and tabs |
-| **Testability** | Requires real terminal / PTY mocking | **100% pure unit testable** via `Update(msg)` and `View()` assertions |
-
----
-
-## 3. Component Architecture & Mapping
+| Token | Hex Code | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **`Header / Accent Blue`** | `#3A96DD` | Primary Accent | Main column headers, active borders, section titles |
+| **`Selection Blue`** | `#005F87` | Selection | High-contrast cursor row highlight |
+| **`Status OK / Healthy`** | `#00E676` | Success | Emerald green status glyph and healthy indicators |
+| **`Status Warn`** | `#FFB300` | Warning | Amber warning badge for paused containers |
+| **`Status Danger / Stop`**| `#E53935` | Error / Inactive | Muted crimson red for stopped/exited containers |
+| **`Text Primary`** | `#FFFFFF` | Content | Bright crisp text for active rows and keys |
+| **`Text Secondary / Dim`**| `#A0AEC0` | Inactive / Muted | Muted slate gray for stopped containers and descriptions |
+| **`Border Dim`** | `#2D3748` | Dividers | Subtle dark separator lines |
+| **`Background`** | `#121417` | Canvas | Deep dark background |
 
 ```mermaid
 flowchart TD
@@ -91,23 +87,53 @@ flowchart TD
 
 ---
 
-## 4. Design System & Color Palette
+## 4. Enterprise-Grade Design System & Sober Color Palette
 
-Aligned with the soft, high-contrast palette used in `netping`:
+To ensure a polished, professional, and non-flashy appearance across both the main grid and deep-inspection views, the TUI uses a **sober, low-saturation Nord/Slate enterprise palette**. High-saturation "neon" colors are replaced with tailored, muted tones that provide clear legibility, high contrast, and cohesive hierarchy:
+
+### A. Semantic Color Palette Tokens
 
 ```go
 var (
-	ColorBorder   = lipgloss.Color("#3B4252") // Slate Blue
-	ColorHeader   = lipgloss.Color("#ECEFF4") // Bright White
-	ColorDim      = lipgloss.Color("#4C566A") // Muted Slate
-	ColorCyan     = lipgloss.Color("#88C0D0") // Frost Cyan
-	ColorTeal     = lipgloss.Color("#8FBCBB") // Soft Teal
-	ColorGreen    = lipgloss.Color("#A3BE8C") // Emerald Green
-	ColorRed      = lipgloss.Color("#BF616A") // Coral Red
-	ColorAmber    = lipgloss.Color("#EBCB8B") // Soft Amber
-	ColorDivider  = lipgloss.Color("#2E3440") // Inner Divider
+	// Background & Structural Borders
+	ColorBg         = lipgloss.Color("#1E222B") // Deep Slate Charcoal (Base)
+	ColorBorder     = lipgloss.Color("#3B4252") // Muted Slate (Card & Container Borders)
+	ColorBorderDim  = lipgloss.Color("#2E3440") // Subtle Inner Separator / Dividers
+	
+	// Typography & Content Hierarchy
+	ColorTextPrimary   = lipgloss.Color("#ECEFF4") // Crisp Off-White (Primary Values & Headings)
+	ColorTextSecondary = lipgloss.Color("#9DA5B4") // Muted Cool Grey (Labels, Keys, Subtitles)
+	ColorTextMuted     = lipgloss.Color("#5C6370") // Dim Slate (Inactive Tabs, Footers, Timestamps)
+	
+	// State & Status Indicators (Muted, Sober Accents)
+	ColorStatusOk     = lipgloss.Color("#78A987") // Soft Sage Green (Running / Healthy)
+	ColorStatusWarn   = lipgloss.Color("#D0A362") // Warm Ochre / Amber (Paused / High Load)
+	ColorStatusDanger = lipgloss.Color("#C26569") // Desaturated Brick Coral (Exited / Error)
+	ColorStatusInfo   = lipgloss.Color("#6C88A8") // Slate Blue (Info / Neutral)
+
+	// Metric Subsystems & Visual Graphs
+	ColorMetricCpu    = lipgloss.Color("#6FA2A8") // Glacier Teal (CPU Utilization)
+	ColorMetricMem    = lipgloss.Color("#6C88A8") // Muted Cobalt (Memory Allocation)
+	ColorMetricNetRx  = lipgloss.Color("#7E9F85") // Sage Olive (Network Ingress)
+	ColorMetricNetTx  = lipgloss.Color("#8B7FA8") // Slate Violet (Network Egress)
+	ColorMetricIO     = lipgloss.Color("#8294A0") // Steel Grey (Disk I/O Reads & Writes)
 )
 ```
+
+### B. Details & Inspection View Styling Rules
+
+1. **Inspector Tab Bar (`Overview`, `Mounts`, `Network`, `Env`, `Top`, `Diff`, `Files`)**:
+   - Inactive tabs: Sober muted text (`#5C6370`) with no background.
+   - Active tab: Subtle background fill (`#2E3440`), soft off-white text (`#ECEFF4`), and a clean bottom border indicator (`#6FA2A8`), eliminating garish full-fill highlight blocks.
+2. **Process Top & Environment Variables**:
+   - Key-value pairs rendered with muted grey keys (`#9DA5B4`) and crisp white values (`#ECEFF4`).
+   - Masked secrets rendered in soft muted grey (`•••••••••••• [masked]`).
+   - Process tables styled with thin horizontal grid lines (`#2E3440`) and right-aligned tabular numbers.
+3. **Filesystem Explorer & Diffs**:
+   - File trees use clean Unicode branch markers (`├──`, `└──`) with subtle directory badges (`[DIR]`).
+   - Diffs use muted pastel tints (soft sage `#78A987` for additions, soft brick `#C26569` for deletions) rather than harsh solid background fills.
+4. **Adaptive Dark/Light Terminal Support**:
+   - Automatic terminal background brightness detection (`lipgloss.HasDarkBackground()`) with an inverted high-contrast enterprise light palette (warm ivory `#F5F6F8`, slate charcoal `#2C323C`).
 
 ---
 
@@ -150,3 +176,34 @@ gantt
 - Safely remove `github.com/gizak/termui/v3` and `github.com/nsf/termbox-go` from dependencies.
 - Verify 100% test pass rate across WSL Linux and Windows native environments.
 - Run multi-stage code audit (`code_audit.sh --auto --fix`) to ensure complete compliance across linting, SAST, and security controls.
+
+---
+
+## 6. Keybinding & Feature Parity Matrix
+
+All existing interactive keyboard controls are strictly preserved in the new Bubble Tea event model:
+
+| Keybinding | Action | Target `tea.Model` Handler |
+| :--- | :--- | :--- |
+| `↑` / `k` / `↓` / `j` | Move selection cursor up / down | `grid.CursorUp()`, `grid.CursorDown()` |
+| `PageUp` / `PageDown` | Fast scroll by page height | `grid.PageUp()`, `grid.PageDown()` |
+| `<Enter>` | Open single container inspector drill-down | Switch active view router to `InspectorModel` |
+| `h` / `?` | Open interactive help overlay | Render `HelpOverlayModel` |
+| `s` | Open sort field selection menu | Render `SortOverlayModel` |
+| `r` | Reverse active container sort order | Toggle sort direction in `grid.Model` |
+| `o` | Open container lifecycle action menu | Render `ActionOverlayModel` (`Start`, `Stop`, `Pause`, `Exec`, `Delete`) |
+| `f` | Quick filter toggle (All vs Active running only) | Update filter predicate in `grid.Model` |
+| `/` | Open live interactive search & regex input | Focus `bubbles/textinput` filter bar |
+| `e` | Export container telemetry snapshot to JSON | Trigger async file export command |
+| `c` | Copy container ID / name / logs to system clipboard | Trigger clipboard command via `atotto/clipboard` |
+| `u` | Toggle secret masking (`••••••••••••` vs plaintext) | Update `maskSecrets` toggle in inspector |
+| `1` – `0` | Direct tab navigation in container inspector | Switch tab index in `InspectorModel` |
+| `q` / `<Escape>` / `Ctrl+C` | Back to grid or clean exit application | Send `tea.Quit` or return to parent view |
+
+---
+
+## 7. Headless & Web Telemetry Decoupling Guarantee
+
+- **Independent Execution**: When invoked with `--headless --web <addr>`, `ctop` bypasses `tea.NewProgram` entirely and executes as a pure headless HTTP/SSE daemon via standard `os.Signal` notification channels.
+- **Zero UI Dependency in `pkg/*`**: Core telemetry collection, container management, Docker context resolution, and web streaming remain 100% isolated from TUI frameworks.
+

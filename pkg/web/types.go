@@ -26,45 +26,88 @@ type NetworkInfo struct {
 	PrefixLen int    `json:"prefix_len"`
 }
 
+// DiffChange represents a container filesystem modification.
+type DiffChange struct {
+	Path string `json:"path"`
+	Kind string `json:"kind"` // "A" (Added), "C" (Modified), "D" (Deleted)
+}
+
+// FileEntry represents an in-container file or directory entry.
+type FileEntry struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	IsDir   bool   `json:"is_dir"`
+	Size    int64  `json:"size"`
+	Mode    string `json:"mode"`
+	ModTime string `json:"mod_time"`
+}
+
+// EndpointProbe represents the result of an active TCP reachability probe against a container endpoint.
+type EndpointProbe struct {
+	Label      string  `json:"label"`
+	Target     string  `json:"target"`
+	Status     string  `json:"status"` // "OPEN", "CLOSED", "TIMEOUT", "REACHABLE", "CONFIGURED"
+	DurationMS float64 `json:"duration_ms"`
+	Success    bool    `json:"success"`
+	Timestamp  string  `json:"timestamp"`
+}
+
 // ContainerSnapshot represents a point-in-time telemetry snapshot for a single container.
 type ContainerSnapshot struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Image        string            `json:"image"`
-	State        string            `json:"state"`
-	Health       string            `json:"health,omitempty"`
-	Host         string            `json:"host,omitempty"`
-	Created      string            `json:"created,omitempty"`
-	Uptime       string            `json:"uptime,omitempty"`
-	CPUUtil      int               `json:"cpu_util"`
-	MemUsage     int64             `json:"mem_usage"`
-	MemLimit     int64             `json:"mem_limit"`
-	MemPercent   int               `json:"mem_percent"`
-	MemRss       int64             `json:"mem_rss,omitempty"`
-	MemCache     int64             `json:"mem_cache,omitempty"`
-	NetRx        int64             `json:"net_rx"`
-	NetTx        int64             `json:"net_tx"`
-	NetRxRate    int64             `json:"net_rx_rate"`
-	NetTxRate    int64             `json:"net_tx_rate"`
-	IOBytesRead  int64             `json:"io_bytes_read"`
-	IOBytesWrite int64             `json:"io_bytes_write"`
-	IORateRead   int64             `json:"io_rate_read"`
-	IORateWrite  int64             `json:"io_rate_write"`
-	Pids         int               `json:"pids"`
-	IPs          string            `json:"ips,omitempty"`
-	Ports        string            `json:"ports,omitempty"`
-	WebPort      string            `json:"web_port,omitempty"`
-	Command      string            `json:"command,omitempty"`
-	Entrypoint   string            `json:"entrypoint,omitempty"`
-	WorkDir      string            `json:"workdir,omitempty"`
-	User         string            `json:"user,omitempty"`
-	RestartPol   string            `json:"restart_policy,omitempty"`
-	MemLimitStr  string            `json:"mem_limit_str,omitempty"`
-	Env          []string          `json:"env,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	Mounts       []MountInfo       `json:"mounts,omitempty"`
-	Networks     []NetworkInfo     `json:"networks,omitempty"`
-	Timestamp    time.Time         `json:"timestamp"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Image            string            `json:"image"`
+	ImageID          string            `json:"image_id,omitempty"`
+	ImageArch        string            `json:"image_arch,omitempty"`
+	ImageSize        string            `json:"image_size,omitempty"`
+	ImageLayers      string            `json:"image_layers,omitempty"`
+	ImageAuthor      string            `json:"image_author,omitempty"`
+	ImageCreated     string            `json:"image_created,omitempty"`
+	ImageDockerVer   string            `json:"image_docker_version,omitempty"`
+	ImageLabels      map[string]string `json:"image_labels,omitempty"`
+	ImageEnv         []string          `json:"image_env,omitempty"`
+	ImageCmd         string            `json:"image_cmd,omitempty"`
+	ImageEntrypoint  string            `json:"image_entrypoint,omitempty"`
+	ImageWorkDir     string            `json:"image_workdir,omitempty"`
+	ImageUser        string            `json:"image_user,omitempty"`
+	ImageVolumes     string            `json:"image_volumes,omitempty"`
+	ImagePorts       string            `json:"image_ports,omitempty"`
+	GeneratedRunCmd  string            `json:"generated_run_cmd,omitempty"`
+	GeneratedCompose string            `json:"generated_compose,omitempty"`
+	State            string            `json:"state"`
+	Health           string            `json:"health,omitempty"`
+	Host             string            `json:"host,omitempty"`
+	Created          string            `json:"created,omitempty"`
+	Uptime           string            `json:"uptime,omitempty"`
+	CPUUtil          int               `json:"cpu_util"`
+	MemUsage         int64             `json:"mem_usage"`
+	MemLimit         int64             `json:"mem_limit"`
+	MemPercent       int               `json:"mem_percent"`
+	MemRss           int64             `json:"mem_rss,omitempty"`
+	MemCache         int64             `json:"mem_cache,omitempty"`
+	NetRx            int64             `json:"net_rx"`
+	NetTx            int64             `json:"net_tx"`
+	NetRxRate        int64             `json:"net_rx_rate"`
+	NetTxRate        int64             `json:"net_tx_rate"`
+	IOBytesRead      int64             `json:"io_bytes_read"`
+	IOBytesWrite     int64             `json:"io_bytes_write"`
+	IORateRead       int64             `json:"io_rate_read"`
+	IORateWrite      int64             `json:"io_rate_write"`
+	Pids             int               `json:"pids"`
+	IPs              string            `json:"ips,omitempty"`
+	Ports            string            `json:"ports,omitempty"`
+	WebPort          string            `json:"web_port,omitempty"`
+	Command          string            `json:"command,omitempty"`
+	Entrypoint       string            `json:"entrypoint,omitempty"`
+	WorkDir          string            `json:"workdir,omitempty"`
+	User             string            `json:"user,omitempty"`
+	RestartPol       string            `json:"restart_policy,omitempty"`
+	MemLimitStr      string            `json:"mem_limit_str,omitempty"`
+	Env              []string          `json:"env,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	Mounts           []MountInfo       `json:"mounts,omitempty"`
+	Networks         []NetworkInfo     `json:"networks,omitempty"`
+	Timestamp        time.Time         `json:"timestamp"`
 }
 
 // SystemMetrics represents aggregated cluster or host-level telemetry across all containers.

@@ -3,6 +3,8 @@ package diag
 import (
 	"strings"
 	"testing"
+
+	"github.com/edsilegx/ctop/pkg/models"
 )
 
 type sampleMetrics struct {
@@ -51,5 +53,61 @@ func TestDumpJSON(t *testing.T) {
 func TestInspectNil(t *testing.T) {
 	if res := Inspect(nil); res != "" {
 		t.Errorf("expected empty string for nil inspect, got: %s", res)
+	}
+}
+
+func TestBuildReportAndExport(t *testing.T) {
+	meta := map[string]string{
+		"name":       "mssql-prod",
+		"image":      "mcr.microsoft.com/mssql:latest",
+		"state":      "running",
+		"health":     "healthy",
+		"uptime":     "2h 30m",
+		"[ENV-VAR]":  "ACCEPT_EULA=Y;SA_PASSWORD=SuperSecretPass123",
+		"[LABELS]":   "com.docker.compose.project=db;;maintainer=dba",
+		"[MOUNTS]":   "/var/opt/mssql:::/data/volumes/mssql:::\nvolume:::rw:::local",
+		"[NETWORKS]": "bridge:::172.17.0.2:::172.17.0.1:::02:42:ac:11:00:02:::16",
+	}
+	metrics := &models.Metrics{
+		CPUUtil:      15,
+		MemUsage:     524288000,
+		MemLimit:     2147483648,
+		MemPercent:   24,
+		NetRx:        1048576,
+		NetTx:        2097152,
+		IOBytesRead:  4194304,
+		IOBytesWrite: 8388608,
+		Pids:         28,
+	}
+
+	report := BuildReport("c123456789abc", meta, metrics, "node-1", "docker run -d mssql", "version: '3.8'")
+	if report.Name != "mssql-prod" || report.CPUUtil != 15 {
+		t.Fatalf("unexpected report fields: %+v", report)
+	}
+
+	// 1. JSON
+	jsonData, err := FormatJSON(report)
+	if err != nil {
+		t.Fatalf("failed to format JSON: %v", err)
+	}
+	jsonStr := string(jsonData)
+	if !strings.Contains(jsonStr, `"name": "mssql-prod"`) || !strings.Contains(jsonStr, `"cpu_util": 15`) {
+		t.Errorf("unexpected json output: %s", jsonStr)
+	}
+
+	// 2. Text
+	txtReport := FormatTextReport(report)
+	if !strings.Contains(txtReport, "CONTAINER DIAGNOSTIC REPORT: mssql-prod") {
+		t.Errorf("expected header in txt report, got: %s", txtReport)
+	}
+	if !strings.Contains(txtReport, "CPU Utilization  : 15%") {
+		t.Errorf("expected CPU in txt report, got: %s", txtReport)
+	}
+
+	// 3. SaveReport
+	tmpDir := t.TempDir()
+	saved, err := SaveReport(report, tmpDir, "both")
+	if err != nil || len(saved) != 2 {
+		t.Fatalf("expected 2 files saved, got %v (err: %v)", saved, err)
 	}
 }

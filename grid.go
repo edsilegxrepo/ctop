@@ -14,6 +14,7 @@ import (
 	"github.com/edsilegx/ctop/internal/theme"
 	"github.com/edsilegx/ctop/internal/widgets"
 	"github.com/edsilegx/ctop/pkg/config"
+	"github.com/edsilegx/ctop/pkg/diag"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -82,7 +83,7 @@ func RedrawRows(clr bool) {
 	cGrid.SetY(y)
 	cGrid.SetRect(0, y, termW, termH)
 
-	for _, c := range cursor.filtered {
+	for _, c := range cursor.Filtered() {
 		cGrid.AddRows(c.Widgets)
 	}
 
@@ -129,18 +130,74 @@ func SingleViewWithTab(initialTab int) MenuFn {
 		ui.Render(ex)
 	}
 
+	var lastProbeTime time.Time
+	var logQuit chan bool
+	var logStreamActive bool
+
+	startLogStream := func() {
+		if logStreamActive {
+			return
+		}
+		lc := c.Logs()
+		if lc == nil {
+			return
+		}
+		stream := lc.Stream()
+		logQuit = make(chan bool, 1)
+		logStreamActive = true
+		go func() {
+			defer func() {
+				lc.Stop()
+				logStreamActive = false
+			}()
+			for {
+				select {
+				case l, ok := <-stream:
+					if !ok {
+						return
+					}
+					ex.Logs.Add(l)
+				case <-logQuit:
+					return
+				}
+			}
+		}()
+	}
+
+	stopLogStream := func() {
+		if logStreamActive && logQuit != nil {
+			select {
+			case logQuit <- true:
+			default:
+			}
+			logStreamActive = false
+		}
+	}
+	defer stopLogStream()
+
 	switchTab := func(tab int) {
 		switch tab {
+		case single.TabLogs:
+			startLogStream()
 		case single.TabNetwork:
+			lastProbeTime = time.Now()
 			ex.RunNetworkProbes()
 		case single.TabTop:
 			if topRes, err := c.Top(); err == nil {
 				ex.SetTop(topRes)
 			}
 		case single.TabDiff:
-			if changes, err := c.Changes(); err == nil {
-				ex.SetDiff(changes)
-			}
+			ex.SetTab(tab)
+			ex.Align()
+			ui.Render(ex)
+			go func() {
+				if changes, err := c.Changes(); err == nil {
+					ex.SetDiff(changes)
+					ex.Align()
+					ui.Render(ex)
+				}
+			}()
+			return
 		case single.TabGenerator:
 			ex.SetGenerator(c.GenerateRunCmd(), c.GenerateCompose())
 		case single.TabFiles:
@@ -155,10 +212,11 @@ func SingleViewWithTab(initialTab int) MenuFn {
 		ex.SetTab(tab)
 	}
 
-	switchTab(initialTab)
 	c.SetUpdater(ex)
 	defer c.SetUpdater(c.Widgets)
 	defer ex.StopNetworkProbes()
+
+	switchTab(initialTab)
 
 	termW, _ := theme.TermDimensions()
 	ex.SetWidth(termW)
@@ -183,12 +241,28 @@ func SingleViewWithTab(initialTab int) MenuFn {
 						continue
 					}
 
-					if IsKeyMatch("up", e.ID) {
+					if IsKeyMatch("up", e.ID) || e.ID == "k" {
 						ex.Explorer.Up()
 						ui.Render(ex)
 						continue
-					} else if IsKeyMatch("down", e.ID) {
+					} else if IsKeyMatch("down", e.ID) || e.ID == "j" {
 						ex.Explorer.Down()
+						ui.Render(ex)
+						continue
+					} else if IsKeyMatch("pgup", e.ID) || e.ID == "<PageUp>" || e.ID == "<C-u>" {
+						ex.Explorer.PgUp(15)
+						ui.Render(ex)
+						continue
+					} else if IsKeyMatch("pgdown", e.ID) || e.ID == "<PageDown>" || e.ID == "<C-d>" {
+						ex.Explorer.PgDown(15)
+						ui.Render(ex)
+						continue
+					} else if IsKeyMatch("home", e.ID) || e.ID == "<Home>" || e.ID == "g" {
+						ex.Explorer.Home()
+						ui.Render(ex)
+						continue
+					} else if IsKeyMatch("end", e.ID) || e.ID == "<End>" || e.ID == "G" {
+						ex.Explorer.End()
 						ui.Render(ex)
 						continue
 					} else if e.ID == "<Enter>" {
@@ -214,6 +288,35 @@ func SingleViewWithTab(initialTab int) MenuFn {
 								parent = "/"
 							}
 							refreshExplorerDir(parent)
+						}
+						continue
+					} else if e.ID == "/" || e.ID == "f" || e.ID == "F" {
+						input := widgets.NewInput()
+						input.Title = "Filter Files (*, ? wildcard supported, Enter: Apply, Esc: Clear)"
+						input.Data = ex.Explorer.Filter
+						w, h := theme.TermDimensions()
+						input.SetRect(0, h-3, w, h)
+						ui.Render(ex, input)
+
+						for {
+							fe := <-uiEvents
+							if fe.Type == ui.KeyboardEvent {
+								if fe.ID == "<Escape>" {
+									ex.Explorer.SetFilter("")
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else if fe.ID == "<Enter>" {
+									ex.Explorer.SetFilter(input.Data)
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else {
+									input.KeyPress(fe.ID)
+									ex.Explorer.SetFilter(input.Data)
+									ui.Render(ex, input)
+								}
+							}
 						}
 						continue
 					} else if e.ID == "v" || e.ID == "<Space>" {
@@ -336,7 +439,98 @@ func SingleViewWithTab(initialTab int) MenuFn {
 					}
 				}
 
+				if ex.ActiveTab == single.TabLogs {
+					if e.ID == "t" || e.ID == "T" {
+						ex.Logs.ToggleTime()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "s" || e.ID == "S" {
+						dlDir := config.GetVal("downloadDir")
+						if dlDir == "" {
+							dlDir = "."
+						}
+						if savedFile, err := ex.Logs.SaveLogs(dlDir); err != nil {
+							ex.Logs.StatusMsg = fmt.Sprintf("❌ Save err: %v", err)
+						} else {
+							ex.Logs.StatusMsg = fmt.Sprintf("✔ Saved to %s", filepath.Base(savedFile))
+						}
+						ui.Render(ex)
+						continue
+					} else if e.ID == "D" {
+						dirInput := widgets.NewInput()
+						dirInput.Title = "Set Export / Download Target Directory (Press Enter to apply, Esc to cancel)"
+						curDl := config.GetVal("downloadDir")
+						if curDl == "" {
+							curDl = "."
+						}
+						dirInput.Data = curDl
+						tw, th := theme.TermDimensions()
+						dirInput.SetRect(0, th-3, tw, th)
+						ui.Render(ex, dirInput)
+						for {
+							de := <-uiEvents
+							if de.Type == ui.KeyboardEvent {
+								if de.ID == "<Escape>" {
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else if de.ID == "<Enter>" {
+									newDir := strings.TrimSpace(dirInput.Data)
+									if newDir == "" {
+										newDir = "."
+									}
+									config.Update("downloadDir", newDir)
+									ex.Logs.StatusMsg = fmt.Sprintf("✔ Target dir: %s", newDir)
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else {
+									dirInput.KeyPress(de.ID)
+									ui.Render(ex, dirInput)
+								}
+							}
+						}
+						continue
+					} else if e.ID == "/" || e.ID == "f" {
+						filterInput := widgets.NewInput()
+						filterInput.Title = "Filter Logs (Press Enter to apply, Esc to clear)"
+						filterInput.Data = ex.Logs.Filter
+						tw, th := theme.TermDimensions()
+						filterInput.SetRect(0, th-3, tw, th)
+						ui.Render(ex, filterInput)
+						for {
+							fe := <-uiEvents
+							if fe.Type == ui.KeyboardEvent {
+								if fe.ID == "<Escape>" {
+									ex.Logs.SetFilter("")
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else if fe.ID == "<Enter>" {
+									ex.Logs.SetFilter(filterInput.Data)
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else {
+									filterInput.KeyPress(fe.ID)
+									ui.Render(ex, filterInput)
+								}
+							}
+						}
+						continue
+					} else if e.ID == "<Home>" || e.ID == "g" {
+						ex.Logs.ScrollTop()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "<End>" || e.ID == "G" {
+						ex.Logs.ScrollBottom()
+						ui.Render(ex)
+						continue
+					}
+				}
+
 				if ex.ActiveTab == single.TabNetwork && (e.ID == "p" || e.ID == "P") {
+					lastProbeTime = time.Now()
 					ex.RunNetworkProbes()
 					continue
 				}
@@ -353,7 +547,13 @@ func SingleViewWithTab(initialTab int) MenuFn {
 				} else if IsKeyMatch("pgdown", e.ID) {
 					ex.PgDown()
 					ui.Render(ex)
-				} else if e.ID == "<Tab>" || e.ID == "<Right>" || e.ID == "l" {
+				} else if IsKeyMatch("home", e.ID) {
+					ex.Home()
+					ui.Render(ex)
+				} else if IsKeyMatch("end", e.ID) {
+					ex.End()
+					ui.Render(ex)
+				} else if e.ID == "<Tab>" || e.ID == "<Right>" {
 					switchTab((ex.ActiveTab + 1) % single.TotalTabs)
 					ui.Clear()
 					ui.Render(ex)
@@ -365,39 +565,74 @@ func SingleViewWithTab(initialTab int) MenuFn {
 					switchTab(single.TabMetrics)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "2" || e.ID == "v" {
+				} else if e.ID == "2" || e.ID == "l" || e.ID == "L" {
+					switchTab(single.TabLogs)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "3" || e.ID == "v" {
 					switchTab(single.TabVolumes)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "3" || e.ID == "n" {
+				} else if e.ID == "4" || e.ID == "n" {
 					switchTab(single.TabNetwork)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "4" || e.ID == "E" {
+				} else if e.ID == "5" || e.ID == "E" {
 					switchTab(single.TabProcess)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "5" || e.ID == "P" {
+				} else if e.ID == "6" || e.ID == "i" || e.ID == "I" {
+					switchTab(single.TabImage)
+					ui.Clear()
+					ui.Render(ex)
+				} else if e.ID == "7" || e.ID == "P" {
 					switchTab(single.TabTop)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "6" || e.ID == "D" {
+				} else if e.ID == "8" || e.ID == "D" {
 					switchTab(single.TabDiff)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "7" || e.ID == "G" {
+				} else if e.ID == "9" || (e.ID == "G" && ex.ActiveTab != single.TabLogs) {
 					switchTab(single.TabGenerator)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "8" || e.ID == "L" {
+				} else if e.ID == "0" {
 					switchTab(single.TabLabels)
 					ui.Clear()
 					ui.Render(ex)
-				} else if e.ID == "9" || e.ID == "F" {
+				} else if e.ID == "F" {
 					switchTab(single.TabFiles)
 					ui.Clear()
 					ui.Render(ex)
-				} else if (e.ID == "u" || e.ID == "U") && ex.ActiveTab != single.TabFiles {
+				} else if (e.ID == "X" || e.ID == "x") && ex.ActiveTab != single.TabFiles {
+					report := diag.BuildReport(c.Id, c.Meta, &c.Metrics, c.HostID, c.GenerateRunCmd(), c.GenerateCompose())
+					exportDir := config.GetVal("downloadDir")
+					if exportDir == "" {
+						exportDir = "."
+					}
+					savedPaths, err := diag.SaveReport(report, exportDir, "both")
+					if err != nil {
+						if ex.ActiveTab == single.TabLogs {
+							ex.Logs.StatusMsg = fmt.Sprintf("❌ Export err: %v", err)
+						} else {
+							log.StatusErr(err)
+						}
+					} else {
+						var basenames []string
+						for _, p := range savedPaths {
+							basenames = append(basenames, filepath.Base(p))
+						}
+						msg := fmt.Sprintf("✔ Exported: %s", strings.Join(basenames, ", "))
+						if ex.ActiveTab == single.TabLogs {
+							ex.Logs.StatusMsg = msg
+						} else {
+							log.Statusf("%s", msg)
+						}
+					}
+					ui.Render(ex)
+					continue
+				} else if (e.ID == "u" || e.ID == "U") && ex.ActiveTab != single.TabFiles && ex.ActiveTab != single.TabLogs {
 					ex.ToggleSecretMask()
 					ui.Render(ex)
 				} else if e.ID == "q" || e.ID == "Q" || e.ID == "<Escape>" {
@@ -412,6 +647,18 @@ func SingleViewWithTab(initialTab int) MenuFn {
 				ui.Render(ex)
 			}
 		case <-ticker.C:
+			if ex.ActiveTab == single.TabNetwork {
+				interval := 5 * time.Second
+				if cfgInterval := config.GetVal("probeInterval"); cfgInterval != "" {
+					if d, err := time.ParseDuration(cfgInterval); err == nil && d > 0 {
+						interval = d
+					}
+				}
+				if time.Since(lastProbeTime) >= interval {
+					lastProbeTime = time.Now()
+					ex.RunNetworkProbes()
+				}
+			}
 			ui.Render(ex)
 		}
 	}
@@ -419,6 +666,10 @@ func SingleViewWithTab(initialTab int) MenuFn {
 
 func SingleView() MenuFn {
 	return SingleViewWithTab(single.TabMetrics)
+}
+
+func SingleViewLogs() MenuFn {
+	return SingleViewWithTab(single.TabLogs)
 }
 
 func SingleViewVolumes() MenuFn {
@@ -431,6 +682,10 @@ func SingleViewNetwork() MenuFn {
 
 func SingleViewProcess() MenuFn {
 	return SingleViewWithTab(single.TabProcess)
+}
+
+func SingleViewImage() MenuFn {
+	return SingleViewWithTab(single.TabImage)
 }
 
 func SingleViewTop() MenuFn {
@@ -531,6 +786,9 @@ func Display() bool {
 					case "n":
 						menu = SingleViewNetwork
 						goto RunMenu
+					case "i", "I":
+						menu = SingleViewImage
+						goto RunMenu
 					case "U":
 						menu = ResourceMenu
 						goto RunMenu
@@ -542,6 +800,11 @@ func Display() bool {
 						goto RunMenu
 					case "w":
 						OpenInBrowser()
+					case "X", "x":
+						if c := cursor.Selected(); c != nil {
+							menu = ExportReportMenu(c)
+							goto RunMenu
+						}
 					case "a":
 						config.Toggle("allContainers")
 						connErr = RefreshDisplay()

@@ -217,6 +217,10 @@ func (c *Container) ReadFile(path string, maxBytes int64) (string, error) {
 	return c.manager.ReadFile(path, maxBytes)
 }
 
+func (c *Container) SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error) {
+	return c.manager.SearchFiles(basePath, pattern, maxResults)
+}
+
 func (c *Container) Download(srcPath, dstPath string) (int64, error) {
 	return c.manager.Download(srcPath, dstPath)
 }

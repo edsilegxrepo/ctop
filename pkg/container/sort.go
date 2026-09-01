@@ -12,17 +12,26 @@ import (
 
 type sortMethod func(c1, c2 *Container) bool
 
-var stateMap = map[string]int{
-	"running": 3,
-	"paused":  2,
-	"exited":  1,
-	"created": 0,
-	"":        0,
+func getStateScore(s string) int {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if strings.HasPrefix(s, "up") || strings.Contains(s, "running") {
+		return 4
+	}
+	if strings.Contains(s, "restart") {
+		return 3
+	}
+	if strings.Contains(s, "pause") {
+		return 2
+	}
+	if strings.Contains(s, "exit") || strings.Contains(s, "stop") || strings.Contains(s, "dead") {
+		return 1
+	}
+	return 0
 }
 
 var (
-	idSorter   = func(c1, c2 *Container) bool { return c1.Id < c2.Id }
-	nameSorter = func(c1, c2 *Container) bool { return c1.GetMeta("name") < c2.GetMeta("name") }
+	idSorter   = func(c1, c2 *Container) bool { return strings.ToLower(c1.Id) < strings.ToLower(c2.Id) }
+	nameSorter = func(c1, c2 *Container) bool { return strings.ToLower(c1.GetMeta("name")) < strings.ToLower(c2.GetMeta("name")) }
 )
 
 // Sorters maps configurable column keys (cpu, mem, io, net, pids, state, uptime) to comparator functions.
@@ -76,13 +85,17 @@ var Sorters = map[string]sortMethod{
 		return sum1 > sum2
 	},
 	"state": func(c1, c2 *Container) bool {
-		// Use secondary sort method if equal values
-		c1state := c1.GetMeta("state")
-		c2state := c2.GetMeta("state")
-		if c1state == c2state {
-			return nameSorter(c1, c2)
+		s1 := getStateScore(c1.GetMeta("state"))
+		s2 := getStateScore(c2.GetMeta("state"))
+		if s1 == s2 {
+			name1 := strings.ToLower(c1.GetMeta("name"))
+			name2 := strings.ToLower(c2.GetMeta("name"))
+			if name1 == name2 {
+				return strings.ToLower(c1.Id) < strings.ToLower(c2.Id)
+			}
+			return name1 < name2
 		}
-		return stateMap[c1state] > stateMap[c2state]
+		return s1 > s2
 	},
 	"uptime": func(c1, c2 *Container) bool {
 		// Use secondary sort method if equal values
@@ -105,7 +118,7 @@ var Sorters = map[string]sortMethod{
 		if p2 == "" {
 			return true
 		}
-		return p1 < p2
+		return strings.ToLower(p1) < strings.ToLower(p2)
 	},
 }
 
@@ -122,7 +135,13 @@ func (a Containers) Sort()         { sort.Sort(a) }
 func (a Containers) Len() int      { return len(a) }
 func (a Containers) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a Containers) Less(i, j int) bool {
-	if config.GetSwitchVal("groupByCompose") {
+	sortField := config.GetVal("sortField")
+	if sortField == "" {
+		sortField = "state"
+	}
+
+	// Group by compose ONLY if sortField == "compose" or if groupByCompose switch is enabled (and not sorting by state)
+	if sortField == "compose" || (config.GetSwitchVal("groupByCompose") && sortField != "state") {
 		projI := a[i].GetMeta("composeProject")
 		projJ := a[j].GetMeta("composeProject")
 		if projI != projJ {
@@ -132,18 +151,20 @@ func (a Containers) Less(i, j int) bool {
 			if projJ == "" {
 				return true
 			}
-			return projI < projJ
+			return strings.ToLower(projI) < strings.ToLower(projJ)
 		}
 	}
 
-	sortField := config.GetVal("sortField")
+	if sortField == "state" {
+		// Default state sort: strictly Up first -> Pause -> Down, with alphabetical A-Z
+		return Sorters["state"](a[i], a[j])
+	}
+
 	f, ok := Sorters[sortField]
 	if !ok || f == nil {
 		f = Sorters["name"]
 	}
-	if f == nil {
-		return false
-	}
+
 	if config.GetSwitchVal("sortReversed") {
 		return f(a[j], a[i])
 	}

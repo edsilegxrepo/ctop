@@ -42,6 +42,8 @@ func TestRedrawRowsFull(t *testing.T) {
 }
 
 func TestSingleViewNavigation(t *testing.T) {
+	config.Init()
+	config.Update("downloadDir", t.TempDir())
 	mockContainers := createMockContainers(2)
 	gc := &GridCursor{
 		filtered:   mockContainers,
@@ -54,10 +56,12 @@ func TestSingleViewNavigation(t *testing.T) {
 		fn   func() MenuFn
 		keys []string
 	}{
-		{"Metrics", SingleView, []string{"j", "k", "h", "l", "<Tab>", "<BackTab>", "1", "u", "2", "3", "4", "5", "6", "7", "8", "9", "1", "q"}},
+		{"Metrics", SingleView, []string{"j", "k", "h", "l", "<Tab>", "<BackTab>", "1", "u", "X", "2", "3", "4", "5", "6", "7", "8", "9", "0", "F", "1", "q"}},
+		{"Logs", SingleViewLogs, []string{"j", "k", "l", "t", "s", "g", "G", "<Tab>", "q"}},
 		{"Volumes", SingleViewVolumes, []string{"j", "k", "v", "<Tab>", "q"}},
 		{"Network", SingleViewNetwork, []string{"j", "k", "n", "p", "<Tab>", "q"}},
 		{"Process", SingleViewProcess, []string{"j", "k", "E", "u", "<Tab>", "q"}},
+		{"Image", SingleViewImage, []string{"j", "k", "i", "<Tab>", "q"}},
 		{"Top", SingleViewTop, []string{"j", "k", "P", "<Tab>", "q"}},
 		{"Diff", SingleViewDiff, []string{"j", "k", "D", "<Tab>", "q"}},
 		{"Generator", SingleViewGenerator, []string{"j", "k", "G", "<Tab>", "q"}},
@@ -94,6 +98,7 @@ func TestRefreshDisplayWithCursor(t *testing.T) {
 
 func TestDisplayLoop(t *testing.T) {
 	config.Init()
+	config.Update("downloadDir", t.TempDir())
 	header = widgets.NewCTopHeader()
 	status = widgets.NewStatusLine()
 	cGrid = compact.NewCompactGrid()
@@ -181,6 +186,7 @@ func TestShowConnError(t *testing.T) {
 func TestConcurrentMetricsAndSingleView(t *testing.T) {
 	initTheme()
 	config.Init()
+	config.Update("downloadDir", t.TempDir())
 
 	mockContainers := createMockContainers(3)
 	c := mockContainers[0]
@@ -314,3 +320,47 @@ func TestDirectFrameBufferRendering(t *testing.T) {
 		st.Draw(buf)
 	}
 }
+
+func TestExportReportMenu(t *testing.T) {
+	initTheme()
+	config.Init()
+	tmpDir := t.TempDir()
+	config.Update("downloadDir", tmpDir)
+
+	mockContainers := createMockContainers(1)
+	c := mockContainers[0]
+	c.Meta["image"] = "nginx:alpine"
+	c.Meta["state"] = "running"
+
+	// 1. Test cancel with 'q'
+	mockEvents := make(chan ui.Event, 5)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	uiEvents = mockEvents
+
+	fn := ExportReportMenu(c)
+	if fn == nil {
+		t.Fatalf("expected non-nil MenuFn from ExportReportMenu")
+	}
+	next := fn()
+	if next != nil {
+		t.Fatalf("expected nil next MenuFn on cancel")
+	}
+
+	// 2. Test export with '3' (both JSON and Text)
+	tmpDir = t.TempDir()
+	config.Update("downloadDir", tmpDir)
+
+	mockEvents = make(chan ui.Event, 5)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "3"}
+	uiEvents = mockEvents
+
+	fn = ExportReportMenu(c)
+	if fn == nil {
+		t.Fatalf("expected non-nil MenuFn from ExportReportMenu")
+	}
+	next = fn()
+	if next != nil {
+		t.Fatalf("expected nil next MenuFn on complete")
+	}
+}
+

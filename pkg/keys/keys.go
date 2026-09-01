@@ -31,6 +31,16 @@ var KeyMap = map[string][]string{
 		"h",
 		"?",
 	},
+	"home": {
+		"<Home>",
+		"g",
+		"<C-a>",
+	},
+	"end": {
+		"<End>",
+		"G",
+		"<C-e>",
+	},
 	"enter": {
 		"<Enter>",
 	},

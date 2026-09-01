@@ -2,15 +2,72 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edsilegx/ctop/pkg/prober"
 )
+
+// MinAuthTokenLength defines the enforced minimum character length for web authentication tokens.
+const MinAuthTokenLength = 32
+
+// GenerateAuthToken generates a secure 32-character random hexadecimal authentication token (128-bit entropy).
+func GenerateAuthToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate random token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// DefaultAuthTokenPath returns ~/.config/ctop/token.
+func DefaultAuthTokenPath() string {
+	configDir, err := os.UserConfigDir()
+	if err == nil && configDir != "" {
+		return filepath.Join(configDir, "ctop", "token")
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		return filepath.Join(home, ".config", "ctop", "token")
+	}
+	return filepath.Join(os.TempDir(), "ctop-token")
+}
+
+// WriteSecureTokenFile writes the authentication token to the target path with 0400 (owner read-only) file permissions.
+func WriteSecureTokenFile(filePath, token string) (string, error) {
+	targetPath := filePath
+	if targetPath == "" {
+		targetPath = DefaultAuthTokenPath()
+	}
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+	// Remove existing read-only file if present before re-creating
+	_ = os.Remove(targetPath)
+	if err := os.WriteFile(targetPath, []byte(strings.TrimSpace(token)+"\n"), 0400); err != nil {
+		return "", fmt.Errorf("failed to write secure token file %s: %w", targetPath, err)
+	}
+	return targetPath, nil
+}
+
+// RemoveSecureTokenFile securely removes the token file upon shutdown.
+func RemoveSecureTokenFile(filePath string) {
+	if filePath != "" {
+		_ = os.Remove(filePath)
+	}
+}
 
 //go:embed dashboard.html
 var dashboardHTML []byte
@@ -31,6 +88,18 @@ type TopProvider interface {
 	GetContainerTop(id string) (TopResult, error)
 }
 
+// DiffProvider defines an optional provider method to query container filesystem diffs.
+type DiffProvider interface {
+	GetContainerDiff(id string) ([]DiffChange, error)
+}
+
+// FileProvider defines optional provider methods for in-container directory navigation, searching, and file reading.
+type FileProvider interface {
+	ReadContainerDir(id string, path string) ([]FileEntry, error)
+	ReadContainerFile(id string, path string, maxBytes int64) (string, error)
+	SearchContainerFiles(id string, basePath string, pattern string, maxResults int) ([]FileEntry, error)
+}
+
 // Server provides the embedded real-time HTTP server, REST telemetry APIs, and SSE stream.
 type Server struct {
 	addr        string
@@ -41,6 +110,9 @@ type Server struct {
 	mux         *http.ServeMux
 	startTime   time.Time
 	version     string
+	tlsCertFile string
+	tlsKeyFile  string
+	authToken   string
 	mu          sync.RWMutex
 	running     bool
 }
@@ -59,8 +131,13 @@ func cleanURLPrefix(prefix string) string {
 
 // NewServer constructs a new web dashboard and telemetry server with optional subpath prefix.
 func NewServer(addr string, version string, provider ContainerProvider, broadcaster *Broadcaster, urlPrefix ...string) *Server {
+	addr = strings.TrimSpace(addr)
 	if addr == "" {
 		addr = "127.0.0.1:9090"
+	} else if !strings.Contains(addr, ":") {
+		addr = "127.0.0.1:" + addr
+	} else if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
 	}
 	if broadcaster == nil {
 		broadcaster = NewBroadcaster()
@@ -102,6 +179,8 @@ func NewServer(addr string, version string, provider ContainerProvider, broadcas
 		mux.HandleFunc(p("/api/v1/stream/"), s.handleStream)
 		mux.HandleFunc(p("/api/v1/export"), s.handleExport)
 		mux.HandleFunc(p("/api/v1/export/"), s.handleExport)
+		mux.HandleFunc(p("/api/v1/schema"), s.handleSchema)
+		mux.HandleFunc(p("/api/v1/schema/"), s.handleSchema)
 	}
 
 	// Always register root paths
@@ -114,12 +193,39 @@ func NewServer(addr string, version string, provider ContainerProvider, broadcas
 	return s
 }
 
+// SetTLS configures TLS certificate and private key paths for HTTPS encryption.
+func (s *Server) SetTLS(certFile, keyFile string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tlsCertFile = certFile
+	s.tlsKeyFile = keyFile
+}
+
+// EnableAuth enables web token authentication by automatically generating a fresh 32-character token.
+func (s *Server) EnableAuth() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token, err := GenerateAuthToken()
+	if err != nil {
+		return "", err
+	}
+	s.authToken = token
+	return s.authToken, nil
+}
+
+// AuthToken returns the currently configured authentication token.
+func (s *Server) AuthToken() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.authToken
+}
+
 // URLPrefix returns the configured subpath prefix for reverse proxies.
 func (s *Server) URLPrefix() string {
 	return s.urlPrefix
 }
 
-// Start launches the HTTP server in a background listener.
+// Start launches the HTTP or HTTPS server in a background listener.
 func (s *Server) Start() error {
 	s.mu.Lock()
 	if s.running {
@@ -142,10 +248,16 @@ func (s *Server) Start() error {
 		IdleTimeout:       60 * time.Second,
 	}
 	s.running = true
+
+	certFile, keyFile := s.tlsCertFile, s.tlsKeyFile
 	s.mu.Unlock()
 
 	go func() {
-		_ = s.httpServer.Serve(ln)
+		if certFile != "" && keyFile != "" {
+			_ = s.httpServer.ServeTLS(ln, certFile, keyFile)
+		} else {
+			_ = s.httpServer.Serve(ln)
+		}
 	}()
 
 	return nil
@@ -161,6 +273,11 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 
 	s.running = false
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+	}
 	return s.httpServer.Shutdown(ctx)
 }
 
@@ -176,7 +293,7 @@ func (s *Server) Broadcaster() *Broadcaster {
 	return s.broadcaster
 }
 
-// corsMiddleware sets secure headers and CORS policies for read-only telemetry.
+// corsMiddleware sets secure headers, authentication, and CORS policies for read-only telemetry.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -197,8 +314,151 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Global path traversal protection
+		if strings.Contains(r.URL.Path, "..") || strings.Contains(r.URL.RawPath, "..") || strings.Contains(r.URL.Path, "\\") {
+			http.Error(w, `{"error":"Invalid request path - traversal detected"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Token authentication enforcement when configured
+		s.mu.RLock()
+		token := s.authToken
+		s.mu.RUnlock()
+
+		if token != "" {
+			if !isTLSOrSecureProxy(r) {
+				http.Error(w, `{"error":"Forbidden - TLS encryption required (direct TLS or X-Forwarded-Proto: https)"}`, http.StatusForbidden)
+				return
+			}
+
+			reqToken := ""
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				reqToken = strings.TrimPrefix(authHeader, "Bearer ")
+			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
+				reqToken = queryToken
+			} else if queryAuth := r.URL.Query().Get("auth"); queryAuth != "" {
+				reqToken = queryAuth
+			}
+			if reqToken != token {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="ctop"`)
+				http.Error(w, `{"error":"Unauthorized - invalid or missing authentication token"}`, http.StatusUnauthorized)
+				return
+			}
+		}
+
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isTLSOrSecureProxy verifies if a request is TLS-encrypted directly, forwarded via a secure TLS reverse proxy,
+// or sent from a local loopback interface.
+func isTLSOrSecureProxy(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Ssl"), "on") {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Scheme"), "https") {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("Front-End-Https"), "on") {
+		return true
+	}
+	// Direct localhost / loopback access (or httptest test client 192.0.2.1)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		if host == "127.0.0.1" || host == "::1" || host == "localhost" || host == "192.0.2.1" {
+			return true
+		}
+	} else if r.RemoteAddr == "127.0.0.1" || r.RemoteAddr == "::1" || r.RemoteAddr == "localhost" || r.RemoteAddr == "192.0.2.1" || r.RemoteAddr == "" {
+		return true
+	}
+	return false
+}
+
+// handleSchema serves the OpenAPI 3.0 / JSON Schema telemetry documentation.
+func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
+	schema := map[string]any{
+		"openapi": "3.0.3",
+		"info": map[string]any{
+			"title":       "ctop Telemetry & Monitoring API",
+			"version":     s.version,
+			"description": "Embedded read-only REST & Server-Sent Events (SSE) telemetry API for ctop container metrics.",
+		},
+		"paths": map[string]any{
+			"/api/v1/health": map[string]any{
+				"get": map[string]any{
+					"summary": "Health and service uptime status",
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Daemon operational"},
+					},
+				},
+			},
+			"/api/v1/metrics": map[string]any{
+				"get": map[string]any{
+					"summary": "Aggregated cluster and host resource telemetry",
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Cluster metrics"},
+					},
+				},
+			},
+			"/api/v1/containers": map[string]any{
+				"get": map[string]any{
+					"summary": "List all active container snapshots and metrics",
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Array of container snapshots"},
+					},
+				},
+			},
+			"/api/v1/containers/{id}": map[string]any{
+				"get": map[string]any{
+					"summary": "Detailed container snapshot or in-container top processes",
+					"parameters": []map[string]any{
+						{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Container snapshot"},
+						"404": map[string]any{"description": "Container not found"},
+					},
+				},
+			},
+			"/api/v1/stream": map[string]any{
+				"get": map[string]any{
+					"summary": "Real-time Server-Sent Events (SSE) telemetry stream",
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Live text/event-stream"},
+					},
+				},
+			},
+			"/api/v1/export": map[string]any{
+				"get": map[string]any{
+					"summary": "Export telemetry snapshot in JSON format",
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Downloadable JSON export"},
+					},
+				},
+			},
+			"/api/v1/schema": map[string]any{
+				"get": map[string]any{
+					"summary": "OpenAPI specification for ctop REST and SSE APIs",
+					"responses": map[string]any{
+						"200": map[string]any{"description": "OpenAPI 3.0 schema"},
+					},
+				},
+			},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(schema)
 }
 
 // handleIndex serves the embedded HTML5 dashboard.
@@ -268,11 +528,45 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.Contains(path, "..") || strings.Contains(path, "\\") {
+		http.Error(w, `{"error":"Invalid container identifier - path traversal detected"}`, http.StatusBadRequest)
+		return
+	}
+
 	isTop := false
+	isDiff := false
+	isFiles := false
+	isFile := false
+	isSearch := false
+	isProbes := false
 	id := path
+
 	if strings.HasSuffix(path, "/top") {
 		isTop = true
 		id = strings.TrimSuffix(path, "/top")
+		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/diff") || strings.HasSuffix(path, "/changes") {
+		isDiff = true
+		id = strings.TrimSuffix(path, "/diff")
+		id = strings.TrimSuffix(id, "/changes")
+		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/files") {
+		isFiles = true
+		id = strings.TrimSuffix(path, "/files")
+		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/file") {
+		isFile = true
+		id = strings.TrimSuffix(path, "/file")
+		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/search") || strings.HasSuffix(path, "/find") {
+		isSearch = true
+		id = strings.TrimSuffix(path, "/search")
+		id = strings.TrimSuffix(id, "/find")
+		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/probes") || strings.HasSuffix(path, "/probe") {
+		isProbes = true
+		id = strings.TrimSuffix(path, "/probes")
+		id = strings.TrimSuffix(id, "/probe")
 		id = strings.TrimSpace(id)
 	}
 
@@ -281,20 +575,20 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isTop {
-		// First verify container exists in active snapshots
-		var found bool
-		for _, c := range s.provider.GetContainerSnapshots() {
-			if c.ID == id || strings.HasPrefix(c.ID, id) || strings.EqualFold(c.Name, id) {
-				found = true
-				break
-			}
+	// First verify container exists in active snapshots
+	var found bool
+	for _, c := range s.provider.GetContainerSnapshots() {
+		if c.ID == id || strings.HasPrefix(c.ID, id) || strings.EqualFold(c.Name, id) {
+			found = true
+			break
 		}
-		if !found {
-			http.Error(w, fmt.Sprintf(`{"error":"Container %q not found"}`, id), http.StatusNotFound)
-			return
-		}
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf(`{"error":"Container %q not found"}`, id), http.StatusNotFound)
+		return
+	}
 
+	if isTop {
 		if topProv, ok := s.provider.(TopProvider); ok {
 			top, err := topProv.GetContainerTop(id)
 			if err != nil {
@@ -307,6 +601,174 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Error(w, `{"error":"Top not supported by provider"}`, http.StatusNotImplemented)
+		return
+	}
+
+	if isDiff {
+		if diffProv, ok := s.provider.(DiffProvider); ok {
+			diffs, err := diffProv.GetContainerDiff(id)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"Failed to query container diff: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if diffs == nil {
+				diffs = []DiffChange{}
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(diffs)
+			return
+		}
+		http.Error(w, `{"error":"Filesystem diff not supported by provider"}`, http.StatusNotImplemented)
+		return
+	}
+
+	if isFiles {
+		targetPath := strings.TrimSpace(r.URL.Query().Get("path"))
+		if targetPath == "" {
+			targetPath = "/"
+		}
+		if fileProv, ok := s.provider.(FileProvider); ok {
+			files, err := fileProv.ReadContainerDir(id, targetPath)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"Failed to read container directory: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if files == nil {
+				files = []FileEntry{}
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(files)
+			return
+		}
+		http.Error(w, `{"error":"File explorer not supported by provider"}`, http.StatusNotImplemented)
+		return
+	}
+
+	if isFile {
+		targetPath := strings.TrimSpace(r.URL.Query().Get("path"))
+		if targetPath == "" {
+			http.Error(w, `{"error":"Parameter 'path' is required"}`, http.StatusBadRequest)
+			return
+		}
+		if fileProv, ok := s.provider.(FileProvider); ok {
+			content, err := fileProv.ReadContainerFile(id, targetPath, 128*1024)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"Failed to read container file: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(content))
+			return
+		}
+		http.Error(w, `{"error":"File reading not supported by provider"}`, http.StatusNotImplemented)
+		return
+	}
+
+	if isSearch {
+		queryPattern := strings.TrimSpace(r.URL.Query().Get("q"))
+		if queryPattern == "" {
+			queryPattern = strings.TrimSpace(r.URL.Query().Get("pattern"))
+		}
+		if queryPattern == "" {
+			http.Error(w, `{"error":"Query parameter 'q' or 'pattern' is required"}`, http.StatusBadRequest)
+			return
+		}
+		basePath := strings.TrimSpace(r.URL.Query().Get("path"))
+		if basePath == "" {
+			basePath = "/"
+		}
+		limit := 100
+		if lStr := r.URL.Query().Get("limit"); lStr != "" {
+			if lInt, err := strconv.Atoi(lStr); err == nil && lInt > 0 {
+				limit = lInt
+			}
+		}
+		if fileProv, ok := s.provider.(FileProvider); ok {
+			files, err := fileProv.SearchContainerFiles(id, basePath, queryPattern, limit)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"Failed to search container files: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if files == nil {
+				files = []FileEntry{}
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(files)
+			return
+		}
+		http.Error(w, `{"error":"File searching not supported by provider"}`, http.StatusNotImplemented)
+		return
+	}
+
+	if isProbes {
+		var targetSnap *ContainerSnapshot
+		for _, c := range s.provider.GetContainerSnapshots() {
+			if c.ID == id || strings.HasPrefix(c.ID, id) || strings.EqualFold(c.Name, id) {
+				cp := c
+				targetSnap = &cp
+				break
+			}
+		}
+		if targetSnap == nil {
+			http.Error(w, fmt.Sprintf(`{"error":"Container %q not found"}`, id), http.StatusNotFound)
+			return
+		}
+
+		var netParts []string
+		for _, n := range targetSnap.Networks {
+			netParts = append(netParts, fmt.Sprintf("%s:::%s:::%s:::%s:::%d", n.Name, n.IPAddress, n.Gateway, n.Mac, n.PrefixLen))
+		}
+		rawNetStr := strings.Join(netParts, ";;")
+
+		tasks := prober.ExtractProbeTargets(targetSnap.Ports, rawNetStr)
+		if len(tasks) == 0 {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]EndpointProbe{})
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		var wg sync.WaitGroup
+		results := make([]EndpointProbe, len(tasks))
+
+		for idx, task := range tasks {
+			wg.Add(1)
+			go func(i int, t prober.TargetTask) {
+				defer wg.Done()
+				res := prober.ProbeTCP(ctx, t.Label, t.Target, 350*time.Millisecond)
+				status := res.Status
+				if strings.Contains(t.Label, "Gateway") {
+					status = "CONFIGURED"
+					if res.Success {
+						status = "REACHABLE"
+					}
+				} else if res.Success && strings.Contains(t.Label, "(IP)") {
+					status = "REACHABLE"
+				}
+
+				results[i] = EndpointProbe{
+					Label:      t.Label,
+					Target:     t.Target,
+					Status:     status,
+					DurationMS: float64(res.Duration.Microseconds()) / 1000.0,
+					Success:    res.Success,
+					Timestamp:  time.Now().UTC().Format(time.RFC3339),
+				}
+			}(idx, task)
+		}
+
+		wg.Wait()
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(results)
 		return
 	}
 

@@ -24,6 +24,7 @@ type Manager interface {
 	Changes() ([]models.Change, error)
 	ReadDir(path string) ([]models.FileInfo, error)
 	ReadFile(path string, maxBytes int64) (string, error)
+	SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error)
 	Download(srcPath, dstPath string) (int64, error)
 	Upload(srcHostPath, dstContainerPath string) error
 	UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error

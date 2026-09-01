@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -636,5 +639,380 @@ func TestWebServerBroadcasterStreamBroadcast(t *testing.T) {
 	}
 	if len(updateEv.Containers) != 1 || updateEv.Containers[0].Name != "app-2-updated" {
 		t.Fatalf("unexpected updated container in broadcast: %+v", updateEv)
+	}
+}
+
+func TestWebServerAuthToken(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "auth-c1", Name: "auth-app"}},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", mockProv, nil)
+	validToken, err := s.EnableAuth()
+	if err != nil {
+		t.Fatalf("unexpected error enabling auth: %v", err)
+	}
+
+	// 1. Unauthorized without token
+	reqNoAuth := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	wNoAuth := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wNoAuth, reqNoAuth)
+	if wNoAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", wNoAuth.Code)
+	}
+
+	// 2. Unauthorized with invalid token
+	reqBadAuth := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqBadAuth.Header.Set("Authorization", "Bearer invalid-token")
+	wBadAuth := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wBadAuth, reqBadAuth)
+	if wBadAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for bad token, got %d", wBadAuth.Code)
+	}
+
+	// 3. Authorized with Bearer header
+	reqGoodHeader := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqGoodHeader.Header.Set("Authorization", "Bearer "+validToken)
+	wGoodHeader := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wGoodHeader, reqGoodHeader)
+	if wGoodHeader.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid Bearer token, got %d", wGoodHeader.Code)
+	}
+
+	// 4. Authorized with query parameter ?token=
+	reqGoodQuery := httptest.NewRequest(http.MethodGet, "/api/v1/containers?token="+validToken, nil)
+	wGoodQuery := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wGoodQuery, reqGoodQuery)
+	if wGoodQuery.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid query token, got %d", wGoodQuery.Code)
+	}
+
+	// 5. External client without TLS or proxy header -> 403 Forbidden
+	reqExternalInsecure := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqExternalInsecure.RemoteAddr = "192.168.1.50:54321"
+	reqExternalInsecure.Header.Set("Authorization", "Bearer "+validToken)
+	wExternalInsecure := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wExternalInsecure, reqExternalInsecure)
+	if wExternalInsecure.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for external unencrypted request, got %d", wExternalInsecure.Code)
+	}
+
+	// 6. External client with X-Forwarded-Proto: https -> 200 OK
+	reqExternalSecure := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqExternalSecure.RemoteAddr = "192.168.1.50:54321"
+	reqExternalSecure.Header.Set("Authorization", "Bearer "+validToken)
+	reqExternalSecure.Header.Set("X-Forwarded-Proto", "https")
+	wExternalSecure := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wExternalSecure, reqExternalSecure)
+	if wExternalSecure.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for external request with X-Forwarded-Proto https, got %d", wExternalSecure.Code)
+	}
+}
+
+func TestWebServerSchema(t *testing.T) {
+	s := NewServer("127.0.0.1:0", "0.9.0", nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/v1/schema, got %d", w.Code)
+	}
+
+	var schema map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&schema); err != nil {
+		t.Fatalf("failed to decode schema JSON: %v", err)
+	}
+	if schema["openapi"] != "3.0.3" {
+		t.Fatalf("expected openapi 3.0.3, got %v", schema["openapi"])
+	}
+}
+
+func TestBroadcasterRingBuffer(t *testing.T) {
+	b := NewBroadcaster()
+	b.SetMaxHistory(5)
+
+	if h := b.GetHistory(); h != nil {
+		t.Fatalf("expected nil history initially, got %v", h)
+	}
+
+	// Push 7 items to test circular wrapping of capacity 5
+	for i := 1; i <= 7; i++ {
+		b.Broadcast(TelemetryEvent{
+			Type:      "event",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			System:    SystemMetrics{TotalContainers: i},
+		})
+	}
+
+	history := b.GetHistory()
+	if len(history) != 5 {
+		t.Fatalf("expected history length 5, got %d", len(history))
+	}
+	// The oldest in history should be TotalContainers = 3, latest = 7
+	if history[0].System.TotalContainers != 3 {
+		t.Errorf("expected oldest event container count 3, got %d", history[0].System.TotalContainers)
+	}
+	if history[4].System.TotalContainers != 7 {
+		t.Errorf("expected newest event container count 7, got %d", history[4].System.TotalContainers)
+	}
+
+	latest := b.GetLatestEvent()
+	if latest.System.TotalContainers != 7 {
+		t.Errorf("expected latest event container count 7, got %d", latest.System.TotalContainers)
+	}
+}
+
+func TestWebServerPathTraversalRejection(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "c1", Name: "app"}},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", mockProv, nil)
+
+	// Traversal container ID in URL
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers/../../etc/shadow", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for path traversal, got %d", w.Code)
+	}
+}
+
+func TestGenerateAuthToken(t *testing.T) {
+	tok1, err := GenerateAuthToken()
+	if err != nil {
+		t.Fatalf("unexpected error generating token: %v", err)
+	}
+	if len(tok1) != 32 {
+		t.Fatalf("expected 32 hex characters for token, got %d (%q)", len(tok1), tok1)
+	}
+
+	tok2, err := GenerateAuthToken()
+	if err != nil {
+		t.Fatalf("unexpected error generating token: %v", err)
+	}
+	if tok1 == tok2 {
+		t.Fatalf("expected cryptographically unique tokens, got duplicate %q", tok1)
+	}
+
+	// Test EnableAuth
+	s := NewServer("127.0.0.1:0", "0.9.0", nil, nil)
+	autoTok, err := s.EnableAuth()
+	if err != nil {
+		t.Fatalf("unexpected error enabling auth: %v", err)
+	}
+	if len(autoTok) != 32 {
+		t.Fatalf("expected 32-char auto generated token, got %q", autoTok)
+	}
+	if s.AuthToken() != autoTok {
+		t.Fatalf("expected AuthToken() to match %q, got %q", autoTok, s.AuthToken())
+	}
+}
+
+func TestSecureTokenFileOperations(t *testing.T) {
+	tempDir := t.TempDir()
+	targetFile := filepath.Join(tempDir, "sub", "test.token")
+	token := "abcdef0123456789abcdef0123456789"
+
+	writtenPath, err := WriteSecureTokenFile(targetFile, token)
+	if err != nil {
+		t.Fatalf("failed to write secure token file: %v", err)
+	}
+	if writtenPath != targetFile {
+		t.Fatalf("expected written path %q, got %q", targetFile, writtenPath)
+	}
+
+	content, err := os.ReadFile(targetFile)
+	if err != nil {
+		t.Fatalf("failed to read written token file: %v", err)
+	}
+	if strings.TrimSpace(string(content)) != token {
+		t.Fatalf("expected token content %q, got %q", token, string(content))
+	}
+
+	// Verify file permissions (0600) on non-Windows
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(targetFile)
+		if err != nil {
+			t.Fatalf("failed to stat token file: %v", err)
+		}
+		if fi.Mode().Perm() != 0400 {
+			t.Fatalf("expected file permission 0400, got %v", fi.Mode().Perm())
+		}
+	}
+
+	// Test removal
+	RemoveSecureTokenFile(targetFile)
+	if _, err := os.Stat(targetFile); !os.IsNotExist(err) {
+		t.Fatalf("expected token file to be deleted, stat err: %v", err)
+	}
+}
+
+type fullMockProvider struct {
+	snapshots []ContainerSnapshot
+	diffs     []DiffChange
+	files     []FileEntry
+	fileData  string
+}
+
+func (f *fullMockProvider) GetContainerSnapshots() []ContainerSnapshot {
+	return f.snapshots
+}
+
+func (f *fullMockProvider) GetContainerDiff(id string) ([]DiffChange, error) {
+	return f.diffs, nil
+}
+
+func (f *fullMockProvider) ReadContainerDir(id string, path string) ([]FileEntry, error) {
+	return f.files, nil
+}
+
+func (f *fullMockProvider) ReadContainerFile(id string, path string, maxBytes int64) (string, error) {
+	return f.fileData, nil
+}
+
+func (f *fullMockProvider) SearchContainerFiles(id string, basePath string, pattern string, maxResults int) ([]FileEntry, error) {
+	return []FileEntry{
+		{Name: "traefik.yml", Path: "/etc/traefik/traefik.yml", IsDir: false, Size: 1024, Mode: "-rw-r--r--", ModTime: "2026-08-31T12:00:00Z"},
+	}, nil
+}
+
+func TestWebServerDiffAndFiles(t *testing.T) {
+	prov := &fullMockProvider{
+		snapshots: []ContainerSnapshot{
+			{
+				ID:             "c123456",
+				Name:           "api-gateway",
+				Image:          "traefik:v3.0",
+				ImageID:        "sha256:abcdef",
+				ImageArch:      "linux/amd64",
+				ImageSize:      "42.5 MB",
+				ImageLayers:    "6 layers",
+				ImageAuthor:    "Traefik Labs",
+				ImageCreated:   "2026-08-30",
+				ImageDockerVer: "26.1.4",
+				ImageLabels:    map[string]string{"maintainer": "devops"},
+				State:          "running",
+			},
+		},
+		diffs: []DiffChange{
+			{Path: "/etc/traefik/traefik.yml", Kind: "C"},
+			{Path: "/var/log/access.log", Kind: "A"},
+			{Path: "/tmp/old.pid", Kind: "D"},
+		},
+		files: []FileEntry{
+			{Name: "etc", Path: "/etc", IsDir: true, Size: 4096, Mode: "drwxr-xr-x", ModTime: "2026-08-31T12:00:00Z"},
+			{Name: "hosts", Path: "/etc/hosts", IsDir: false, Size: 128, Mode: "-rw-r--r--", ModTime: "2026-08-31T12:00:00Z"},
+		},
+		fileData: "127.0.0.1 localhost\n::1 localhost\n",
+	}
+
+	s := NewServer("127.0.0.1:0", "0.9.1", prov, nil)
+
+	// 1. Test /api/v1/containers/c123456/diff
+	reqDiff := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c123456/diff", nil)
+	wDiff := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wDiff, reqDiff)
+	if wDiff.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for diff, got %d: %s", wDiff.Code, wDiff.Body.String())
+	}
+	var diffResp []DiffChange
+	if err := json.NewDecoder(wDiff.Body).Decode(&diffResp); err != nil || len(diffResp) != 3 {
+		t.Fatalf("failed to decode diff response: %v, count=%d", err, len(diffResp))
+	}
+
+	// 2. Test /api/v1/containers/c123456/files?path=/
+	reqFiles := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c123456/files?path=/", nil)
+	wFiles := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wFiles, reqFiles)
+	if wFiles.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for files, got %d: %s", wFiles.Code, wFiles.Body.String())
+	}
+	var filesResp []FileEntry
+	if err := json.NewDecoder(wFiles.Body).Decode(&filesResp); err != nil || len(filesResp) != 2 {
+		t.Fatalf("failed to decode files response: %v, count=%d", err, len(filesResp))
+	}
+
+	// 3. Test /api/v1/containers/c123456/file?path=/etc/hosts
+	reqFile := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c123456/file?path=/etc/hosts", nil)
+	wFile := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wFile, reqFile)
+	if wFile.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for file, got %d: %s", wFile.Code, wFile.Body.String())
+	}
+	if !strings.Contains(wFile.Body.String(), "127.0.0.1 localhost") {
+		t.Fatalf("unexpected file content: %s", wFile.Body.String())
+	}
+
+	// 4. Test /api/v1/containers/c123456/search?q=traefik
+	reqSearch := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c123456/search?q=traefik", nil)
+	wSearch := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wSearch, reqSearch)
+	if wSearch.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for search, got %d: %s", wSearch.Code, wSearch.Body.String())
+	}
+	var searchResp []FileEntry
+	if err := json.NewDecoder(wSearch.Body).Decode(&searchResp); err != nil || len(searchResp) != 1 {
+		t.Fatalf("failed to decode search response: %v, count=%d", err, len(searchResp))
+	}
+	if searchResp[0].Path != "/etc/traefik/traefik.yml" {
+		t.Fatalf("unexpected search match path: %s", searchResp[0].Path)
+	}
+
+	// 5. Test Image metadata in container detail
+	reqDetail := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c123456", nil)
+	wDetail := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wDetail, reqDetail)
+	if wDetail.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for container detail, got %d", wDetail.Code)
+	}
+	var detailSnap ContainerSnapshot
+	if err := json.NewDecoder(wDetail.Body).Decode(&detailSnap); err != nil {
+		t.Fatalf("failed to decode container detail JSON: %v", err)
+	}
+	if detailSnap.ImageID != "sha256:abcdef" || detailSnap.ImageArch != "linux/amd64" || detailSnap.ImageSize != "42.5 MB" {
+		t.Fatalf("missing or incorrect image fields in detail snapshot: %+v", detailSnap)
+	}
+}
+
+func TestWebServerProbes(t *testing.T) {
+	prov := &fullMockProvider{
+		snapshots: []ContainerSnapshot{
+			{
+				ID:    "c_net_123",
+				Name:  "web-service",
+				Ports: "0.0.0.0:8080->80/tcp",
+				Networks: []NetworkInfo{
+					{Name: "bridge", IPAddress: "172.17.0.2", Gateway: "172.17.0.1", PrefixLen: 16},
+				},
+				State: "running",
+			},
+		},
+	}
+
+	s := NewServer("127.0.0.1:0", "0.9.1", prov, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_net_123/probes", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for probes endpoint, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var probes []EndpointProbe
+	if err := json.NewDecoder(w.Body).Decode(&probes); err != nil {
+		t.Fatalf("failed to decode probe results JSON: %v", err)
+	}
+
+	if len(probes) == 0 {
+		t.Fatal("expected probe results for container with ports and networks")
+	}
+
+	// Verify probe result fields
+	for _, p := range probes {
+		if p.Target == "" || p.Label == "" || p.Status == "" {
+			t.Fatalf("invalid probe response structure: %+v", p)
+		}
 	}
 }

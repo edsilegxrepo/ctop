@@ -27,6 +27,8 @@ type Single struct {
 	Env       *Env
 	Mounts    *Mounts
 	Network   *Network
+	Image     *Image
+	Logs      *Logs
 	Process   *Process
 	Top       *Top
 	Diff      *Diff
@@ -53,6 +55,8 @@ func NewSingle() *Single {
 		Env:       NewEnv(),
 		Mounts:    NewMounts(),
 		Network:   NewNetwork(),
+		Image:     NewImage(),
+		Logs:      NewLogs(),
 		Process:   NewProcess(),
 		Top:       NewTop(),
 		Diff:      NewDiff(),
@@ -75,6 +79,8 @@ func (e *Single) SetTab(tab int) {
 		e.ActiveTab = tab
 		e.TabBar.ActiveTab = tab
 		e.Y = 0
+		e.Image.Offset = 0
+		e.Generator.Offset = 0
 		e.alignUnsafe()
 	}
 }
@@ -98,8 +104,18 @@ func (e *Single) PrevTab() {
 func (e *Single) Up() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.ActiveTab == TabFiles {
+	switch e.ActiveTab {
+	case TabFiles:
 		e.Explorer.Up()
+		return
+	case TabLogs:
+		e.Logs.Up()
+		return
+	case TabImage:
+		e.Image.Up()
+		return
+	case TabGenerator:
+		e.Generator.Up()
 		return
 	}
 	if e.Y < 0 {
@@ -114,8 +130,18 @@ func (e *Single) Up() {
 func (e *Single) Down() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.ActiveTab == TabFiles {
+	switch e.ActiveTab {
+	case TabFiles:
 		e.Explorer.Down()
+		return
+	case TabLogs:
+		e.Logs.Down()
+		return
+	case TabImage:
+		e.Image.Down()
+		return
+	case TabGenerator:
+		e.Generator.Down()
 		return
 	}
 	_, termH := theme.TermDimensions()
@@ -132,10 +158,18 @@ func (e *Single) Down() {
 func (e *Single) PgUp() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.ActiveTab == TabFiles {
-		for i := 0; i < 10; i++ {
-			e.Explorer.Up()
-		}
+	switch e.ActiveTab {
+	case TabFiles:
+		e.Explorer.PgUp(15)
+		return
+	case TabLogs:
+		e.Logs.PgUp()
+		return
+	case TabImage:
+		e.Image.PgUp()
+		return
+	case TabGenerator:
+		e.Generator.PgUp()
 		return
 	}
 	_, termH := theme.TermDimensions()
@@ -149,10 +183,18 @@ func (e *Single) PgUp() {
 func (e *Single) PgDown() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.ActiveTab == TabFiles {
-		for i := 0; i < 10; i++ {
-			e.Explorer.Down()
-		}
+	switch e.ActiveTab {
+	case TabFiles:
+		e.Explorer.PgDown(15)
+		return
+	case TabLogs:
+		e.Logs.PgDown()
+		return
+	case TabImage:
+		e.Image.PgDown()
+		return
+	case TabGenerator:
+		e.Generator.PgDown()
 		return
 	}
 	_, termH := theme.TermDimensions()
@@ -161,6 +203,38 @@ func (e *Single) PgDown() {
 	if e.Y < limit {
 		e.Y = limit
 	}
+	e.alignUnsafe()
+}
+
+func (e *Single) Home() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch e.ActiveTab {
+	case TabFiles:
+		e.Explorer.Home()
+		return
+	case TabLogs:
+		e.Logs.ScrollTop()
+		return
+	}
+	e.Y = 0
+	e.alignUnsafe()
+}
+
+func (e *Single) End() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch e.ActiveTab {
+	case TabFiles:
+		e.Explorer.End()
+		return
+	case TabLogs:
+		e.Logs.ScrollBottom()
+		return
+	}
+	_, termH := theme.TermDimensions()
+	limit := termH - e.getHeightUnsafe()
+	e.Y = limit
 	e.alignUnsafe()
 }
 
@@ -181,24 +255,28 @@ func (e *Single) SetTop(res models.TopResult) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.Top.Set(res)
+	e.alignUnsafe()
 }
 
 func (e *Single) SetDiff(changes []models.Change) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.Diff.Set(changes)
+	e.alignUnsafe()
 }
 
 func (e *Single) SetGenerator(runCmd, compose string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.Generator.Set(runCmd, compose)
+	e.alignUnsafe()
 }
 
 func (e *Single) SetExplorer(dirPath string, entries []models.FileInfo) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.Explorer.Set(dirPath, entries)
+	e.alignUnsafe()
 }
 
 func (e *Single) RunNetworkProbes() {
@@ -231,6 +309,10 @@ func (e *Single) SetMeta(m models.Meta) {
 		e.Labels.Set(labelStr)
 	}
 	e.Network.Set(m["[NETWORKS]"], m["ports"], m["IPs"])
+	e.Image.Set(m)
+	if name, ok := m["name"]; ok {
+		e.Logs.SetContainerName(name)
+	}
 
 	// 3. Info header fields
 	for k, v := range m {
@@ -266,6 +348,8 @@ func (e *Single) getHeightUnsafe() (h int) {
 		h += 12 // Mem
 		h += 12 // Net
 		h += 12 // IO
+	case TabLogs:
+		h += e.Logs.GetHeight()
 	case TabVolumes:
 		h += e.Mounts.GetHeight()
 	case TabNetwork:
@@ -273,6 +357,8 @@ func (e *Single) getHeightUnsafe() (h int) {
 	case TabProcess:
 		h += e.Process.GetHeight()
 		h += e.Env.GetHeight()
+	case TabImage:
+		h += e.Image.GetHeight()
 	case TabTop:
 		h += e.Top.GetHeight()
 	case TabDiff:
@@ -329,6 +415,14 @@ func (e *Single) alignUnsafe() {
 		e.IO.SetRect(0, y, leftW, y+12)
 		e.IO.Align()
 
+	case TabLogs:
+		_, termH := theme.TermDimensions()
+		expH := termH - y
+		if expH < 6 {
+			expH = 6
+		}
+		e.Logs.SetRect(0, y, leftW, y+expH)
+
 	case TabVolumes:
 		mountsH := e.Mounts.GetHeight()
 		e.Mounts.SetRect(0, y, leftW, y+mountsH)
@@ -345,6 +439,14 @@ func (e *Single) alignUnsafe() {
 		envH := e.Env.GetHeight()
 		e.Env.SetRect(0, y, leftW, y+envH)
 
+	case TabImage:
+		_, termH := theme.TermDimensions()
+		expH := termH - y
+		if expH < 6 {
+			expH = 6
+		}
+		e.Image.SetRect(0, y, leftW, y+expH)
+
 	case TabTop:
 		topH := e.Top.GetHeight()
 		e.Top.SetRect(0, y, leftW, y+topH)
@@ -354,15 +456,23 @@ func (e *Single) alignUnsafe() {
 		e.Diff.SetRect(0, y, leftW, y+diffH)
 
 	case TabGenerator:
-		genH := e.Generator.GetHeight()
-		e.Generator.SetRect(0, y, leftW, y+genH)
+		_, termH := theme.TermDimensions()
+		expH := termH - y
+		if expH < 6 {
+			expH = 6
+		}
+		e.Generator.SetRect(0, y, leftW, y+expH)
 
 	case TabLabels:
 		labelsH := e.Labels.GetHeight()
 		e.Labels.SetRect(0, y, leftW, y+labelsH)
 
 	case TabFiles:
-		expH := e.Explorer.GetHeight()
+		_, termH := theme.TermDimensions()
+		expH := termH - y
+		if expH < 6 {
+			expH = 6
+		}
 		e.Explorer.SetRect(0, y, leftW, y+expH)
 	}
 }
@@ -389,6 +499,8 @@ func (e *Single) Draw(buf *ui.Buffer) {
 		e.Mem.Draw(buf)
 		e.Net.Draw(buf)
 		e.IO.Draw(buf)
+	case TabLogs:
+		e.Logs.Draw(buf)
 	case TabVolumes:
 		e.Mounts.Draw(buf)
 	case TabNetwork:
@@ -396,6 +508,8 @@ func (e *Single) Draw(buf *ui.Buffer) {
 	case TabProcess:
 		e.Process.Draw(buf)
 		e.Env.Draw(buf)
+	case TabImage:
+		e.Image.Draw(buf)
 	case TabTop:
 		e.Top.Draw(buf)
 	case TabDiff:

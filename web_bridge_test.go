@@ -20,10 +20,7 @@ func TestWebBridge(t *testing.T) {
 		t.Fatalf("failed to initialize mock connector: %v", err)
 	}
 
-	gc := &GridCursor{cSuper: cSuper}
-	_, _ = gc.RefreshContainers()
-
-	srv, cleanup, err := startWebServer("127.0.0.1:0", "0.9.0", "/testprefix", gc)
+	srv, cleanup, err := startWebServer("127.0.0.1:0", "0.9.0", "/testprefix", cSuper)
 	if err != nil {
 		t.Fatalf("failed to start web server: %v", err)
 	}
@@ -31,7 +28,7 @@ func TestWebBridge(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	prov := &cursorContainerProvider{cursor: gc}
+	prov := &superContainerProvider{cSuper: cSuper}
 	snapshots := prov.GetContainerSnapshots()
 	if len(snapshots) == 0 {
 		t.Fatal("expected mock containers in snapshots")
@@ -42,10 +39,10 @@ func TestWebBridge(t *testing.T) {
 		t.Fatalf("expected %d total containers, got %d", len(snapshots), sys.TotalContainers)
 	}
 
-	// Test nil cursor handling
-	nilProv := &cursorContainerProvider{cursor: nil}
+	// Test nil cSuper handling
+	nilProv := &superContainerProvider{cSuper: nil}
 	if nilProv.GetContainerSnapshots() != nil {
-		t.Fatal("expected nil for nil cursor")
+		t.Fatal("expected nil for nil cSuper")
 	}
 
 	// Verify server endpoint responds
@@ -66,8 +63,7 @@ func TestWebBridgeContainerConversion(t *testing.T) {
 	c.CPUUtil = 42
 	c.MemUsage = 10485760
 
-	gc := &GridCursor{}
-	prov := &cursorContainerProvider{cursor: gc}
+	prov := &superContainerProvider{cSuper: nil}
 	_ = prov
 
 	// Test parse helpers
@@ -101,10 +97,7 @@ func TestWebBridgeE2E(t *testing.T) {
 		t.Fatalf("failed to initialize mock connector: %v", err)
 	}
 
-	gc := &GridCursor{cSuper: cSuper}
-	_, _ = gc.RefreshContainers()
-
-	srv, cleanup, err := startWebServer("127.0.0.1:0", "0.9.0", "/probe", gc)
+	srv, cleanup, err := startWebServer("127.0.0.1:0", "0.9.0", "/probe", cSuper)
 	if err != nil {
 		t.Fatalf("failed to start web server in E2E: %v", err)
 	}

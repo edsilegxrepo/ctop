@@ -27,6 +27,11 @@ var defaultParams = []*Param{
 		Val:   "unicode",
 		Label: "Icon Style (unicode or nerd)",
 	},
+	{
+		Key:   "probeInterval",
+		Val:   "5s",
+		Label: "Network Probing Interval",
+	},
 }
 
 type Param struct {

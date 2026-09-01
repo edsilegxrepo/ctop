@@ -3,6 +3,7 @@
 package single
 
 import (
+	"fmt"
 	"image"
 	"testing"
 	"time"
@@ -149,17 +150,30 @@ func TestSingleView(t *testing.T) {
 }
 
 func TestLogsWidget(t *testing.T) {
-	stream := make(chan models.Log, 5)
-	logsWidget := NewLogs(stream)
-
-	stream <- models.Log{Timestamp: time.Now(), Message: "starting service..."}
-	stream <- models.Log{Timestamp: time.Now(), Message: "service ready"}
-	time.Sleep(50 * time.Millisecond)
+	logsWidget := NewLogs()
+	logsWidget.SetContainerName("my-app")
+	logsWidget.Add(models.Log{Timestamp: time.Now(), Message: "starting service..."})
+	logsWidget.Add(models.Log{Timestamp: time.Now(), Message: "service ready"})
 
 	buf := ui.NewBuffer(image.Rect(0, 0, 80, 20))
 	logsWidget.SetRect(0, 0, 80, 20)
 	logsWidget.Draw(buf)
-	close(stream)
+
+	logsWidget.ToggleTime()
+	logsWidget.SetFilter("service")
+	logsWidget.Up()
+	logsWidget.Down()
+	logsWidget.PgUp()
+	logsWidget.PgDown()
+	logsWidget.ScrollTop()
+	logsWidget.ScrollBottom()
+	logsWidget.Draw(buf)
+
+	tmpDir := t.TempDir()
+	savedPath, err := logsWidget.SaveLogs(tmpDir)
+	if err != nil || savedPath == "" {
+		t.Fatalf("expected successful logs export, got err: %v", err)
+	}
 }
 
 func TestMountsWidget(t *testing.T) {
@@ -381,8 +395,8 @@ func TestExplorerWidget(t *testing.T) {
 		{Name: "src", Path: "/app/src", IsDir: true, Mode: "drwxr-xr-x", ModTime: "2026-08-18 12:00:00"},
 	})
 
-	if len(exp.totalItems()) != 3 { // ".." + config.json + src
-		t.Fatalf("expected 3 total items, got %d", len(exp.totalItems()))
+	if len(exp.TotalItems()) != 3 { // ".." + config.json + src
+		t.Fatalf("expected 3 total items, got %d", len(exp.TotalItems()))
 	}
 
 	// Navigation
@@ -411,6 +425,46 @@ func TestExplorerWidget(t *testing.T) {
 		t.Fatalf("expected Previewing to be false")
 	}
 	exp.Draw(buf)
+
+	// Test Large List Navigation (PageUp, PageDown, Home, End)
+	var largeList []models.FileInfo
+	for i := 0; i < 100; i++ {
+		largeList = append(largeList, models.FileInfo{
+			Name:  fmt.Sprintf("file_%03d.txt", i),
+			Path:  fmt.Sprintf("/app/file_%03d.txt", i),
+			IsDir: false,
+			Size:  int64(i * 10),
+		})
+	}
+	exp.Set("/app", largeList)
+	exp.Home()
+	if exp.CursorPos != 0 {
+		t.Fatalf("expected cursor at 0, got %d", exp.CursorPos)
+	}
+
+	// End
+	exp.End()
+	if exp.CursorPos != 100 { // 1 parent ("..") + 100 files = 101 items, last idx 100
+		t.Fatalf("expected cursor at 100 after End, got %d", exp.CursorPos)
+	}
+
+	// PgUp
+	exp.PgUp(15)
+	if exp.CursorPos != 85 {
+		t.Fatalf("expected cursor at 85 after PgUp(15), got %d", exp.CursorPos)
+	}
+
+	// PgDown
+	exp.PgDown(10)
+	if exp.CursorPos != 95 {
+		t.Fatalf("expected cursor at 95 after PgDown(10), got %d", exp.CursorPos)
+	}
+
+	// Home
+	exp.Home()
+	if exp.CursorPos != 0 {
+		t.Fatalf("expected cursor at 0 after Home, got %d", exp.CursorPos)
+	}
 }
 
 func TestSingleTabNavigation(t *testing.T) {
@@ -458,4 +512,41 @@ func TestSingleTabNavigation(t *testing.T) {
 
 	// Test ToggleSecretMask
 	s.ToggleSecretMask()
+}
+
+func TestImageWidget(t *testing.T) {
+	im := NewImage()
+	if im == nil {
+		t.Fatal("expected non-nil Image widget")
+	}
+
+	buf := ui.NewBuffer(image.Rect(0, 0, 120, 40))
+	im.SetRect(0, 0, 120, 30)
+	im.Draw(buf)
+
+	meta := map[string]string{
+		"imageId":            "sha256:7f3b8901c2d3e4f5a6b7c8d9e0f1a2b3",
+		"imageRepoTags":      "authelia/authelia:4.38.19, authelia/authelia:latest",
+		"imageRepoDigests":   "authelia/authelia@sha256:abcd1234",
+		"imageArch":          "linux/amd64",
+		"imageAuthor":        "Authelia Team",
+		"imageCreated":       "Mon Jan 02 15:04:05 2026",
+		"imageDockerVersion": "24.0.7",
+		"imageSize":          "124.50 MB (130548120 bytes)",
+		"imageLayers":        "8 layers",
+		"imageEntrypoint":    "/app/authelia",
+		"imageCmd":           "--config /config/configuration.yml",
+		"imageWorkdir":       "/app",
+		"imageUser":          "1000:1000",
+		"imageExposedPorts":  "9091/tcp",
+		"imageVolumes":       "/config",
+		"imageEnv":           "PATH=/usr/local/sbin:/usr/local/bin;;AUTHELIA_PORT=9091",
+		"imageLabels":        "org.opencontainers.image.title=Authelia;;org.opencontainers.image.version=4.38.19",
+	}
+
+	im.Set(meta)
+	if im.GetHeight() <= 0 {
+		t.Fatalf("expected positive height, got %d", im.GetHeight())
+	}
+	im.Draw(buf)
 }

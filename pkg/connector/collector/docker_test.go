@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/models"
 	api "github.com/fsouza/go-dockerclient"
 )
@@ -300,5 +301,44 @@ func TestDockerCollectorRatesCalculation(t *testing.T) {
 	}
 	if c.NetTxRate <= 0 {
 		t.Fatalf("expected positive NetTxRate, got %d", c.NetTxRate)
+	}
+}
+
+func TestDockerCollectorCPUMode(t *testing.T) {
+	config.Init()
+
+	c := &Docker{
+		Metrics: models.NewMetrics(),
+	}
+
+	// 1. Normalized mode (default)
+	config.Update("cpuMode", "normalized")
+	stats1 := &api.Stats{}
+	stats1.CPUStats.OnlineCPUs = 4
+	stats1.CPUStats.CPUUsage.TotalUsage = 200000000
+	stats1.CPUStats.SystemCPUUsage = 1000000000
+	c.ReadCPU(stats1)
+
+	// Second tick: +200M total, +1000M system -> 20%
+	stats2 := &api.Stats{}
+	stats2.CPUStats.OnlineCPUs = 4
+	stats2.CPUStats.CPUUsage.TotalUsage = 400000000
+	stats2.CPUStats.SystemCPUUsage = 2000000000
+	c.ReadCPU(stats2)
+
+	if c.CPUUtil <= 0 {
+		t.Fatalf("expected positive CPUUtil in normalized mode, got %d", c.CPUUtil)
+	}
+
+	// 2. Per-core mode: 4 cores * 20% = ~80%
+	config.Update("cpuMode", "per-core")
+	cPerCore := &Docker{
+		Metrics: models.NewMetrics(),
+	}
+	cPerCore.ReadCPU(stats1)
+	cPerCore.ReadCPU(stats2)
+
+	if cPerCore.CPUUtil < c.CPUUtil {
+		t.Fatalf("expected per-core CPUUtil (%d) >= normalized CPUUtil (%d)", cPerCore.CPUUtil, c.CPUUtil)
 	}
 }

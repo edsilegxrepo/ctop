@@ -56,7 +56,12 @@ func (w *Info) Draw(buf *ui.Buffer) {
 	sepStyle := theme.Style("border.fg")
 	sepCell := ui.NewCell(ui.VERTICAL_LINE, sepStyle)
 
-	col0Width := 10
+	col0Width := 15
+	for _, row := range w.Rows {
+		if len(row[0]) > col0Width-2 {
+			col0Width = len(row[0]) + 2
+		}
+	}
 	sepX := w.Inner.Min.X + col0Width
 	valX := sepX + 2
 

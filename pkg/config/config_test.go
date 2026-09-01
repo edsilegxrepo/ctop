@@ -75,7 +75,7 @@ func TestConfigPathResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error getting config path with XDG_CONFIG_HOME: %v", err)
 	}
-	expected := tempDir + "/ctop/config"
+	expected := filepath.Join(tempDir, "ctop", "config")
 	if path != expected {
 		t.Fatalf("expected path '%s', got '%s'", expected, path)
 	}
@@ -129,6 +129,7 @@ func TestConfigLegacyPath(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", tempHome)
+	t.Setenv("USERPROFILE", tempHome)
 
 	legacyFile := filepath.Join(tempHome, ".ctop")
 	if err := os.WriteFile(legacyFile, []byte(""), 0o644); err != nil {

@@ -56,6 +56,10 @@ func (rc *Runc) ReadFile(path string, maxBytes int64) (string, error) {
 	return "", ErrActionNotImpl
 }
 
+func (rc *Runc) SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error) {
+	return nil, ErrActionNotImpl
+}
+
 func (rc *Runc) Download(srcPath, dstPath string) (int64, error) {
 	return 0, ErrActionNotImpl
 }

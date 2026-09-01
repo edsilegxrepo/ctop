@@ -135,6 +135,15 @@ func (m *trackingManager) ReadFile(path string, maxBytes int64) (string, error) 
 	return "test file content", nil
 }
 
+func (m *trackingManager) SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error) {
+	if m.fail {
+		return nil, errors.New("search failed")
+	}
+	return []models.FileInfo{
+		{Name: "app.log", Path: "/app/app.log", IsDir: false, Mode: "-rw-r--r--"},
+	}, nil
+}
+
 func (m *trackingManager) Download(srcPath, dstPath string) (int64, error) {
 	if m.fail {
 		return 0, errors.New("download failed")

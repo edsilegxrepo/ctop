@@ -22,6 +22,7 @@ import (
 	"github.com/edsilegx/ctop/pkg/exit"
 	"github.com/edsilegx/ctop/pkg/logging"
 	"github.com/edsilegx/ctop/pkg/update"
+	"github.com/edsilegx/ctop/pkg/web"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 )
@@ -213,19 +214,21 @@ func main() {
 	cursor = &GridCursor{cSuper: cSuper}
 
 	// start web server if requested
+	var webSrv *web.Server
 	if webFlag != "" {
-		srv, cleanup, err := startWebServer(webFlag, version, urlPrefixFlag, cursor)
+		srv, cleanup, err := startWebServer(webFlag, version, urlPrefixFlag, cSuper)
 		if err != nil {
 			errStr := strings.ToLower(err.Error())
 			if strings.Contains(errStr, "address already in use") || strings.Contains(errStr, "only one usage of each socket address") {
-				fmt.Fprintf(os.Stderr, "error starting web dashboard: port %s is already in use by another process\n", webFlag)
+				fmt.Fprintf(os.Stderr, "error starting web dashboard: address %s is already in use by another process\n", webFlag)
 				os.Exit(exit.ExitPortInUse)
 			}
 			fmt.Fprintf(os.Stderr, "error starting web dashboard: %v\n", err)
 			os.Exit(exit.ExitGeneral)
 		}
 		defer cleanup()
-		log.Infof("embedded web dashboard listening on %s (read-only)", srv.Addr())
+		webSrv = srv
+		log.Infof("embedded web dashboard listening on http://%s (read-only)", srv.Addr())
 	}
 
 	// Headless daemon mode
@@ -234,7 +237,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "--headless mode requires --web <address>\n")
 			os.Exit(exit.ExitUsage)
 		}
-		fmt.Printf("ctop running in headless mode (read-only web dashboard on %s). Press Ctrl+C to exit.\n", webFlag)
+		listenAddr := webFlag
+		if webSrv != nil {
+			listenAddr = webSrv.Addr()
+		}
+		fmt.Printf("ctop running in headless mode (read-only web dashboard on http://%s). Press Ctrl+C to exit.\n", listenAddr)
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		<-sigChan

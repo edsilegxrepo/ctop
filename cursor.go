@@ -3,6 +3,7 @@ package main
 
 import (
 	"math"
+	"sync"
 
 	"github.com/edsilegx/ctop/pkg/connector"
 	"github.com/edsilegx/ctop/pkg/container"
@@ -10,6 +11,7 @@ import (
 
 // GridCursor manages the index and ID of the active container row and manages vertical scrolling.
 type GridCursor struct {
+	mu          sync.RWMutex
 	selectedID  string                    // ID of currently selected container
 	filtered    container.Containers      // Active list of containers matching current filter and display flags
 	cSuper      *connector.ConnectorSuper // Connector supervisor providing continuous container discovery
@@ -17,15 +19,36 @@ type GridCursor struct {
 }
 
 // Len returns the count of visible/filtered containers.
-func (gc *GridCursor) Len() int { return len(gc.filtered) }
+func (gc *GridCursor) Len() int {
+	if gc == nil {
+		return 0
+	}
+	gc.mu.RLock()
+	defer gc.mu.RUnlock()
+	return len(gc.filtered)
+}
+
+// Filtered returns a shallow copy of the filtered containers slice under read lock.
+func (gc *GridCursor) Filtered() container.Containers {
+	if gc == nil {
+		return nil
+	}
+	gc.mu.RLock()
+	defer gc.mu.RUnlock()
+	res := make(container.Containers, len(gc.filtered))
+	copy(res, gc.filtered)
+	return res
+}
 
 // Selected returns the container currently highlighted by the cursor, or nil if none.
 func (gc *GridCursor) Selected() *container.Container {
 	if gc == nil {
 		return nil
 	}
-	idx := gc.Idx()
-	if idx < gc.Len() {
+	gc.mu.Lock()
+	defer gc.mu.Unlock()
+	idx := gc.idxLocked()
+	if idx < len(gc.filtered) {
 		return gc.filtered[idx]
 	}
 	return nil
@@ -34,10 +57,13 @@ func (gc *GridCursor) Selected() *container.Container {
 // RefreshContainers refreshes containers from source, returning whether the quantity of
 // containers has changed and any error
 func (gc *GridCursor) RefreshContainers() (bool, error) {
-	if gc.cSuper == nil {
+	if gc == nil || gc.cSuper == nil {
 		return false, nil
 	}
-	oldLen := gc.Len()
+	gc.mu.Lock()
+	defer gc.mu.Unlock()
+
+	oldLen := len(gc.filtered)
 	gc.filtered = container.Containers{}
 
 	cSource, err := gc.cSuper.Get()
@@ -55,42 +81,67 @@ func (gc *GridCursor) RefreshContainers() (bool, error) {
 			gc.filtered = append(gc.filtered, c)
 		}
 	}
+	gc.filtered.Sort()
 
 	if !cursorVisible || gc.selectedID == "" {
-		gc.Reset()
+		gc.resetLocked()
 	}
 
-	return oldLen != gc.Len(), nil
+	return oldLen != len(gc.filtered), nil
 }
 
 // Reset sets an initial cursor position, if possible
 func (gc *GridCursor) Reset() {
+	if gc == nil {
+		return
+	}
+	gc.mu.Lock()
+	defer gc.mu.Unlock()
+	gc.resetLocked()
+}
+
+func (gc *GridCursor) resetLocked() {
 	if gc.cSuper != nil {
 		cSource, err := gc.cSuper.Get()
 		if err == nil {
 			for _, c := range cSource.All() {
-				c.Widgets.UnHighlight()
+				if c != nil && c.Widgets != nil {
+					c.Widgets.UnHighlight()
+				}
 			}
 		}
 	} else {
 		for _, c := range gc.filtered {
-			c.Widgets.UnHighlight()
+			if c != nil && c.Widgets != nil {
+				c.Widgets.UnHighlight()
+			}
 		}
 	}
-	if gc.Len() > 0 {
+	if len(gc.filtered) > 0 && gc.filtered[0] != nil {
 		gc.selectedID = gc.filtered[0].Id
-		gc.filtered[0].Widgets.Highlight()
+		if gc.filtered[0].Widgets != nil {
+			gc.filtered[0].Widgets.Highlight()
+		}
 	}
 }
 
 // Idx returns current cursor index
 func (gc *GridCursor) Idx() int {
+	if gc == nil {
+		return 0
+	}
+	gc.mu.Lock()
+	defer gc.mu.Unlock()
+	return gc.idxLocked()
+}
+
+func (gc *GridCursor) idxLocked() int {
 	for n, c := range gc.filtered {
 		if c.Id == gc.selectedID {
 			return n
 		}
 	}
-	gc.Reset()
+	gc.resetLocked()
 	return 0
 }
 

@@ -46,6 +46,12 @@ func (m *mockCursorManager) ReadFile(path string, maxBytes int64) (string, error
 	return "sample file content", nil
 }
 
+func (m *mockCursorManager) SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error) {
+	return []models.FileInfo{
+		{Name: "server", Path: "/app/server", IsDir: false, Size: 1024, Mode: "-rwxr-xr-x"},
+	}, nil
+}
+
 func (m *mockCursorManager) Download(srcPath, dstPath string) (int64, error) {
 	return 1024, nil
 }

@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"github.com/edsilegx/ctop/internal/theme"
+	"github.com/edsilegx/ctop/pkg/sanitize"
 	ui "github.com/gizak/termui/v3"
 )
 
 var (
-	envPattern    = regexp.MustCompile(`(?P<KEY>[^=]+)=(?P<VALUE>.*)`)
-	secretPattern = regexp.MustCompile(`(?i)(PASS|SECRET|KEY|TOKEN|AUTH|CERT|CRED|PRIVATE|DATABASE_URL|DB_URL|DSN|SIGNATURE|BEARER)`)
+	envPattern = regexp.MustCompile(`(?P<KEY>[^=]+)=(?P<VALUE>.*)`)
 )
 
 type Env struct {
@@ -63,7 +63,7 @@ func (w *Env) rebuild() {
 			w.data[key] = value
 
 			displayVal := value
-			if w.Masked && secretPattern.MatchString(key) && len(value) > 0 {
+			if w.Masked && sanitize.IsSensitiveKey(key) && len(value) > 0 {
 				displayVal = "•••••••••••• [masked]"
 			}
 			w.Rows = append(w.Rows, mkInfoRows(key, displayVal)...)
@@ -81,13 +81,24 @@ func (w *Env) GetHeight() int {
 func (w *Env) Draw(buf *ui.Buffer) {
 	w.Block.Draw(buf)
 
-	keyStyle := theme.Style("label.fg")
+	keyStyle := theme.Style("grid.header.fg")
 	valStyle := theme.Style("par.text.fg")
-	maskedStyle := theme.Style("status.warn")
+	maskedStyle := ui.NewStyle(theme.Color("status.warn"))
 	sepStyle := theme.Style("border.fg")
 	sepCell := ui.NewCell(ui.VERTICAL_LINE, sepStyle)
 
-	col0Width := 20
+	maxKeyLen := 15
+	for _, row := range w.Rows {
+		if len(row[0]) > maxKeyLen {
+			maxKeyLen = len(row[0])
+		}
+	}
+	col0Width := maxKeyLen + 2
+	maxAllowedCol0 := (w.Inner.Max.X - w.Inner.Min.X) * 45 / 100
+	if maxAllowedCol0 > 15 && col0Width > maxAllowedCol0 {
+		col0Width = maxAllowedCol0
+	}
+
 	sepX := w.Inner.Min.X + col0Width
 	valX := sepX + 2
 
@@ -99,6 +110,11 @@ func (w *Env) Draw(buf *ui.Buffer) {
 
 		key := row[0]
 		val := row[1]
+
+		maxKeyW := sepX - w.Inner.Min.X - 2
+		if maxKeyW > 0 && len(key) > maxKeyW {
+			key = key[:maxKeyW]
+		}
 
 		buf.SetString(key, keyStyle, image.Pt(w.Inner.Min.X+1, y))
 		buf.SetCell(sepCell, image.Pt(sepX, y))

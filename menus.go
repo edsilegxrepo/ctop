@@ -18,6 +18,7 @@ import (
 	"github.com/edsilegx/ctop/internal/widgets/menu"
 	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/container"
+	"github.com/edsilegx/ctop/pkg/diag"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
 	"github.com/pkg/browser"
@@ -29,27 +30,36 @@ type MenuFn func() MenuFn
 var shouldExitApp bool
 
 var helpDialog = []menu.Item{
-	{Val: "<enter> - open container action menu", Label: ""},
-	{Val: "", Label: ""},
-	{Val: "[a] - toggle display of all containers", Label: ""},
-	{Val: "[f] - filter displayed containers", Label: ""},
-	{Val: "[g] - toggle Compose stack grouping", Label: ""},
-	{Val: "[h] - open this help dialog", Label: ""},
-	{Val: "[H] - toggle ctop header", Label: ""},
-	{Val: "[m] - toggle rate (/s) vs. cumulative total metrics", Label: ""},
-	{Val: "[s] - select container sort field", Label: ""},
-	{Val: "[r] - reverse container sort order", Label: ""},
-	{Val: "[o] - open container inspector (1-9 tabs)", Label: ""},
-	{Val: "[v] - open volumes & mounts tab", Label: ""},
-	{Val: "[n] - open networking & ports tab", Label: ""},
-	{Val: "[F] - in-container file explorer", Label: ""},
-	{Val: "[l] - view container logs ([t] timestamp, [/] filter, [s] save)", Label: ""},
-	{Val: "[U] - live resource hot-tuning (CPU, Memory, Restart)", Label: ""},
-	{Val: "[e] - exec shell inside container", Label: ""},
-	{Val: "[w] - open web port in browser", Label: ""},
-	{Val: "[c] - configure columns", Label: ""},
-	{Val: "[S] - save current configuration to file", Label: ""},
-	{Val: "[q] - exit ctop", Label: ""},
+	{Val: "── CONTAINER ACTIONS ──", Label: "── CONTAINER ACTIONS ──"},
+	{Val: "<enter> - open container action menu", Label: "<enter> - open container action menu"},
+	{Val: "[e]     - exec shell inside container", Label: "[e]     - exec shell inside container"},
+	{Val: "[l]     - view container logs ([t] timestamp, [/] filter, [s] save)", Label: "[l]     - view container logs ([t] timestamp, [/] filter, [s] save)"},
+	{Val: "[U]     - live resource hot-tuning (CPU, Memory, Restart)", Label: "[U]     - live resource hot-tuning (CPU, Memory, Restart)"},
+	{Val: "[w]     - open published web port in browser", Label: "[w]     - open published web port in browser"},
+
+	{Val: "── INSPECTION & TABS ──", Label: "── INSPECTION & TABS ──"},
+	{Val: "[o]     - open container inspector (1-9 tabs)", Label: "[o]     - open container inspector (1-9 tabs)"},
+	{Val: "[l]     - open container logs tab (Tab 2)", Label: "[l]     - open container logs tab (Tab 2)"},
+	{Val: "[v]     - open volumes & mounts tab (Tab 3)", Label: "[v]     - open volumes & mounts tab (Tab 3)"},
+	{Val: "[n]     - open networking & ports tab (Tab 4)", Label: "[n]     - open networking & ports tab (Tab 4)"},
+	{Val: "[i]     - open image details tab (Tab 6)", Label: "[i]     - open image details tab (Tab 6)"},
+	{Val: "[F]     - in-container file explorer (Tab F)", Label: "[F]     - in-container file explorer (Tab F)"},
+	{Val: "[X]     - export container diagnostic report (JSON/Text)", Label: "[X]     - export container diagnostic report (JSON/Text)"},
+
+	{Val: "── FILTERING & SORTING ──", Label: "── FILTERING & SORTING ──"},
+	{Val: "[f]     - filter displayed containers (name, ID, labels)", Label: "[f]     - filter displayed containers (name, ID, labels)"},
+	{Val: "[a]     - toggle display of all containers vs active only", Label: "[a]     - toggle display of all containers vs active only"},
+	{Val: "[s]     - select container sort field (state, name, cpu...)", Label: "[s]     - select container sort field (state, name, cpu...)"},
+	{Val: "[r]     - reverse container sort order", Label: "[r]     - reverse container sort order"},
+	{Val: "[g]     - toggle Compose stack grouping", Label: "[g]     - toggle Compose stack grouping"},
+
+	{Val: "── VIEW & CONFIGURATION ──", Label: "── VIEW & CONFIGURATION ──"},
+	{Val: "[c]     - configure column layout & visibility", Label: "[c]     - configure column layout & visibility"},
+	{Val: "[m]     - toggle rate (/s) vs. cumulative total metrics", Label: "[m]     - toggle rate (/s) vs. cumulative total metrics"},
+	{Val: "[H]     - toggle top ctop header bar", Label: "[H]     - toggle top ctop header bar"},
+	{Val: "[S]     - save current configuration to file", Label: "[S]     - save current configuration to file"},
+	{Val: "[h]     - open this help dialog", Label: "[h]     - open this help dialog"},
+	{Val: "[q]     - exit ctop", Label: "[q]     - exit ctop"},
 }
 
 func HelpMenu() MenuFn {
@@ -249,6 +259,7 @@ func ContainerMenu() MenuFn {
 		{Val: "single", Label: "[o] overview & metrics"},
 		{Val: "single_volumes", Label: "[v] volumes & mounts"},
 		{Val: "single_network", Label: "[n] networking & ports"},
+		{Val: "single_image", Label: "[i] image details"},
 		{Val: "single_process", Label: "[E] process & env"},
 		{Val: "single_top", Label: "[P] in-container top"},
 		{Val: "single_diff", Label: "[D] filesystem diff"},
@@ -256,6 +267,7 @@ func ContainerMenu() MenuFn {
 		{Val: "single_labels", Label: "[L] labels & compose"},
 		{Val: "single_files", Label: "[F] in-container file explorer"},
 		{Val: "logs", Label: "[l] log view"},
+		{Val: "export_report", Label: "[X] export report (JSON/Text)"},
 		menu.NewSeparator(),
 	}
 
@@ -325,6 +337,9 @@ func ContainerMenu() MenuFn {
 				case "n":
 					selected = "single_network"
 					goto Handled
+				case "i", "I":
+					selected = "single_image"
+					goto Handled
 				case "E":
 					selected = "single_process"
 					goto Handled
@@ -345,6 +360,9 @@ func ContainerMenu() MenuFn {
 					goto Handled
 				case "l":
 					selected = "logs"
+					goto Handled
+				case "X", "x":
+					selected = "export_report"
 					goto Handled
 				case "k":
 					if !readOnly && c.Meta["state"] == "running" {
@@ -415,6 +433,8 @@ Handled:
 		nextMenu = SingleViewVolumes
 	case "single_network":
 		nextMenu = SingleViewNetwork
+	case "single_image":
+		nextMenu = SingleViewImage
 	case "single_process":
 		nextMenu = SingleViewProcess
 	case "single_top":
@@ -428,7 +448,9 @@ Handled:
 	case "single_files":
 		nextMenu = FileExplorerMenu
 	case "logs":
-		nextMenu = LogMenu
+		nextMenu = SingleViewLogs
+	case "export_report":
+		nextMenu = ExportReportMenu(c)
 	case "signal":
 		nextMenu = SignalMenu
 	case "tune_resources":
@@ -606,6 +628,118 @@ func ResourceMenu() MenuFn {
 					}
 				}
 				return nil
+			}
+		}
+	}
+}
+
+func ExportReportMenu(c *container.Container) MenuFn {
+	return func() MenuFn {
+		if c == nil {
+			return nil
+		}
+		ui.Clear()
+
+		exportDir := config.GetVal("downloadDir")
+		if exportDir == "" {
+			exportDir = "."
+		}
+
+		buildMenu := func() *menu.Menu {
+			m := menu.NewMenu()
+			m.Selectable = true
+			m.Title = fmt.Sprintf("Export Diagnostic Report: %s", c.GetMeta("name"))
+			items := []menu.Item{
+				{Val: "json", Label: "[1] JSON Diagnostic Snapshot (*.json)"},
+				{Val: "txt", Label: "[2] Formatted Text Report (*.txt)"},
+				{Val: "both", Label: "[3] Full Diagnostic Bundle (*.json + *.txt)"},
+				{Val: "dir", Label: fmt.Sprintf("[D] Target Directory: %s", exportDir)},
+				menu.NewSeparator(),
+				{Val: "cancel", Label: "[c] cancel / back"},
+			}
+			m.AddItems(items...)
+			return m
+		}
+
+		m := buildMenu()
+		ui.Render(m)
+
+		for {
+			e := <-uiEvents
+			switch e.Type {
+			case ui.ResizeEvent:
+				ui.Clear()
+				ui.Render(m)
+			case ui.KeyboardEvent:
+				if IsKeyMatch("up", e.ID) {
+					m.Up()
+					ui.Render(m)
+				} else if IsKeyMatch("down", e.ID) {
+					m.Down()
+					ui.Render(m)
+				} else if IsKeyMatch("exit", e.ID) || e.ID == "c" || e.ID == "q" {
+					return nil
+				} else if e.ID == "D" || e.ID == "d" {
+					inp := widgets.NewInput()
+					inp.Title = "Enter Destination Export Directory (Press Enter to apply, Esc to cancel)"
+					inp.Data = exportDir
+					tw, th := theme.TermDimensions()
+					inp.SetRect(0, th-3, tw, th)
+					ui.Render(inp)
+					for {
+						ie := <-uiEvents
+						if ie.Type == ui.KeyboardEvent {
+							if ie.ID == "<Escape>" {
+								break
+							} else if ie.ID == "<Enter>" {
+								newDir := strings.TrimSpace(inp.Data)
+								if newDir == "" {
+									newDir = "."
+								}
+								config.Update("downloadDir", newDir)
+								exportDir = newDir
+								break
+							} else {
+								inp.KeyPress(ie.ID)
+								ui.Render(inp)
+							}
+						}
+					}
+					m = buildMenu()
+					ui.Clear()
+					ui.Render(m)
+				} else if e.ID == "<Enter>" || e.ID == "1" || e.ID == "2" || e.ID == "3" {
+					val := m.SelectedValue()
+					switch e.ID {
+					case "1":
+						val = "json"
+					case "2":
+						val = "txt"
+					case "3":
+						val = "both"
+					}
+
+					if val == "cancel" {
+						return nil
+					}
+					if val == "dir" {
+						continue
+					}
+
+					report := diag.BuildReport(c.Id, c.Meta, &c.Metrics, c.HostID, c.GenerateRunCmd(), c.GenerateCompose())
+					savedPaths, err := diag.SaveReport(report, exportDir, val)
+					if err != nil {
+						log.StatusErr(err)
+						return nil
+					}
+
+					var basenames []string
+					for _, p := range savedPaths {
+						basenames = append(basenames, filepath.Base(p))
+					}
+					log.Statusf("✔ Exported report: %s (in %s)", strings.Join(basenames, ", "), exportDir)
+					return nil
+				}
 			}
 		}
 	}
@@ -791,6 +925,62 @@ func FileExplorerMenu() MenuFn {
 				ui.Render(exp)
 			} else if e.ID == "r" || e.ID == "R" {
 				refreshDir(currentPath)
+			} else if e.ID == "/" {
+				inp := widgets.NewInput()
+				inp.Title = "Filter Current Directory (Type name or wildcard, Esc to clear)"
+				inp.Data = exp.Filter
+				ui.Clear()
+				ui.Render(inp)
+				for {
+					ie := <-uiEvents
+					if ie.Type == ui.KeyboardEvent {
+						if ie.ID == "<Escape>" {
+							break
+						} else if ie.ID == "<Enter>" {
+							exp.SetFilter(inp.Data)
+							break
+						} else {
+							inp.KeyPress(ie.ID)
+							ui.Render(inp)
+						}
+					}
+				}
+				ui.Clear()
+				ui.Render(exp)
+			} else if e.ID == "f" || e.ID == "F" || e.ID == "<C-f>" {
+				inp := widgets.NewInput()
+				inp.Title = fmt.Sprintf("Deep Search in %s (e.g. *.conf, log, ssl - Esc to cancel)", currentPath)
+				inp.Data = ""
+				ui.Clear()
+				ui.Render(inp)
+				for {
+					ie := <-uiEvents
+					if ie.Type == ui.KeyboardEvent {
+						if ie.ID == "<Escape>" {
+							break
+						} else if ie.ID == "<Enter>" {
+							query := strings.TrimSpace(inp.Data)
+							if query != "" {
+								exp.SetStatus(fmt.Sprintf("🔍 Searching for %q across container...", query), false)
+								ui.Clear()
+								ui.Render(exp)
+								results, err := c.SearchFiles(currentPath, query, 100)
+								if err != nil {
+									exp.SetStatus(fmt.Sprintf("❌ Search error: %v", err), true)
+								} else {
+									exp.Set(currentPath, results)
+									exp.SetStatus(fmt.Sprintf("✔ Found %d items matching %q", len(results), query), false)
+								}
+							}
+							break
+						} else {
+							inp.KeyPress(ie.ID)
+							ui.Render(inp)
+						}
+					}
+				}
+				ui.Clear()
+				ui.Render(exp)
 			} else if e.ID == "q" || e.ID == "Q" || e.ID == "<Escape>" {
 				return nil
 			}

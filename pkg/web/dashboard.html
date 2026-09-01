@@ -505,6 +505,49 @@
       border-color: rgba(239, 68, 68, 0.4);
     }
 
+    /* Tabs Quick Jump Menu Dropdown */
+    .tabs-dropdown-wrap {
+      position: relative;
+    }
+    .tabs-dropdown {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.65);
+      padding: 0.35rem 0;
+      min-width: 240px;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+    .tabs-dropdown.open {
+      display: block;
+      animation: tabFade 0.12s ease-out;
+    }
+    .tab-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0.85rem;
+      font-size: 0.82rem;
+      color: #cbd5e1;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+      user-select: none;
+    }
+    .tab-menu-item:hover {
+      background: rgba(6, 182, 212, 0.15);
+      color: #f1f5f9;
+    }
+    .tab-menu-item.active {
+      background: rgba(6, 182, 212, 0.22);
+      color: #38bdf8;
+      font-weight: 600;
+    }
+
     /* Terminal-style Inspection Tabs */
     .modal-tabs {
       display: flex;
@@ -767,8 +810,8 @@
       <div class="title">Web Telemetry Dashboard <span>(Read-Only)</span></div>
     </div>
     <div class="header-actions">
-      <button id="copyAllBtn" class="toggle-btn" title="Copy all cluster metrics and container telemetry to clipboard as nicely formatted text">
-        &#x1F4CB; Copy Report
+      <button id="viewAllReportBtn" class="toggle-btn" title="View formatted cluster telemetry report popup">
+        &#x1F4CB; View Report
       </button>
       <button id="exportAllBtn" class="toggle-btn btn-export" title="Export all cluster metrics and container telemetry to a formatted JSON file">
         &#x1F4E5; Export JSON
@@ -891,8 +934,47 @@
           </div>
         </div>
         <div class="modal-header-actions">
-          <button id="copyContainerBtn" class="toggle-btn" title="Copy container metrics, configuration and telemetry to clipboard as nicely formatted text">
-            &#x1F4CB; Copy Report
+          <div class="tabs-dropdown-wrap">
+            <button id="tabsMenuBtn" class="toggle-btn" onclick="toggleTabsMenu(event)" title="Jump directly to any inspection tab">
+              &#x1F4CB; Tabs Menu &#x25BE;
+            </button>
+            <div id="tabsDropdownMenu" class="tabs-dropdown">
+              <div class="tab-menu-item active" data-tab="tab-overview" onclick="selectTabFromMenu('tab-overview')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[o]</span>
+                <span>&#x1F4CA; Overview &amp; Metrics</span>
+              </div>
+              <div class="tab-menu-item" data-tab="tab-volumes" onclick="selectTabFromMenu('tab-volumes')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[v]</span>
+                <span>&#x1F4BE; Volumes &amp; Mounts</span>
+              </div>
+              <div class="tab-menu-item" data-tab="tab-networking" onclick="selectTabFromMenu('tab-networking')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[n]</span>
+                <span>&#x1F310; Networking &amp; Ports</span>
+              </div>
+              <div class="tab-menu-item" data-tab="tab-env" onclick="selectTabFromMenu('tab-env')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[E]</span>
+                <span>&#x2699;&#xFE0F; Process &amp; Env</span>
+              </div>
+              <div class="tab-menu-item" data-tab="tab-image" onclick="selectTabFromMenu('tab-image')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[i]</span>
+                <span>&#x1F5BC;&#xFE0F; Image Details</span>
+              </div>
+              <div class="tab-menu-item" data-tab="tab-top" onclick="selectTabFromMenu('tab-top')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[P]</span>
+                <span>&#x26A1; In-Container Top</span>
+              </div>
+              <div class="tab-menu-item" data-tab="tab-diff" onclick="selectTabFromMenu('tab-diff')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[D]</span>
+                <span>&#x1F500; Filesystem Diff</span>
+              </div>
+              <div class="tab-menu-item" data-tab="tab-files" onclick="selectTabFromMenu('tab-files')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[F]</span>
+                <span>&#x1F4C1; File Explorer</span>
+              </div>
+            </div>
+          </div>
+          <button id="viewContainerReportBtn" class="toggle-btn" title="View formatted container inspection report popup">
+            &#x1F4CB; View Report
           </button>
           <button id="exportContainerBtn" class="toggle-btn btn-export" title="Export this container's metrics, configuration and telemetry to pretty JSON">
             &#x1F4E5; Export JSON
@@ -901,7 +983,7 @@
         </div>
       </div>
 
-      <!-- Navigation Tabs (per screenshot) -->
+      <!-- Navigation Tabs (Aligned with TUI) -->
       <div class="modal-tabs">
         <button class="modal-tab active" data-tab="tab-overview">
           <span class="key">[o]</span> overview &amp; metrics
@@ -915,8 +997,17 @@
         <button class="modal-tab" data-tab="tab-env">
           <span class="key">[E]</span> process &amp; env
         </button>
+        <button class="modal-tab" data-tab="tab-image">
+          <span class="key">[i]</span> image details
+        </button>
         <button class="modal-tab" data-tab="tab-top">
           <span class="key">[P]</span> in-container top
+        </button>
+        <button class="modal-tab" data-tab="tab-diff">
+          <span class="key">[D]</span> filesystem diff
+        </button>
+        <button class="modal-tab" data-tab="tab-files">
+          <span class="key">[F]</span> file explorer
         </button>
       </div>
 
@@ -1037,6 +1128,42 @@
           </div>
           <div class="section-title">Port Forwarding &amp; Bindings</div>
           <div class="kv-grid" id="portsGrid"></div>
+
+          <!-- Live TCP Endpoint Probes (Aligned with TUI) -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-top:1.25rem; margin-bottom:0.5rem;">
+            <div class="section-title" style="margin:0;">Live TCP Endpoint Probes <span style="font-size:0.75rem; color:#94a3b8; font-weight:normal; margin-left:0.4rem;">[p: re-probe]</span></div>
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <div style="display:flex; align-items:center; gap:0.35rem; font-size:0.78rem; color:#94a3b8; background:rgba(0,0,0,0.35); border:1px solid var(--card-border); border-radius:6px; padding:0.2rem 0.55rem;">
+                <span>&#x23F1; Auto:</span>
+                <select id="probeIntervalSelect" class="toggle-btn" style="padding:0.1rem 0.35rem; font-size:0.75rem; background:transparent; border:none; color:var(--cyan); cursor:pointer; outline:none;" onchange="setProbeInterval(this.value)">
+                  <option value="0" style="background:#0f172a; color:#f1f5f9;">Off (Manual)</option>
+                  <option value="3" style="background:#0f172a; color:#f1f5f9;">Every 3s</option>
+                  <option value="5" selected style="background:#0f172a; color:#f1f5f9;">Every 5s</option>
+                  <option value="10" style="background:#0f172a; color:#f1f5f9;">Every 10s</option>
+                  <option value="30" style="background:#0f172a; color:#f1f5f9;">Every 30s</option>
+                </select>
+              </div>
+              <button id="runProbesBtn" class="toggle-btn" onclick="fetchContainerProbes(selectedContainerId, false)" title="Re-run live TCP reachability probes (Press 'p' in Networking tab)">
+                &#x26A1; Run Probes
+              </button>
+            </div>
+          </div>
+          <div class="top-table-wrap">
+            <table class="top-table">
+              <thead>
+                <tr>
+                  <th>TARGET ENDPOINT</th>
+                  <th>SCOPE / LABEL</th>
+                  <th>STATUS</th>
+                  <th>ROUND-TRIP LATENCY</th>
+                  <th>LAST CHECKED</th>
+                </tr>
+              </thead>
+              <tbody id="probesTableBody">
+                <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1rem;">Click "Run Probes" to probe container endpoints</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Tab 4: [E] Process & Env -->
@@ -1061,7 +1188,51 @@
           </div>
         </div>
 
-        <!-- Tab 5: [P] In-Container Top -->
+        <!-- Tab 5: [i] Image Details -->
+        <div id="tab-image" class="tab-pane">
+          <div class="section-title">Base Image &amp; Build Metadata</div>
+          <div class="kv-grid">
+            <div class="kv-item"><span class="kv-key">Image Name / Tag</span><span class="kv-val" id="imgNameTag" style="color:#38bdf8;">--</span></div>
+            <div class="kv-item"><span class="kv-key">Image ID / Digest</span><span class="kv-val" id="imgID">--</span></div>
+            <div class="kv-item"><span class="kv-key">Platform / Architecture</span><span class="kv-val" id="imgPlatform">--</span></div>
+            <div class="kv-item"><span class="kv-key">Virtual Size</span><span class="kv-val" id="imgSize">--</span></div>
+            <div class="kv-item"><span class="kv-key">RootFS Layers</span><span class="kv-val" id="imgLayers">--</span></div>
+            <div class="kv-item"><span class="kv-key">Author / Maintainer</span><span class="kv-val" id="imgAuthor">--</span></div>
+            <div class="kv-item"><span class="kv-key">Created Timestamp</span><span class="kv-val" id="imgCreated">--</span></div>
+            <div class="kv-item"><span class="kv-key">Docker Engine Version</span><span class="kv-val" id="imgDockerVer">--</span></div>
+          </div>
+
+          <div class="section-title">Default Execution Configuration</div>
+          <div class="kv-grid">
+            <div class="kv-item"><span class="kv-key">Default ENTRYPOINT</span><span class="kv-val" id="imgEntrypoint">--</span></div>
+            <div class="kv-item"><span class="kv-key">Default CMD</span><span class="kv-val" id="imgCmd">--</span></div>
+            <div class="kv-item"><span class="kv-key">Default Working Dir</span><span class="kv-val" id="imgWorkDir">--</span></div>
+            <div class="kv-item"><span class="kv-key">Default User</span><span class="kv-val" id="imgUser">--</span></div>
+            <div class="kv-item"><span class="kv-key">Exposed Ports</span><span class="kv-val" id="imgExposedPorts">--</span></div>
+            <div class="kv-item"><span class="kv-key">Image Volumes</span><span class="kv-val" id="imgVolumes">--</span></div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="section-title" style="margin-bottom:0;">OCI &amp; Image Labels</div>
+            <input type="text" id="imgLabelsSearch" class="search-input" style="max-width:280px;" placeholder="Filter image labels..." />
+          </div>
+          <div class="env-table-wrap" style="max-height:220px;">
+            <table class="top-table">
+              <thead>
+                <tr>
+                  <th style="width:35%;">LABEL KEY</th>
+                  <th>LABEL VALUE</th>
+                  <th style="width:40px;"></th>
+                </tr>
+              </thead>
+              <tbody id="imgLabelsTableBody">
+                <tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1rem;">No image labels defined</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 6: [P] In-Container Top -->
         <div id="tab-top" class="tab-pane">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div class="section-title">Running Processes in Container</div>
@@ -1084,6 +1255,126 @@
             </table>
           </div>
         </div>
+
+        <!-- Tab 7: [D] Filesystem Diff -->
+        <div id="tab-diff" class="tab-pane">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+            <div class="section-title" style="margin-bottom:0;">
+              Layer Changes &amp; Filesystem Mutations
+              <span id="diffSummaryBadge" class="badge" style="margin-left:0.5rem;">0 changes</span>
+            </div>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+              <input type="text" id="diffSearchInput" class="search-input" style="max-width:280px;" placeholder="Filter modified paths..." />
+              <button class="toggle-btn" onclick="fetchContainerDiff(selectedContainerId)">Refresh Diff</button>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <span class="status-pill running" id="diffCountAdded" style="font-size:0.75rem;">0 Added</span>
+            <span class="status-pill paused" id="diffCountModified" style="font-size:0.75rem;">0 Modified</span>
+            <span class="status-pill exited" id="diffCountDeleted" style="font-size:0.75rem;">0 Deleted</span>
+          </div>
+
+          <div class="top-table-wrap" style="max-height:420px; overflow-y:auto;">
+            <table class="top-table">
+              <thead>
+                <tr>
+                  <th style="width:120px;">CHANGE</th>
+                  <th>FILE / DIRECTORY PATH</th>
+                  <th style="width:40px;"></th>
+                </tr>
+              </thead>
+              <tbody id="diffTableBody">
+                <tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1.5rem;">Click 'Refresh Diff' to inspect container layer changes</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 8: [F] File Explorer -->
+        <div id="tab-files" class="tab-pane">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; flex:1; min-width:280px;">
+              <button class="toggle-btn" id="fileNavUpBtn" onclick="navigateFileUp()" title="Go to parent directory">&#x2B06; Up</button>
+              <div style="display:flex; align-items:center; gap:0.4rem; background:rgba(0,0,0,0.4); border:1px solid var(--card-border); border-radius:6px; padding:0.35rem 0.75rem; flex:1; font-family:var(--font-mono); font-size:0.82rem; overflow:hidden;">
+                <span style="color:var(--cyan);">&#x1F4C1;</span>
+                <span id="fileCurrentPath" style="color:#f1f5f9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">/</span>
+              </div>
+              <button class="toggle-btn" onclick="fetchContainerFiles(selectedContainerId, currentBrowsedPath)" title="Reload current directory">&#x1F504; Refresh</button>
+            </div>
+            <div style="display:flex; gap:0.35rem; align-items:center;">
+              <button class="toggle-btn" id="fileSearchScopeBtn" onclick="toggleFileSearchScope()" title="Toggle: Filter current folder vs Deep search entire container">&#x1F50D; Current Folder</button>
+              <input type="text" id="fileSearchInput" class="search-input" style="max-width:220px;" placeholder="Filter files in folder..." onkeydown="handleFileSearchKeyDown(event)" />
+              <button class="toggle-btn" id="fileSearchExecBtn" style="display:none;" onclick="triggerDeepSearch()" title="Execute deep search across container">&#x1F50E; Find</button>
+            </div>
+          </div>
+
+          <!-- Deep Search Status Banner -->
+          <div id="deepSearchBanner" style="display:none; justify-content:space-between; align-items:center; background:rgba(6,182,212,0.12); border:1px solid rgba(6,182,212,0.3); border-radius:6px; padding:0.45rem 0.85rem; font-size:0.8rem; color:#38bdf8;">
+            <span id="deepSearchBannerText">Deep Search Results</span>
+            <button class="toggle-btn" style="font-size:0.72rem; padding:0.15rem 0.5rem;" onclick="exitDeepSearch()">&#x2715; Exit Search</button>
+          </div>
+
+          <!-- File List Table -->
+          <div class="top-table-wrap" style="max-height:360px; overflow-y:auto;">
+            <table class="top-table">
+              <thead>
+                <tr>
+                  <th>NAME</th>
+                  <th style="width:110px;">SIZE</th>
+                  <th style="width:110px;">MODE</th>
+                  <th style="width:160px;">MODIFIED</th>
+                  <th style="width:70px;"></th>
+                </tr>
+              </thead>
+              <tbody id="filesTableBody">
+                <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1.5rem;">Select container to explore files</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- In-Dashboard File Content Preview Pane -->
+          <div id="filePreviewCard" style="display:none; flex-direction:column; gap:0.5rem; background:rgba(0,0,0,0.45); border:1px solid var(--card-border); border-radius:8px; padding:0.85rem 1rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:0.9rem;">&#x1F4C4;</span>
+                <span id="previewFilePath" style="font-family:var(--font-mono); font-weight:600; color:#38bdf8; font-size:0.85rem;">/etc/hosts</span>
+                <span id="previewFileSize" class="status-pill running" style="font-size:0.68rem;">1.2 KB</span>
+              </div>
+              <div style="display:flex; gap:0.4rem;">
+                <button class="toggle-btn" onclick="copyPreviewFileContent()">&#x1F4CB; Copy</button>
+                <button class="toggle-btn" onclick="downloadPreviewFile()">&#x2B07; Download</button>
+                <button class="modal-close-btn" style="width:26px; height:26px; font-size:0.85rem;" onclick="closeFilePreview()">&times;</button>
+              </div>
+            </div>
+            <pre id="previewFileContent" style="background:#090d16; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:0.75rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.78rem; max-height:220px; overflow:auto; white-space:pre-wrap; word-break:break-all;"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Formatted Plain-Text Report Viewer Modal (Bypasses Extension Clipboard Interception) -->
+  <div id="reportModal" class="modal-backdrop" onclick="if (event.target.id === 'reportModal') closeReportModal()">
+    <div class="modal-card" style="max-width: 860px; max-height: 88vh; display: flex; flex-direction: column;">
+      <div class="modal-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--card-border);">
+        <div class="modal-title-area">
+          <div class="modal-title-row">
+            <span class="status-pill running"><span class="status-dot"></span>REPORT</span>
+            <div id="reportModalTitle" class="modal-title">Telemetry Report</div>
+          </div>
+        </div>
+        <div class="modal-header-actions" style="display: flex; gap: 0.5rem; align-items: center;">
+          <button id="reportModalCopyBtn" class="toggle-btn" style="color:var(--cyan);">&#x1F4CB; Copy to Clipboard</button>
+          <button id="reportModalDownloadBtn" class="toggle-btn btn-export">&#x1F4E5; Download .txt</button>
+          <button class="modal-close-btn" onclick="closeReportModal()">&times;</button>
+        </div>
+      </div>
+      <div style="padding: 1rem 1.25rem; flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 0.5rem;">
+        <div style="font-size: 0.78rem; color: #94a3b8;">
+          Plain-text report preview &bull; You can copy directly, select all with <kbd>Ctrl</kbd>+<kbd>A</kbd>, or download as a <code>.txt</code> file:
+        </div>
+        <textarea id="reportModalText" readonly style="width: 100%; height: 440px; background: #070b14; color: #f1f5f9; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; padding: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; resize: none; outline: none; white-space: pre;"></textarea>
       </div>
     </div>
   </div>
@@ -1116,6 +1407,13 @@
     const drillNetHistory = [];
     const drillDiskHistory = [];
     const drillSamples = []; // up to 5 running rows
+
+    // File Explorer & Diff State
+    let currentBrowsedPath = '/';
+    let latestDiffs = [];
+    let latestFiles = [];
+    let currentPreviewPath = '';
+    let currentPreviewContent = '';
 
     // Helper: format bytes
     function formatBytes(bytes, isRate = false) {
@@ -1176,16 +1474,79 @@
       return str;
     }
 
-    // Copy to clipboard helper
+    // Copy to clipboard helper avoiding extension ClickFix interception
     function copyText(txt, msg = 'Copied to clipboard') {
       if (!txt) return;
-      navigator.clipboard.writeText(txt).then(() => {
-        const toast = document.createElement('div');
-        toast.textContent = msg;
-        toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#06b6d4;color:#000;font-weight:600;padding:8px 16px;border-radius:6px;z-index:999;font-size:0.8rem;box-shadow:0 4px 12px rgba(0,0,0,0.4);';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 1800);
-      });
+      let copied = false;
+
+      // Primary strategy: Synchronous DOM execCommand (bypasses extension navigator.clipboard hooks)
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = txt;
+        ta.style.position = 'fixed';
+        ta.style.left = '-99999px';
+        ta.style.top = '-99999px';
+        ta.style.opacity = '0';
+        ta.setAttribute('readonly', '');
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, txt.length);
+        copied = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch (_) {
+        copied = false;
+      }
+
+      // Fallback strategy: Async Clipboard API
+      if (!copied && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).catch(() => {});
+        copied = true;
+      }
+
+      // Show toast
+      const toast = document.createElement('div');
+      toast.textContent = msg;
+      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#06b6d4;color:#000;font-weight:600;padding:8px 16px;border-radius:6px;z-index:9999;font-size:0.8rem;box-shadow:0 4px 12px rgba(0,0,0,0.4);';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 1800);
+    }
+
+    // Helper: trigger plain-text download
+    function downloadTxtFile(text, filename) {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 200);
+    }
+
+    // Show interactive report viewer modal (popup with text report, nothing selected)
+    function showReportModal(title, text, filename) {
+      document.getElementById('reportModalTitle').textContent = title;
+      const ta = document.getElementById('reportModalText');
+      ta.value = text;
+      ta.selectionStart = 0;
+      ta.selectionEnd = 0;
+      ta.scrollTop = 0;
+      document.getElementById('reportModal').classList.add('open');
+
+      document.getElementById('reportModalCopyBtn').onclick = () => {
+        copyText(text, 'Report copied to clipboard');
+      };
+      document.getElementById('reportModalDownloadBtn').onclick = () => {
+        downloadTxtFile(text, filename);
+      };
+    }
+
+    function closeReportModal() {
+      document.getElementById('reportModal').classList.remove('open');
     }
 
     function copyAllEnv() {
@@ -1193,8 +1554,8 @@
       copyText(selectedContainerData.env.join('\n'), 'Environment variables copied to clipboard');
     }
 
-    // Copy formatted report of all containers / cluster to clipboard
-    function copyClusterReport() {
+    // Build structured ASCII report for entire cluster
+    function buildClusterReportText() {
       const now = new Date().toISOString();
       const sys = latestSystemMetrics || {};
       const sep = '='.repeat(88);
@@ -1236,12 +1597,19 @@
       });
 
       lines.push(sep);
-      copyText(lines.join('\n'), 'Cluster telemetry report copied to clipboard');
+      return lines.join('\n');
     }
 
-    // Copy formatted report of single container to clipboard
-    function copyContainerReport() {
-      if (!selectedContainerData) return;
+    // Open Cluster Report popup (nothing selected, allows Copy or Download)
+    function openClusterReportModal() {
+      const text = buildClusterReportText();
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      showReportModal('Cluster Telemetry Report', text, `ctop-cluster-report-${ts}.txt`);
+    }
+
+    // Build structured ASCII report for single container
+    function buildContainerReportText() {
+      if (!selectedContainerData) return '';
       const c = selectedContainerData;
       const now = new Date().toISOString();
       const sep = '='.repeat(88);
@@ -1260,14 +1628,30 @@
         '--- RUNTIME & SPECIFICATIONS ---',
         `Created:        ${c.created || '—'}`,
         `Uptime:         ${c.uptime || '—'}`,
-        `Command:        ${c.command || '—'}`,
-        `Entrypoint:     ${c.entrypoint || '—'}`,
+        `Process Exec:   ${c.command || '—'}`,
+        `Start Target:   ${c.entrypoint || '—'}`,
         `Working Dir:    ${c.workdir || '—'}`,
         `User:           ${c.user || '—'}`,
         `Restart Policy: ${c.restart_policy || 'no'}`,
         `Memory Limit:   ${c.mem_limit_str || formatBytes(c.mem_limit)}`,
         `IP Addresses:   ${c.ips ? c.ips.replace(/\n/g, ', ') : '—'}`,
         `Ports:          ${c.ports ? c.ports.replace(/\n/g, ', ') : '—'}`,
+        '',
+        '--- BASE IMAGE & BUILD METADATA ---',
+        `Image Name/Tag: ${c.image || '—'}`,
+        `Image Digest/ID: ${c.image_id || '—'}`,
+        `Platform / Arch: ${c.image_arch || '—'}`,
+        `Virtual Size:    ${c.image_size || '—'}`,
+        `RootFS Layers:   ${c.image_layers || '—'}`,
+        `Author:          ${c.image_author || '—'}`,
+        `Created:         ${c.image_created || '—'}`,
+        `Docker Engine:   ${c.image_docker_version || '—'}`,
+        `Base Target:     ${c.image_entrypoint || c.entrypoint || '—'}`,
+        `Base Exec:       ${c.image_cmd || c.command || '—'}`,
+        `Working Dir:     ${c.image_workdir || c.workdir || '—'}`,
+        `User:            ${c.image_user || c.user || '—'}`,
+        `Exposed Ports:   ${c.image_ports || c.ports || '—'}`,
+        `Image Volumes:   ${c.image_volumes || '—'}`,
         '',
         '--- CURRENT TELEMETRY ---',
         `CPU Utilization:    ${(c.cpu_util || 0).toFixed(1)}%`,
@@ -1325,7 +1709,17 @@
       }
 
       lines.push(sep);
-      copyText(lines.join('\n'), 'Container inspection report copied to clipboard');
+      return lines.join('\n');
+    }
+
+    // Open Container Report popup (nothing selected, allows Copy or Download)
+    function openContainerReportModal() {
+      if (!selectedContainerData) return;
+      const c = selectedContainerData;
+      const text = buildContainerReportText();
+      const safeName = (c.name || c.id || 'container').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      showReportModal(`Container Report: ${c.name || c.id}`, text, `ctop-report-${safeName}-${ts}.txt`);
     }
 
     // Chart Drawer
@@ -1405,23 +1799,194 @@
 
     function closeModal() {
       document.getElementById('containerModal').classList.remove('open');
+      const menu = document.getElementById('tabsDropdownMenu');
+      if (menu) menu.classList.remove('open');
+      if (probeTimer) {
+        clearInterval(probeTimer);
+        probeTimer = null;
+      }
       selectedContainerId = null;
+    }
+
+    const tabNames = {
+      'tab-overview': '[o] Overview',
+      'tab-volumes': '[v] Volumes',
+      'tab-networking': '[n] Networking',
+      'tab-env': '[E] Process & Env',
+      'tab-image': '[i] Image Details',
+      'tab-top': '[P] Top Processes',
+      'tab-diff': '[D] Filesystem Diff',
+      'tab-files': '[F] File Explorer'
+    };
+
+    function toggleTabsMenu(e) {
+      if (e) e.stopPropagation();
+      const menu = document.getElementById('tabsDropdownMenu');
+      if (!menu) return;
+      menu.classList.toggle('open');
+    }
+
+    function selectTabFromMenu(tabId) {
+      switchModalTab(tabId);
+      const menu = document.getElementById('tabsDropdownMenu');
+      if (menu) menu.classList.remove('open');
+      const tabBtn = document.querySelector(`.modal-tab[data-tab="${tabId}"]`);
+      if (tabBtn) {
+        tabBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
     }
 
     function switchModalTab(tabId) {
       document.querySelectorAll('.modal-tab').forEach(b => {
         b.classList.toggle('active', b.getAttribute('data-tab') === tabId);
       });
+      document.querySelectorAll('.tab-menu-item').forEach(m => {
+        m.classList.toggle('active', m.getAttribute('data-tab') === tabId);
+      });
       document.querySelectorAll('.tab-pane').forEach(p => {
         p.classList.toggle('active', p.id === tabId);
       });
 
+      const menuBtn = document.getElementById('tabsMenuBtn');
+      if (menuBtn && tabNames[tabId]) {
+        menuBtn.innerHTML = `&#x1F4CB; ${tabNames[tabId]} &#x25BE;`;
+      }
+
+      if (tabId === 'tab-networking' && selectedContainerId) {
+        fetchContainerProbes(selectedContainerId, false);
+        resetProbeTimer();
+      } else {
+        if (probeTimer) {
+          clearInterval(probeTimer);
+          probeTimer = null;
+        }
+      }
       if (tabId === 'tab-top' && selectedContainerId) {
         fetchContainerTop(selectedContainerId);
+      }
+      if (tabId === 'tab-diff' && selectedContainerId) {
+        fetchContainerDiff(selectedContainerId);
+      }
+      if (tabId === 'tab-files' && selectedContainerId) {
+        fetchContainerFiles(selectedContainerId, currentBrowsedPath || '/');
       }
       if (tabId === 'tab-overview') {
         renderDrillCharts();
       }
+    }
+
+    let latestProbes = [];
+    let isProbing = false;
+    let probeTimer = null;
+    let probeIntervalSec = 5; // Default auto-probe interval in seconds
+
+    function setProbeInterval(val) {
+      probeIntervalSec = parseInt(val, 10) || 0;
+      resetProbeTimer();
+    }
+
+    function resetProbeTimer() {
+      if (probeTimer) {
+        clearInterval(probeTimer);
+        probeTimer = null;
+      }
+      const isNetTab = document.getElementById('tab-networking')?.classList.contains('active');
+      const modalOpen = document.getElementById('containerModal')?.classList.contains('open');
+      if (isNetTab && modalOpen && selectedContainerId && probeIntervalSec > 0) {
+        probeTimer = setInterval(() => {
+          const activeTab = document.getElementById('tab-networking')?.classList.contains('active');
+          const isOpen = document.getElementById('containerModal')?.classList.contains('open');
+          if (selectedContainerId && activeTab && isOpen) {
+            fetchContainerProbes(selectedContainerId, true);
+          }
+        }, probeIntervalSec * 1000);
+      }
+    }
+
+    async function fetchContainerProbes(containerId, isAuto = false) {
+      if (!containerId || isProbing) return;
+      isProbing = true;
+      const tbody = document.getElementById('probesTableBody');
+      const btn = document.getElementById('runProbesBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '&#x23F3; Probing...';
+      }
+
+      // If first load and no rows exist, show initial placeholder. If rows already exist, keep them (no flicker!)
+      if (!isAuto && (!latestProbes || latestProbes.length === 0)) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--cyan); padding:1rem;">&#x26A1; Probing container network endpoints in parallel...</td></tr>';
+      } else {
+        tbody.style.opacity = '0.75';
+      }
+
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(containerId)}/probes`);
+        if (!resp.ok) {
+          if (!latestProbes || latestProbes.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1rem;">Failed to fetch live network probes</td></tr>';
+          }
+          return;
+        }
+        const data = await resp.json();
+        latestProbes = data || [];
+        renderProbesTable();
+      } catch (err) {
+        if (!latestProbes || latestProbes.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1rem;">Error probing endpoints: ${err.message}</td></tr>`;
+        }
+      } finally {
+        isProbing = false;
+        tbody.style.opacity = '1';
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '&#x26A1; Run Probes';
+        }
+      }
+    }
+
+    function renderProbesTable() {
+      const tbody = document.getElementById('probesTableBody');
+      if (!latestProbes || latestProbes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1rem;">No probeable endpoints found for this container</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = latestProbes.map(p => {
+        let statusClass = 'exited';
+        let statusDotColor = '#ef4444';
+        let statusText = p.status || 'UNKNOWN';
+
+        if (p.status === 'OPEN' || p.status === 'REACHABLE') {
+          statusClass = 'running';
+          statusDotColor = '#10b981';
+        } else if (p.status === 'CONFIGURED') {
+          statusClass = 'paused';
+          statusDotColor = '#06b6d4';
+        } else if (p.status === 'TIMEOUT') {
+          statusClass = 'warn';
+          statusDotColor = '#f59e0b';
+        }
+
+        const latColor = p.success ? '#10b981' : '#94a3b8';
+        const latStr = p.duration_ms > 0 ? `${p.duration_ms.toFixed(2)} ms` : '—';
+        const timeStr = p.timestamp ? p.timestamp.substring(11, 19) : 'Just now';
+
+        return `
+          <tr>
+            <td style="font-family:var(--font-mono); font-weight:600; color:#f1f5f9;">${p.target}</td>
+            <td style="color:#94a3b8;"><span style="background:rgba(255,255,255,0.06); padding:0.15rem 0.45rem; border-radius:4px; font-size:0.75rem;">${p.label}</span></td>
+            <td>
+              <span class="status-pill ${statusClass}">
+                <span class="status-dot" style="background:${statusDotColor};"></span>
+                ${statusText}
+              </span>
+            </td>
+            <td style="font-family:var(--font-mono); color:${latColor}; font-weight:600;">${latStr}</td>
+            <td style="color:#64748b; font-size:0.8rem;">${timeStr}</td>
+          </tr>
+        `;
+      }).join('');
     }
 
     // Update Modal Content with Container Data
@@ -1538,6 +2103,445 @@
 
       // Update Environment Tab
       renderEnvTable();
+
+      // Update Image Details Tab
+      document.getElementById('imgNameTag').textContent = c.image || '—';
+      document.getElementById('imgID').textContent = c.image_id || '—';
+      document.getElementById('imgPlatform').textContent = c.image_arch || '—';
+      document.getElementById('imgSize').textContent = c.image_size || '—';
+      document.getElementById('imgLayers').textContent = c.image_layers || '—';
+      document.getElementById('imgAuthor').textContent = c.image_author || '—';
+      document.getElementById('imgCreated').textContent = c.image_created || '—';
+      document.getElementById('imgDockerVer').textContent = c.image_docker_version || '—';
+      document.getElementById('imgEntrypoint').textContent = c.image_entrypoint || c.entrypoint || '—';
+      document.getElementById('imgCmd').textContent = c.image_cmd || c.command || '—';
+      document.getElementById('imgWorkDir').textContent = c.image_workdir || c.workdir || '—';
+      document.getElementById('imgUser').textContent = c.image_user || c.user || '—';
+      document.getElementById('imgExposedPorts').textContent = c.image_ports || c.ports || '—';
+      document.getElementById('imgVolumes').textContent = c.image_volumes || '—';
+      renderImageLabelsTable();
+    }
+
+    function renderImageLabelsTable() {
+      const tbody = document.getElementById('imgLabelsTableBody');
+      const q = (document.getElementById('imgLabelsSearch')?.value || '').toLowerCase();
+      const labels = (selectedContainerData && selectedContainerData.image_labels) 
+        ? selectedContainerData.image_labels 
+        : (selectedContainerData?.labels || {});
+      const entries = Object.entries(labels);
+
+      if (entries.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1rem;">No image labels defined</td></tr>`;
+        return;
+      }
+
+      const filtered = entries.filter(([k, v]) => k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q));
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1rem;">No labels matching "${q}"</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(([k, v]) => `
+        <tr>
+          <td style="color:#38bdf8; font-weight:600; word-break:break-all;">${k}</td>
+          <td style="word-break:break-all;">${v}</td>
+          <td style="text-align:right;">
+            <button class="copy-btn" onclick="copyText('${String(v).replace(/'/g, "\\'")}')" title="Copy Value">&#x2398;</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // Fetch Filesystem Diff via REST API
+    async function fetchContainerDiff(id) {
+      if (!id) return;
+      const tbody = document.getElementById('diffTableBody');
+      tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--cyan); padding:1.5rem;">Querying layer diffs and filesystem mutations...</td></tr>`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(id)}/diff`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) {
+          let errText = 'Filesystem diff unavailable for container (runtime unsupported or not running)';
+          try {
+            const errJson = await resp.json();
+            if (errJson && errJson.error) errText = errJson.error;
+          } catch (_) {}
+          tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--amber); padding:1.5rem;">${errText}</td></tr>`;
+          return;
+        }
+        const data = await resp.json();
+        latestDiffs = data || [];
+        renderDiffTable();
+      } catch (err) {
+        clearTimeout(timeoutId);
+        const isTimeout = err.name === 'AbortError';
+        const msg = isTimeout ? 'Request timed out while querying container diff' : err.message;
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--amber); padding:1.5rem;">${msg}</td></tr>`;
+      }
+    }
+
+    function renderDiffTable() {
+      const tbody = document.getElementById('diffTableBody');
+      const q = (document.getElementById('diffSearchInput')?.value || '').toLowerCase();
+
+      let added = 0, modified = 0, deleted = 0;
+      latestDiffs.forEach(d => {
+        if (d.kind === 'A' || d.kind === 'Added') added++;
+        else if (d.kind === 'D' || d.kind === 'Deleted') deleted++;
+        else modified++;
+      });
+
+      document.getElementById('diffCountAdded').textContent = `${added} Added`;
+      document.getElementById('diffCountModified').textContent = `${modified} Modified`;
+      document.getElementById('diffCountDeleted').textContent = `${deleted} Deleted`;
+      document.getElementById('diffSummaryBadge').textContent = `${latestDiffs.length} changes`;
+
+      if (latestDiffs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No filesystem layer modifications detected</td></tr>`;
+        return;
+      }
+
+      const filtered = latestDiffs.filter(d => d.path.toLowerCase().includes(q));
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No modified paths matching "${q}"</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(d => {
+        let badgeClass = 'paused';
+        let badgeText = '[• MODIFIED]';
+        if (d.kind === 'A' || d.kind === 'Added') {
+          badgeClass = 'running';
+          badgeText = '[+ ADDED]';
+        } else if (d.kind === 'D' || d.kind === 'Deleted') {
+          badgeClass = 'exited';
+          badgeText = '[- DELETED]';
+        }
+
+        return `
+          <tr>
+            <td><span class="status-pill ${badgeClass}" style="font-size:0.68rem; font-weight:700;">${badgeText}</span></td>
+            <td style="font-family:var(--font-mono); word-break:break-all;">${d.path}</td>
+            <td style="text-align:right;">
+              <button class="copy-btn" onclick="copyText('${d.path.replace(/'/g, "\\'")}')" title="Copy Path">&#x2398;</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Fetch In-Container Directory Contents via REST API
+    async function fetchContainerFiles(id, dirPath) {
+      if (!id) return;
+      dirPath = dirPath || '/';
+      currentBrowsedPath = dirPath;
+      document.getElementById('fileCurrentPath').textContent = dirPath;
+
+      const tbody = document.getElementById('filesTableBody');
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--cyan); padding:1.5rem;">Reading directory "${dirPath}"...</td></tr>`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(id)}/files?path=${encodeURIComponent(dirPath)}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) {
+          let errText = 'Directory listing unavailable (container not running or path inaccessible)';
+          try {
+            const errJson = await resp.json();
+            if (errJson && errJson.error) errText = errJson.error;
+          } catch (_) {}
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">${errText}</td></tr>`;
+          return;
+        }
+        const data = await resp.json();
+        latestFiles = data || [];
+        // Sort: directories first, then alphabetically
+        latestFiles.sort((a, b) => {
+          if (a.is_dir && !b.is_dir) return -1;
+          if (!a.is_dir && b.is_dir) return 1;
+          return a.name.localeCompare(b.name);
+        });
+        renderFilesTable();
+      } catch (err) {
+        clearTimeout(timeoutId);
+        const isTimeout = err.name === 'AbortError';
+        const msg = isTimeout ? 'Request timed out while reading container directory' : err.message;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">${msg}</td></tr>`;
+      }
+    }
+
+    let isDeepSearchMode = false;
+    let deepSearchResults = [];
+    let isDeepSearchActive = false;
+
+    function toggleFileSearchScope() {
+      isDeepSearchMode = !isDeepSearchMode;
+      const scopeBtn = document.getElementById('fileSearchScopeBtn');
+      const input = document.getElementById('fileSearchInput');
+      const execBtn = document.getElementById('fileSearchExecBtn');
+
+      if (isDeepSearchMode) {
+        scopeBtn.classList.add('active');
+        scopeBtn.innerHTML = '&#x1F50E; Deep Search';
+        scopeBtn.style.color = '#38bdf8';
+        input.placeholder = 'Search pattern (e.g. *.conf, log, ssl)...';
+        execBtn.style.display = 'inline-block';
+        input.focus();
+        if (!isDeepSearchActive) {
+          renderFilesTable();
+        }
+      } else {
+        scopeBtn.classList.remove('active');
+        scopeBtn.innerHTML = '&#x1F50D; Current Folder';
+        scopeBtn.style.color = '';
+        input.placeholder = 'Filter files in folder...';
+        execBtn.style.display = 'none';
+        exitDeepSearch();
+      }
+    }
+
+    function handleFileSearchKeyDown(e) {
+      if (e.key === 'Enter') {
+        if (isDeepSearchMode) {
+          triggerDeepSearch();
+        }
+      }
+    }
+
+    async function triggerDeepSearch() {
+      const q = (document.getElementById('fileSearchInput')?.value || '').trim();
+      if (!q || !selectedContainerId) return;
+
+      const tbody = document.getElementById('filesTableBody');
+      const banner = document.getElementById('deepSearchBanner');
+      const bannerText = document.getElementById('deepSearchBannerText');
+
+      banner.style.display = 'flex';
+      bannerText.innerHTML = `Searching container for <strong>"${q}"</strong>...`;
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--cyan); padding:1.5rem;">🔍 Searching filesystem across container for "${q}"...</td></tr>`;
+      isDeepSearchActive = true;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(selectedContainerId)}/search?q=${encodeURIComponent(q)}&path=/`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) {
+          let errText = 'Deep search failed';
+          try {
+            const errJson = await resp.json();
+            if (errJson && errJson.error) errText = errJson.error;
+          } catch (_) {}
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">${errText}</td></tr>`;
+          bannerText.innerHTML = `Search for <strong>"${q}"</strong> failed: ${errText}`;
+          return;
+        }
+        const data = await resp.json();
+        deepSearchResults = data || [];
+        bannerText.innerHTML = `Found <strong>${deepSearchResults.length}</strong> items matching <strong>"${q}"</strong> across container`;
+        renderDeepSearchResults();
+      } catch (err) {
+        clearTimeout(timeoutId);
+        const isTimeout = err.name === 'AbortError';
+        const msg = isTimeout ? 'Deep search timed out' : err.message;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">${msg}</td></tr>`;
+        bannerText.innerHTML = `Search error: ${msg}`;
+      }
+    }
+
+    function renderDeepSearchResults() {
+      const tbody = document.getElementById('filesTableBody');
+      if (deepSearchResults.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No files or directories matching search criteria</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = deepSearchResults.map(f => {
+        const isDir = f.is_dir;
+        const icon = isDir ? '📁' : '📄';
+        const nameStyle = isDir 
+          ? 'color:#38bdf8; font-weight:600; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:0.45rem;' 
+          : 'color:#f1f5f9; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:0.45rem;';
+        const clickHandler = isDir 
+          ? `onclick="exitDeepSearch(); navigateFileDown('${f.path.replace(/'/g, "\\'")}')"`
+          : `onclick="previewContainerFile('${selectedContainerId}', '${f.path.replace(/'/g, "\\'")}', ${f.size})"`;
+
+        const sizeStr = isDir ? '—' : formatBytes(f.size);
+        const modeStr = f.mode || '—';
+        const modStr = f.mod_time ? f.mod_time.substring(0, 19).replace('T', ' ') : '—';
+
+        return `
+          <tr>
+            <td>
+              <span ${clickHandler} style="${nameStyle}" title="${isDir ? 'Jump to directory' : 'Preview file'}">
+                <span>${icon}</span>
+                <span style="font-family:var(--font-mono); font-size:0.84rem;">${f.path}</span>
+              </span>
+            </td>
+            <td style="color:#94a3b8;">${sizeStr}</td>
+            <td style="color:#64748b; font-family:var(--font-mono);">${modeStr}</td>
+            <td style="color:#64748b;">${modStr}</td>
+            <td style="text-align:right;">
+              ${isDir ? `<button class="toggle-btn" style="padding:0.15rem 0.45rem; font-size:0.72rem;" onclick="exitDeepSearch(); navigateFileDown('${f.path.replace(/'/g, "\\'")}')">&#x27A4; Open</button>` : `<button class="toggle-btn" style="padding:0.15rem 0.45rem; font-size:0.72rem;" onclick="previewContainerFile('${selectedContainerId}', '${f.path.replace(/'/g, "\\'")}', ${f.size})">&#x1F441; View</button>`}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function exitDeepSearch() {
+      isDeepSearchActive = false;
+      deepSearchResults = [];
+      const banner = document.getElementById('deepSearchBanner');
+      if (banner) banner.style.display = 'none';
+      if (!isDeepSearchMode) {
+        const input = document.getElementById('fileSearchInput');
+        if (input) input.value = '';
+      }
+      renderFilesTable();
+    }
+
+    function renderFilesTable() {
+      if (isDeepSearchActive) {
+        renderDeepSearchResults();
+        return;
+      }
+      const tbody = document.getElementById('filesTableBody');
+      const q = isDeepSearchMode ? '' : (document.getElementById('fileSearchInput')?.value || '').toLowerCase();
+
+      if (latestFiles.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1.5rem;">Directory is empty</td></tr>`;
+        return;
+      }
+
+      const filtered = q ? latestFiles.filter(f => f.name.toLowerCase().includes(q)) : latestFiles;
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No files matching "${q}"</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(f => {
+        const isDir = f.is_dir;
+        const icon = isDir ? '📁' : '📄';
+        const nameStyle = isDir 
+          ? 'color:#38bdf8; font-weight:600; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:0.45rem;' 
+          : 'color:#f1f5f9; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:0.45rem;';
+        const clickHandler = isDir 
+          ? `onclick="navigateFileDown('${f.path.replace(/'/g, "\\'")}')"`
+          : `onclick="previewContainerFile('${selectedContainerId}', '${f.path.replace(/'/g, "\\'")}', ${f.size})"`;
+
+        const sizeStr = isDir ? '—' : formatBytes(f.size);
+        const modeStr = f.mode || '—';
+        const modStr = f.mod_time ? f.mod_time.substring(0, 19).replace('T', ' ') : '—';
+
+        return `
+          <tr>
+            <td>
+              <span ${clickHandler} style="${nameStyle}" title="${isDir ? 'Open folder' : 'Preview file'}">
+                <span>${icon}</span>
+                <span>${f.name}</span>
+              </span>
+            </td>
+            <td style="color:#94a3b8;">${sizeStr}</td>
+            <td style="color:#64748b; font-family:var(--font-mono);">${modeStr}</td>
+            <td style="color:#64748b;">${modStr}</td>
+            <td style="text-align:right;">
+              ${!isDir ? `<button class="toggle-btn" style="padding:0.15rem 0.45rem; font-size:0.72rem;" onclick="previewContainerFile('${selectedContainerId}', '${f.path.replace(/'/g, "\\'")}', ${f.size})">&#x1F441; View</button>` : ''}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function navigateFileUp() {
+      if (isDeepSearchActive) {
+        exitDeepSearch();
+        return;
+      }
+      if (!currentBrowsedPath || currentBrowsedPath === '/') return;
+      const parts = currentBrowsedPath.split('/').filter(Boolean);
+      parts.pop();
+      const parentDir = '/' + parts.join('/');
+      fetchContainerFiles(selectedContainerId, parentDir);
+    }
+
+    function navigateFileDown(subPath) {
+      if (isDeepSearchActive) {
+        isDeepSearchActive = false;
+        const banner = document.getElementById('deepSearchBanner');
+        if (banner) banner.style.display = 'none';
+      }
+      fetchContainerFiles(selectedContainerId, subPath);
+    }
+
+    async function previewContainerFile(id, filePath, fileSize) {
+      if (!id || !filePath) return;
+      currentPreviewPath = filePath;
+      const card = document.getElementById('filePreviewCard');
+      const contentEl = document.getElementById('previewFileContent');
+      document.getElementById('previewFilePath').textContent = filePath;
+      document.getElementById('previewFileSize').textContent = formatBytes(fileSize);
+      contentEl.textContent = 'Loading file content...';
+      card.style.display = 'flex';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(id)}/file?path=${encodeURIComponent(filePath)}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) {
+          let errText = `Unable to read file content (status ${resp.status})`;
+          try {
+            const errJson = await resp.json();
+            if (errJson && errJson.error) errText = errJson.error;
+          } catch (_) {}
+          contentEl.textContent = `[${errText}]`;
+          return;
+        }
+        const text = await resp.text();
+        currentPreviewContent = text;
+        contentEl.textContent = text || '(empty file)';
+      } catch (err) {
+        clearTimeout(timeoutId);
+        const isTimeout = err.name === 'AbortError';
+        const msg = isTimeout ? 'Request timed out while reading file' : err.message;
+        contentEl.textContent = `[Error reading file: ${msg}]`;
+      }
+    }
+
+    function copyPreviewFileContent() {
+      if (!currentPreviewContent) return;
+      copyText(currentPreviewContent, `File content of ${currentPreviewPath} copied to clipboard`);
+    }
+
+    function downloadPreviewFile() {
+      if (!currentPreviewContent) return;
+      const blob = new Blob([currentPreviewContent], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const filename = currentPreviewPath.split('/').pop() || 'download.txt';
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 200);
+    }
+
+    function closeFilePreview() {
+      document.getElementById('filePreviewCard').style.display = 'none';
+      currentPreviewContent = '';
+      currentPreviewPath = '';
     }
 
     function renderDrillCharts() {
@@ -1595,12 +2599,27 @@
       if (!id) return;
       const thead = document.getElementById('topTableHeader');
       const tbody = document.getElementById('topTableBody');
+
+      if (selectedContainerData && selectedContainerData.state && selectedContainerData.state.toLowerCase() !== 'running') {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">Container is ${selectedContainerData.state}. In-container processes are only available when running.</td></tr>`;
+        return;
+      }
+
       tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--cyan); padding:1.5rem;">Querying in-container top processes...</td></tr>`;
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
       try {
-        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(id)}/top`);
+        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(id)}/top`, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!resp.ok) {
-          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">In-container top unavailable for container (state: non-running or unsupported)</td></tr>`;
+          let errText = 'In-container top unavailable for container (state: non-running or unsupported)';
+          try {
+            const errJson = await resp.json();
+            if (errJson && errJson.error) errText = errJson.error;
+          } catch (_) {}
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">${errText}</td></tr>`;
           return;
         }
         const data = await resp.json();
@@ -1617,7 +2636,10 @@
           <tr>${row.map((val, i) => `<td ${i === 0 ? 'style="color:#38bdf8;font-weight:600;"' : ''}>${val}</td>`).join('')}</tr>
         `).join('');
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--red); padding:1.5rem;">Error querying top: ${err.message}</td></tr>`;
+        clearTimeout(timeoutId);
+        const isTimeout = err.name === 'AbortError';
+        const msg = isTimeout ? 'Request timed out while querying container top' : err.message;
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--amber); padding:1.5rem;">${msg}</td></tr>`;
       }
     }
 
@@ -1821,9 +2843,9 @@
     }
 
     // UI Event Listeners
-    document.getElementById('copyAllBtn').addEventListener('click', copyClusterReport);
+    document.getElementById('viewAllReportBtn').addEventListener('click', openClusterReportModal);
     document.getElementById('exportAllBtn').addEventListener('click', exportAllTelemetry);
-    document.getElementById('copyContainerBtn').addEventListener('click', copyContainerReport);
+    document.getElementById('viewContainerReportBtn').addEventListener('click', openContainerReportModal);
     document.getElementById('exportContainerBtn').addEventListener('click', exportSelectedContainer);
 
     document.getElementById('rateToggleBtn').addEventListener('click', (e) => {
@@ -1848,6 +2870,20 @@
       renderEnvTable();
     });
 
+    document.getElementById('imgLabelsSearch')?.addEventListener('input', () => {
+      renderImageLabelsTable();
+    });
+
+    document.getElementById('diffSearchInput')?.addEventListener('input', () => {
+      renderDiffTable();
+    });
+
+    document.getElementById('fileSearchInput')?.addEventListener('input', () => {
+      if (!isDeepSearchMode) {
+        renderFilesTable();
+      }
+    });
+
     document.querySelectorAll('.modal-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         switchModalTab(tab.getAttribute('data-tab'));
@@ -1859,10 +2895,19 @@
       if (e.target.id === 'containerModal') closeModal();
     });
 
-    // Keyboard Shortcuts
+    document.addEventListener('click', (e) => {
+      const dropdownWrap = document.querySelector('.tabs-dropdown-wrap');
+      if (dropdownWrap && !dropdownWrap.contains(e.target)) {
+        const menu = document.getElementById('tabsDropdownMenu');
+        if (menu) menu.classList.remove('open');
+      }
+    });
+
+    // Keyboard Shortcuts (Aligned with TUI)
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeModal();
+        closeReportModal();
       }
       // If modal is open and user isn't typing in an input, handle shortcut keys
       const modalOpen = document.getElementById('containerModal').classList.contains('open');
@@ -1872,7 +2917,17 @@
         if (e.key === 'v' || e.key === 'V') switchModalTab('tab-volumes');
         if (e.key === 'n' || e.key === 'N') switchModalTab('tab-networking');
         if (e.key === 'e' || e.key === 'E') switchModalTab('tab-env');
-        if (e.key === 'p' || e.key === 'P') switchModalTab('tab-top');
+        if (e.key === 'i' || e.key === 'I') switchModalTab('tab-image');
+        if (e.key === 'p' || e.key === 'P') {
+          const isNetTab = document.getElementById('tab-networking')?.classList.contains('active');
+          if (isNetTab && selectedContainerId) {
+            fetchContainerProbes(selectedContainerId);
+          } else {
+            switchModalTab('tab-top');
+          }
+        }
+        if (e.key === 'd' || e.key === 'D') switchModalTab('tab-diff');
+        if (e.key === 'f' || e.key === 'F') switchModalTab('tab-files');
       }
     });
 

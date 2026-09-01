@@ -11,7 +11,7 @@ import (
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[PX^_].*?\x1b\\|\x1b[()][A-Za-z0-9]|\x1b[@-Z\\-_]`)
 
 // sensitiveKeyPattern matches sensitive environment variable or credential keys.
-var sensitiveKeyPattern = regexp.MustCompile(`(?i)(PASS|SECRET|KEY|TOKEN|AUTH|CERT|CRED|PRIVATE|DATABASE_URL|DB_URL|DSN|SIGNATURE|BEARER|AWS_|ACCESS_KEY|SESSION_TOKEN|COOKIE|SALT|HMAC|WEBHOOK|PRIVATE_KEY|APIKEY)`)
+var sensitiveKeyPattern = regexp.MustCompile(`(?i)(PASSW|SECRET|TOKEN|CRED|PRIVATE|DATABASE_URL|DB_URL|DSN|SIGNATURE|BEARER|AWS_|ACCESS_KEY|SESSION_TOKEN|COOKIE|SALT|HMAC|WEBHOOK|PRIVATE_KEY|API_KEY|APIKEY|AUTH_|_AUTH|_KEY|KEY_|CERT)`)
 
 // StripANSI removes all ANSI escape sequences from a string.
 func StripANSI(s string) string {

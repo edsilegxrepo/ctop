@@ -509,3 +509,154 @@ func TestDockerManagerNilClientErrors(t *testing.T) {
 		t.Error("expected error with nil client on Exec")
 	}
 }
+
+func TestDockerManagerDownloadZipSlipProtection(t *testing.T) {
+	// Mock server that returns a malicious tar stream with path traversal "../malicious.txt"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/archive") {
+			var buf bytes.Buffer
+			tw := tar.NewWriter(&buf)
+			content := []byte("pwned")
+			_ = tw.WriteHeader(&tar.Header{
+				Name: "../../malicious.txt",
+				Mode: 0o644,
+				Size: int64(len(content)),
+			})
+			_, _ = tw.Write(content)
+			_ = tw.Close()
+			w.Header().Set("Content-Type", "application/x-tar")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(buf.Bytes())
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create docker client: %v", err)
+	}
+
+	dm := NewDocker(client, "test-container")
+	tempDir := t.TempDir()
+	targetFile := filepath.Join(tempDir, "safe_download.txt")
+
+	_, err = dm.Download("/etc/passwd", targetFile)
+	if err == nil {
+		t.Fatal("expected error on malicious archive with path traversal, got nil")
+	}
+	if !strings.Contains(err.Error(), "security violation") && !strings.Contains(err.Error(), "illegal path traversal") {
+		t.Fatalf("expected security violation error message, got: %v", err)
+	}
+
+	// Verify the file was NOT created outside tempDir
+	parentEscaped := filepath.Join(tempDir, "..", "malicious.txt")
+	if _, statErr := os.Stat(parentEscaped); !os.IsNotExist(statErr) {
+		_ = os.Remove(parentEscaped)
+		t.Fatalf("CRITICAL SECURITY FAILURE: file was written outside target directory: %s", parentEscaped)
+	}
+}
+
+func TestDockerManagerListFilesZipSlipProtection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/archive") {
+			var buf bytes.Buffer
+			tw := tar.NewWriter(&buf)
+			legitContent := []byte("package main\n")
+			_ = tw.WriteHeader(&tar.Header{
+				Name: "app/server.go",
+				Mode: 0o644,
+				Size: int64(len(legitContent)),
+			})
+			_, _ = tw.Write(legitContent)
+
+			traversalContent := []byte("secret:shadow:data\n")
+			_ = tw.WriteHeader(&tar.Header{
+				Name: "../../../etc/shadow",
+				Mode: 0o644,
+				Size: int64(len(traversalContent)),
+			})
+			_, _ = tw.Write(traversalContent)
+			_ = tw.Close()
+			w.Header().Set("Content-Type", "application/x-tar")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(buf.Bytes())
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create docker client: %v", err)
+	}
+
+	dm := NewDocker(client, "test-container")
+	entries, err := dm.ReadDir("/app")
+	if err != nil {
+		t.Fatalf("unexpected error reading dir: %v", err)
+	}
+
+	// Verify that the traversal entry was sanitized and ignored
+	for _, entry := range entries {
+		if strings.Contains(entry.Path, "shadow") || strings.Contains(entry.Path, "..") {
+			t.Fatalf("expected traversal entry to be excluded, but found: %+v", entry)
+		}
+	}
+}
+
+func TestDockerManagerStrictAbsolutePathRejection(t *testing.T) {
+	client, err := api.NewClient("http://127.0.0.1:2375")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	dm := NewDocker(client, "test-container")
+
+	// 1. ReadDir relative path or traversal rejection
+	if _, err := dm.ReadDir("relative/dir"); err == nil {
+		t.Error("expected error for relative ReadDir path")
+	}
+	if _, err := dm.ReadDir("/var/log/../../etc"); err == nil {
+		t.Error("expected error for traversal ReadDir path")
+	}
+
+	// 2. ReadFile relative path or traversal rejection
+	if _, err := dm.ReadFile("relative/file.txt", 100); err == nil {
+		t.Error("expected error for relative ReadFile path")
+	}
+	if _, err := dm.ReadFile("/etc/../../root/file", 100); err == nil {
+		t.Error("expected error for traversal ReadFile path")
+	}
+
+	// 3. Download relative source container path rejection
+	tempDst := filepath.Join(t.TempDir(), "target")
+	if _, err := dm.Download("relative/source.txt", tempDst); err == nil {
+		t.Error("expected error for relative Download source path")
+	}
+	if _, err := dm.Download("/etc/../secret", tempDst); err == nil {
+		t.Error("expected error for traversal Download source path")
+	}
+
+	// 4. Upload relative destination container path rejection
+	tempSrc := filepath.Join(t.TempDir(), "src.txt")
+	_ = os.WriteFile(tempSrc, []byte("data"), 0o644)
+	if err := dm.Upload(tempSrc, "relative/dst"); err == nil {
+		t.Error("expected error for relative Upload destination container path")
+	}
+	if err := dm.Upload(tempSrc, "/app/../bin"); err == nil {
+		t.Error("expected error for traversal Upload destination container path")
+	}
+
+	// 5. SearchFiles relative path or traversal rejection
+	if _, err := dm.SearchFiles("relative/dir", "conf", 10); err == nil {
+		t.Error("expected error for relative SearchFiles base path")
+	}
+	if _, err := dm.SearchFiles("/var/../../etc", "conf", 10); err == nil {
+		t.Error("expected error for traversal SearchFiles base path")
+	}
+	if _, err := dm.SearchFiles("/", "", 10); err == nil {
+		t.Error("expected error for empty search pattern")
+	}
+}

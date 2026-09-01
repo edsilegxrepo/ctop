@@ -462,6 +462,7 @@ func TestExecShellAndOpenInBrowser(t *testing.T) {
 func TestModalRapidLifecycleStress(t *testing.T) {
 	initTheme()
 	config.Init()
+	config.Update("downloadDir", t.TempDir())
 
 	mockContainers := createMockContainers(5)
 	gc := &GridCursor{

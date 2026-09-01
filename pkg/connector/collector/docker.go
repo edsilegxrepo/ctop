@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/models"
 	api "github.com/fsouza/go-dockerclient"
 )
@@ -130,6 +131,9 @@ func (c *Docker) ReadCPU(stats *api.Stats) {
 
 	c.NCpus = ncpus
 	rawCPU := percent(cpudiff, syscpudiff)
+	if config.GetVal("cpuMode") == "per-core" && ncpus > 1 {
+		rawCPU = rawCPU * ncpus
+	}
 	if c.cpuEMA == nil {
 		c.cpuEMA = models.NewEMA(0.3)
 	}
