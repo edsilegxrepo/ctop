@@ -4,6 +4,22 @@ All notable changes to `ctop` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.2] - 2026-08-31
+
+### Added
+- **Live TCP Endpoint Prober**: Embedded network prober in both Web Dashboard and TUI Networking tab with status indicators, latency tracking, auto-refresh intervals (3s, 5s, 10s, 30s), and zero-flicker table updates.
+- **In-Container File Explorer & Preview**: Full recursive file tree browser with deep search, breadcrumb navigation, and in-place file content preview in both TUI (`[F]`) and Web Dashboard.
+- **Container Filesystem Diff Viewer**: Interactive visual layer mutation and filesystem change tracker (`Added`, `Changed`, `Deleted`) in both TUI (`[D]`) and Web Dashboard.
+- **Image Metadata Details Tab**: Dedicated image inspection tab (`[i]`) presenting base architecture, virtual size, layer counts, author metadata, and build directives.
+- **Streamlined Report Viewer Popup**: Interactive unselected text report preview modal in Web Dashboard with direct clipboard copy and plain-text (`.txt`) file download.
+- **Systemd Service Generator (`pkg/service`)**: Built-in systemd unit generator (`ctop service generate`) for deploying headless ctop telemetry daemons.
+- **Enhanced TUI List Navigation**: Full support for `<PageUp>`, `<PageDown>`, `<Home>`, `<End>`, `<C-u>`, `<C-d>`, `g`, and `G` shortcuts across File Explorer and large container views.
+
+### Changed
+- **Web Navigation Menu**: Added a drop-down Tabs Menu for rapid direct tab jumping in the Web Dashboard.
+
+---
+
 ## [v0.9.1] - 2026-08-28
 
 ### Added
