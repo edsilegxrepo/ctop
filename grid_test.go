@@ -89,6 +89,7 @@ func TestSingleViewNavigation(t *testing.T) {
 		{"Generator", SingleViewGenerator, []string{"j", "k", "G", "<Tab>", "q"}},
 		{"Labels", SingleViewLabels, []string{"j", "k", "L", "<Tab>", "q"}},
 		{"Files", SingleViewFiles, []string{"j", "k", "<Enter>", "<Backspace>", "j", "v", "<Escape>", "d", "D", "t", "m", "p", "<Enter>", "u", "s", "r", "c", "<Enter>", "r", "q"}},
+		{"Web", SingleViewWeb, []string{"j", "k", "1", "2", "3", "<Tab>", "n", "r", "q"}},
 	}
 
 	for _, tv := range testViews {

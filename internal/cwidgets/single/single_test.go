@@ -508,15 +508,15 @@ func TestSingleTabNavigation(t *testing.T) {
 	}
 
 	// Test NextTab and PrevTab cycling
-	s.SetTab(TabFiles)
+	s.SetTab(TabWeb)
 	s.NextTab()
 	if s.ActiveTab != TabMetrics {
-		t.Errorf("expected NextTab from TabFiles to cycle to TabMetrics, got %d", s.ActiveTab)
+		t.Errorf("expected NextTab from TabWeb to cycle to TabMetrics, got %d", s.ActiveTab)
 	}
 
 	s.PrevTab()
-	if s.ActiveTab != TabFiles {
-		t.Errorf("expected PrevTab from TabMetrics to cycle to TabFiles, got %d", s.ActiveTab)
+	if s.ActiveTab != TabWeb {
+		t.Errorf("expected PrevTab from TabMetrics to cycle to TabWeb, got %d", s.ActiveTab)
 	}
 
 	// Test ToggleSecretMask

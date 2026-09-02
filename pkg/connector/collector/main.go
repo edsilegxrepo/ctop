@@ -42,7 +42,7 @@ func round(num float64) int {
 }
 
 // return rounded percentage
-func percent(val float64, total float64) int {
+func percent(val, total float64) int {
 	if total <= 0 {
 		return 0
 	}

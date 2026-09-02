@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edsilegx/ctop/pkg/audit"
 	"github.com/edsilegx/ctop/pkg/connector"
 	"github.com/edsilegx/ctop/pkg/generator"
 	"github.com/edsilegx/ctop/pkg/sanitize"
@@ -173,7 +174,7 @@ func (p *superContainerProvider) GetContainerDiff(id string) ([]web.DiffChange, 
 	return nil, fmt.Errorf("container not found")
 }
 
-func (p *superContainerProvider) ReadContainerDir(id string, dirPath string) ([]web.FileEntry, error) {
+func (p *superContainerProvider) ReadContainerDir(id, dirPath string) ([]web.FileEntry, error) {
 	if p.cSuper == nil {
 		return nil, fmt.Errorf("connector unavailable")
 	}
@@ -204,7 +205,7 @@ func (p *superContainerProvider) ReadContainerDir(id string, dirPath string) ([]
 	return nil, fmt.Errorf("container not found")
 }
 
-func (p *superContainerProvider) ReadContainerFile(id string, filePath string, maxBytes int64) (string, error) {
+func (p *superContainerProvider) ReadContainerFile(id, filePath string, maxBytes int64) (string, error) {
 	if p.cSuper == nil {
 		return "", fmt.Errorf("connector unavailable")
 	}
@@ -220,7 +221,7 @@ func (p *superContainerProvider) ReadContainerFile(id string, filePath string, m
 	return "", fmt.Errorf("container not found")
 }
 
-func (p *superContainerProvider) SearchContainerFiles(id string, basePath string, pattern string, maxResults int) ([]web.FileEntry, error) {
+func (p *superContainerProvider) SearchContainerFiles(id, basePath, pattern string, maxResults int) ([]web.FileEntry, error) {
 	if p.cSuper == nil {
 		return nil, fmt.Errorf("connector unavailable")
 	}
@@ -333,19 +334,104 @@ func nonNeg[T ~int | ~int64](v T) T {
 	return v
 }
 
-func startWebServer(addr string, version string, urlPrefix string, cSuper *connector.ConnectorSuper) (*web.Server, func(), error) {
+// WebOptions configures runtime parameters for the web server bridge.
+type WebOptions struct {
+	URLPrefix       string
+	AuthToken       bool
+	PersistentToken bool
+	TLSCert         string
+	TLSKey          string
+	AuditLog        string
+}
+
+func startWebServer(addr, version, urlPrefix string, cSuper *connector.ConnectorSuper, opts ...WebOptions) (*web.Server, func(), error) {
+	var opt WebOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	if opt.URLPrefix == "" {
+		opt.URLPrefix = urlPrefix
+	}
+
+	if opt.AuditLog != "" && audit.Get() == nil {
+		if _, err := audit.Init(opt.AuditLog); err != nil {
+			return nil, nil, fmt.Errorf("failed to initialize audit log at %s: %w", opt.AuditLog, err)
+		}
+	}
+
+	isTLS := opt.TLSCert != "" && opt.TLSKey != ""
+
 	addr = strings.TrimSpace(addr)
-	if !strings.Contains(addr, ":") {
-		addr = "127.0.0.1:" + addr
-	} else if strings.HasPrefix(addr, ":") {
-		addr = "127.0.0.1" + addr
+	if !isTLS {
+		// MANDATORY SECURITY INVARIANT:
+		// Without native TLS encryption, the listener is strictly bound to 127.0.0.1 loopback only.
+		// No remote or 0.0.0.0 listeners are allowed without TLS.
+		port := addr
+		if idx := strings.LastIndex(addr, ":"); idx != -1 {
+			port = addr[idx+1:]
+		}
+		if port == "" || port == addr {
+			port = "9090"
+		}
+		addr = "127.0.0.1:" + port
+	} else {
+		// In TLS mode:
+		// - If only a port number is provided (e.g. "9443"), normalize to ":9443"
+		// - If ":9443" is provided, keep it as ":9443" (uses IPv6 dual-stack if supported, fallback to IPv4)
+		// - If an explicit IPv4 address is provided (e.g. "0.0.0.0:9443"), keep it as "0.0.0.0:9443" (strictly IPv4)
+		if !strings.Contains(addr, ":") {
+			addr = ":" + addr
+		}
 	}
 
 	prov := &superContainerProvider{cSuper: cSuper}
 	broadcaster := web.NewBroadcaster()
-	srv := web.NewServer(addr, version, prov, broadcaster, urlPrefix)
+	srv := web.NewServer(addr, version, prov, broadcaster, opt.URLPrefix)
+
+	var tokenPath string
+	if opt.AuthToken {
+		if opt.PersistentToken {
+			// If persistent token is requested, check if a valid token already exists on disk
+			token, tErr := web.ReadSecureTokenFile("")
+			if tErr == nil && len(token) >= web.MinAuthTokenLength {
+				if err := srv.EnableAuthWithToken(token); err != nil {
+					return nil, nil, fmt.Errorf("failed to load persistent authentication token: %w", err)
+				}
+				tokenPath = web.DefaultAuthTokenPath()
+			} else {
+				// Generate ONCE and write to secure file
+				token, err := srv.EnableAuth()
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to enable web authentication token: %w", err)
+				}
+				var wErr error
+				tokenPath, wErr = web.WriteSecureTokenFile("", token)
+				if wErr != nil {
+					return nil, nil, fmt.Errorf("failed to write secure token file: %w", wErr)
+				}
+			}
+		} else {
+			// Ephemeral (default): generate fresh token every startup
+			token, err := srv.EnableAuth()
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to enable web authentication token: %w", err)
+			}
+			var wErr error
+			tokenPath, wErr = web.WriteSecureTokenFile("", token)
+			if wErr != nil {
+				return nil, nil, fmt.Errorf("failed to write secure token file: %w", wErr)
+			}
+		}
+	}
+
+	if opt.TLSCert != "" && opt.TLSKey != "" {
+		srv.SetTLS(opt.TLSCert, opt.TLSKey)
+	}
 
 	if err := srv.Start(); err != nil {
+		if tokenPath != "" && !opt.PersistentToken {
+			web.RemoveSecureTokenFile(tokenPath)
+		}
 		return nil, nil, fmt.Errorf("failed to start web dashboard server: %w", err)
 	}
 
@@ -378,6 +464,9 @@ func startWebServer(addr string, version string, urlPrefix string, cSuper *conne
 
 	cleanup := func() {
 		cancel()
+		if tokenPath != "" && !opt.PersistentToken {
+			web.RemoveSecureTokenFile(tokenPath)
+		}
 		shutdownCtx, sCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer sCancel()
 		_ = srv.Stop(shutdownCtx)

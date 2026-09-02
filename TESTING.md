@@ -233,8 +233,9 @@ sequenceDiagram
 | `TestIOUpdate` | Tests block I/O sparkline history update | **PASS**: Block I/O history buffer maintains sliding window |
 | `TestCpuAndMemWidgets` | Tests CPU and memory chart widget rendering in single view | **PASS**: Widgets format telemetry into graphs without panics |
 | `TestEnvAndInfoWidgets` | Tests container environment variables and inspection table rendering with default secret masking | **PASS**: Environment keys rendered with masked secrets and unmask toggles |
-| `TestSingleView` | Tests full single container inspection view orchestration across all 11 tabs | **PASS**: Sub-views position and redraw cleanly |
-| `TestSingleViewAllSubwidgets` | Tests Volumes, Network (live TCP probes), Process, Top, Diff, Generator, Labels, Files widgets | **PASS**: All specialized inspection subwidgets render without error |
+| `TestSingleView` | Tests full single container inspection view orchestration across all 12 tabs | **PASS**: Sub-views position and redraw cleanly |
+| `TestSingleViewAllSubwidgets` | Tests Volumes, Network (live TCP probes), Process, Top, Diff, WebView, Generator, Labels, Files widgets | **PASS**: All specialized inspection subwidgets render without error |
+| `TestWebViewWidget` | Tests embedded in-terminal web service inspector widget, port rotation, custom subpath routing, and view mode switches (Rendered HTML, Headers, Raw) | **PASS**: Ingests endpoints, renders ANSI HTML, formats headers, and cycles ports cleanly |
 | `TestLogsWidget` | Tests embedded container log viewer widget | **PASS**: Ingests and renders log lines with proper scroll offset |
 | `TestIntHist` / `TestFloatHist` / `TestDiffHist` | Tests circular history buffers for metric charting | **PASS**: Buffers maintain capacity, compute min/max/average accurately |
 | `TestLogLinesAnsiSanitization` | Tests stripping ANSI escape color sequences from ingested log lines | **PASS**: Raw colored logs sanitized into clean displayable text |
@@ -305,6 +306,16 @@ sequenceDiagram
 | `TestBuildReportAndExport` | Tests structured diagnostic report construction and disk export (`pkg/diag`) | **PASS**: Builds comprehensive JSON/Text reports and saves to disk |
 | `TestGenerateSystemdUnit` | Tests systemd service unit template formatting (`pkg/service`) | **PASS**: Generates valid unit with binary path and daemon flags |
 | `TestRunServiceCommands` | Tests systemd install/uninstall/status command dispatching (`pkg/service`) | **PASS**: Outputs configuration diagnostics without errors |
+| `TestDiscoverEndpoints` / `TestDiscoverEndpointsMultiline` | Tests container HTTP/HTTPS service endpoint discovery across port mappings, bridge IPs, and ENV declarations (`pkg/serviceprobe`) | **PASS**: Accurately parses port strings and identifies candidate web endpoints |
+| `TestProbeHTTP` / `TestProbeHTTPError` / `TestProbeHTTPRedirectLimit` | Tests bounded HTTP probing, latency calculation, header parsing, HTML classification, and redirect caps (`pkg/serviceprobe`) | **PASS**: Probes endpoints cleanly with bounded execution context |
+| `TestProbeHTTP_NonHTTPBinaryService` | Tests probing non-HTTP binary sockets (e.g. MySQL/Redis protocol handshake) without hanging or crashing (`pkg/serviceprobe`) | **PASS**: Gracefully detects protocol mismatch and returns structured error |
+| `TestProbeHTTP_SlowlorisTimeout` | Tests context timeout enforcement against stalled/hanging Slowloris sockets within ~500ms (`pkg/serviceprobe`) | **PASS**: Client context strictly terminates probe without goroutine leak |
+| `TestProbeHTTP_OversizedBodyLimit` | Tests response payload bounding against large responses or compression bombs (`pkg/serviceprobe`) | **PASS**: Response body strictly capped to <= 2MB memory footprint |
+| `TestRenderHeadingsAndParagraphs` / `TestRenderTable` / `TestRenderListsAndLinks` | Tests pure-Go AST walker, Unicode box-drawing table formatting, and hyperlink footnote extraction (`pkg/htmlrender`) | **PASS**: Formats rich ANSI terminal output from raw HTML |
+| `TestRenderBrokenTablesAndNested` / `TestRenderMultiByteAndUnicodeWrapping` | Tests resilience against malformed HTML, missing tags, and CJK/emoji word wrapping on narrow terminals (`pkg/htmlrender`) | **PASS**: Renders cleanly without panic or rune corruption |
+| `TestRenderScriptAndDangerousTagsStripped` | Validates strict anti-XSS stripping of `<script>`, `<style>`, and `<svg>` tags from rendered terminal text (`pkg/htmlrender`) | **PASS**: 100% of executable and dangerous tags are stripped |
+| `TestAuditLoggerBasicNDJSON` / `TestAuditLoggerDailyRotation` | Tests thread-safe NDJSON audit log writer, schema compliance, and automatic midnight file rotation (`pkg/audit`) | **PASS**: Writes dated NDJSON records and rotates file handles cleanly |
+| `TestAuditLoggerConcurrentRotationStress` | Stress tests high-concurrency audit logging across 30 goroutines during date rotation (`pkg/audit`) | **PASS**: 1,500 audit events logged with zero data loss or corrupted JSON lines |
 | `TestWebServerHealth` | Tests read-only health and readiness probe (`pkg/web`) | **PASS**: Returns status `ok` and uptime |
 | `TestWebServerMetricsAndContainers` | Tests aggregated metrics and container snapshot REST endpoints (`pkg/web`) | **PASS**: Aggregates totals and resolves containers by ID/name |
 | `TestWebServerExportAndIndex` | Tests embedded HTML5 dashboard delivery, pretty JSON formatting, and single container export (`pkg/web`) | **PASS**: Serves embedded SPA and formats cluster & single-container JSON attachments |
@@ -317,17 +328,21 @@ sequenceDiagram
 | `TestWebServerAPIErrorsAndEdgeCases` | Tests CORS preflight OPTIONS (204), HEAD requests, 404s on missing endpoints/containers, trailing slashes, and nil providers (`pkg/web`) | **PASS**: Correct status codes, CORS headers, and fallback responses |
 | `TestWebServerTopErrorHandling` | Tests internal server error handling when container top provider fails (`pkg/web`) | **PASS**: Returns 500 Internal Server Error without crashing |
 | `TestWebServerBroadcasterStreamBroadcast` | Tests subsequent telemetry event broadcasting over live SSE client streams (`pkg/web`) | **PASS**: SSE client receives live broadcast events in real-time |
-| `TestWebServerAuthToken` | Tests bearer token validation middleware against authorized and unauthorized requests (`pkg/web`) | **PASS**: Returns 200 for valid token, 401 for missing/invalid token |
+| `TestWebServerAuthToken` | Tests bearer token validation middleware against authorized and unauthorized requests (`pkg/web`) | **PASS**: Returns 200 for valid 64-char token, 401 for missing/invalid token |
+| `TestWebServer_MultiHopProxyIPExtraction` | Tests client IP rate-limiting isolation across multi-hop `X-Forwarded-For` proxy headers (`pkg/web`) | **PASS**: Isolates real client IP and protects against header spoofing |
+| `TestWebServer_SSEBroadcasterSlowSubscriberNonBlocking` | Tests SSE broadcast non-blocking distribution when multiple subscribers have full buffers (`pkg/web`) | **PASS**: Broadcast completes immediately without deadlocks or latency |
+| `TestWebServerEndpointsAndProxy` | Tests in-container endpoint discovery and secure sandboxed web proxy preview (`pkg/web`) | **PASS**: Discovers endpoints, enforces SSRF port whitelisting, and returns sandboxed preview |
 | `TestWebServerSchema` | Tests OpenAPI / JSON schema definitions returned by telemetry endpoints (`pkg/web`) | **PASS**: Returns valid schema JSON matching data types |
 | `TestBroadcasterRingBuffer` | Tests circular ring buffer storage for historical telemetry data (`pkg/web`) | **PASS**: Correctly preserves recent samples and evicts old entries |
 | `TestWebServerPathTraversalRejection` | Tests path traversal rejection in file and diff endpoints (`pkg/web`) | **PASS**: Rejects `../` attempts with 403/400 errors |
-| `TestGenerateAuthToken` | Tests cryptographically secure random authentication token generation (`pkg/web`) | **PASS**: Generates 32-character high-entropy hex token |
-| `TestSecureTokenFileOperations` | Tests atomic token file read, write, and secure permission handling (`pkg/web`) | **PASS**: Writes token with 0600 permissions and reads back accurately |
+| `TestGenerateAuthToken` | Tests cryptographically secure random authentication token generation (`pkg/web`) | **PASS**: Generates 64-character high-entropy Base62 alphanumeric token (~381-bit entropy) |
+| `TestSecureTokenFileOperations` | Tests atomic token file read, write, and secure permission handling (`pkg/web`) | **PASS**: Writes token with 0400/0600 permissions and reads back accurately |
 | `TestWebServerDiffAndFiles` | Tests in-container filesystem diff and directory browsing endpoints (`pkg/web`) | **PASS**: Returns structured changes and directory entries |
 | `TestWebServerProbes` | Tests container TCP network reachability probe endpoint (`pkg/web`) | **PASS**: Returns active endpoint probe status and round-trip latency |
 | `TestWebBridge` | Tests live bridge between `GridCursor` and embedded web server (`web_bridge.go`) | **PASS**: Extracts container telemetry snapshots and runs background broadcaster |
 | `TestWebBridgeContainerConversion` | Tests serialization and parser helpers for mounts, networks, labels, and environment variables (`web_bridge.go`) | **PASS**: Correctly parses structured container properties with secret sanitization |
 | `TestWebBridgeE2E` | End-to-end integration test validating full web lifecycle, SSE streaming, REST APIs, JSON export, and read-only security (`web_bridge_test.go`) | **PASS**: 100% end-to-end operational verification across all endpoints |
+| `TestWebBridgePersistentToken` | Tests single-generation and disk persistence of `--persistent-token` across multiple server restart lifecycles (`web_bridge_test.go`) | **PASS**: Token generated once, reused on restart, and preserved on shutdown |
 
 ---
 

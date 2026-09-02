@@ -41,7 +41,7 @@ func (w *IO) Align() {
 	}
 }
 
-func (w *IO) Update(read int64, write int64) {
+func (w *IO) Update(read, write int64) {
 	w.readHist.Append(int(read))
 	rateRead := strings.ToLower(cwidgets.ByteFormatShort(w.readHist.Val))
 	w.readTitle = fmt.Sprintf("READ [%s/s]", rateRead)

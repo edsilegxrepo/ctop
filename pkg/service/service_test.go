@@ -1,3 +1,8 @@
+// Package service_test provides unit tests for systemd service generation and CLI subcommand execution.
+//
+// Test Strategy:
+//   - Template Generation: Test exact ExecStart substitutions, fallback defaults, and systemd dependencies.
+//   - Subcommand Execution: Test service status, unit generation, and help output routing.
 package service
 
 import (
@@ -7,7 +12,7 @@ import (
 
 func TestGenerateSystemdUnit(t *testing.T) {
 	unit := GenerateSystemdUnit("/usr/bin/ctop")
-	if !strings.Contains(unit, "ExecStart=/usr/bin/ctop --headless --web :9090 --web-auth-token auto") {
+	if !strings.Contains(unit, "ExecStart=/usr/bin/ctop --headless --web :9090 --web-auth-token") {
 		t.Errorf("expected ExecStart in unit, got:\n%s", unit)
 	}
 	if !strings.Contains(unit, "Requires=docker.service") {
@@ -16,7 +21,7 @@ func TestGenerateSystemdUnit(t *testing.T) {
 
 	// Default fallback
 	unitDefault := GenerateSystemdUnit("")
-	if !strings.Contains(unitDefault, "ExecStart=/usr/local/bin/ctop --headless --web :9090 --web-auth-token auto") {
+	if !strings.Contains(unitDefault, "ExecStart=/usr/local/bin/ctop --headless --web :9090 --web-auth-token") {
 		t.Errorf("expected default ExecStart in unit, got:\n%s", unitDefault)
 	}
 }

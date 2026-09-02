@@ -271,6 +271,19 @@
       border-color: var(--cyan);
       box-shadow: 0 0 10px rgba(6, 182, 212, 0.25);
     }
+    select.search-input, select.web-ctrl {
+      background-color: #0f172a;
+      color: #f1f5f9;
+    }
+    select option {
+      background-color: #0f172a !important;
+      color: #f1f5f9 !important;
+      padding: 0.5rem;
+    }
+    select option:checked, select option:hover {
+      background-color: #1e293b !important;
+      color: #38bdf8 !important;
+    }
 
     /* Container Table */
     .table-container {
@@ -744,6 +757,53 @@
     }
     .copy-btn:hover { color: var(--cyan); }
 
+    /* Web & Probes Toolbar Controls */
+    .web-ctrl {
+      height: 38px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      box-sizing: border-box !important;
+      font-size: 0.82rem !important;
+    }
+    .segmented-control {
+      display: inline-flex;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 3px;
+      height: 38px;
+      box-sizing: border-box;
+      flex-shrink: 0;
+    }
+    .segmented-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: #94a3b8;
+      padding: 0 0.85rem;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      height: 100%;
+    }
+    .segmented-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .segmented-btn.active {
+      background: #1e293b;
+      color: #38bdf8;
+      font-weight: 600;
+      border-color: rgba(6, 182, 212, 0.35);
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+    }
+
     /* Top Processes Table */
     .top-table-wrap {
       background: rgba(0, 0, 0, 0.3);
@@ -801,6 +861,52 @@
       text-decoration: none;
     }
     footer a:hover { text-decoration: underline; }
+
+    /* Security Guard Auth Modal */
+    #authModal.open {
+      display: flex !important;
+    }
+    .auth-input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .auth-eye-btn {
+      position: absolute;
+      right: 0.6rem;
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .auth-eye-btn:hover {
+      color: var(--cyan);
+    }
+    #authErrorMsg {
+      display: none;
+      padding: 0.6rem 0.85rem;
+      border-radius: 6px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+    #logoutBtn {
+      display: none;
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.35);
+    }
+    #logoutBtn:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: #ef4444;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -823,6 +929,9 @@
         <div class="live-dot"></div>
         <span>LIVE SSE</span>
       </div>
+      <button id="logoutBtn" class="toggle-btn" title="Log out and terminate active web session">
+        &#x1F512; Logout
+      </button>
     </div>
   </header>
 
@@ -971,6 +1080,10 @@
                 <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[F]</span>
                 <span>&#x1F4C1; File Explorer</span>
               </div>
+              <div class="tab-menu-item" data-tab="tab-web" onclick="selectTabFromMenu('tab-web')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[w]</span>
+                <span>&#x1F310; Web &amp; Probes</span>
+              </div>
             </div>
           </div>
           <button id="viewContainerReportBtn" class="toggle-btn" title="View formatted container inspection report popup">
@@ -1008,6 +1121,9 @@
         </button>
         <button class="modal-tab" data-tab="tab-files">
           <span class="key">[F]</span> file explorer
+        </button>
+        <button class="modal-tab" data-tab="tab-web">
+          <span class="key">[w]</span> web &amp; probes
         </button>
       </div>
 
@@ -1350,6 +1466,85 @@
             <pre id="previewFileContent" style="background:#090d16; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:0.75rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.78rem; max-height:220px; overflow:auto; white-space:pre-wrap; word-break:break-all;"></pre>
           </div>
         </div>
+
+        <!-- Tab 9: [w] Web & Probes -->
+        <div id="tab-web" class="tab-pane">
+          <!-- Row 1: Target Port Selector and Mode Switcher -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; flex:1 1 480px; min-width:320px;">
+              <span style="font-size:0.75rem; color:var(--text-dim); text-transform:uppercase; font-weight:700; white-space:nowrap; letter-spacing:0.04em;">Port:</span>
+              <select id="webEndpointSelect" class="search-input web-ctrl" style="flex:1 1 auto; min-width:240px; font-family:var(--font-mono); font-size:0.82rem;" onchange="onWebEndpointChange()">
+                <option value="">Discovering web endpoints...</option>
+              </select>
+              <button id="webRotatePortBtn" class="toggle-btn web-ctrl" style="white-space:nowrap; flex-shrink:0; padding:0 0.85rem; display:inline-flex; align-items:center; gap:0.4rem;" onclick="rotateWebPort()" title="Rotate to next discovered container port (or press 'n')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l6.73-6.73"/></svg>
+                <span>Next Port (n)</span>
+              </button>
+            </div>
+            <div class="segmented-control">
+              <button id="webModePreviewBtn" class="segmented-btn active" onclick="setWebMode('preview')">&#x1F310; Preview</button>
+              <button id="webModeHeadersBtn" class="segmented-btn" onclick="setWebMode('headers')">&#x26A1; Headers</button>
+              <button id="webModeRawBtn" class="segmented-btn" onclick="setWebMode('raw')">&#x1F4C4; Raw</button>
+            </div>
+          </div>
+
+          <!-- Row 2: Route Subpath, Probe Button, and Quick Probes -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem; flex:1 1 360px; min-width:260px;">
+              <span style="font-size:0.75rem; color:var(--text-dim); text-transform:uppercase; font-weight:700; white-space:nowrap; letter-spacing:0.04em;">Route:</span>
+              <input type="text" id="webSubpathInput" class="search-input web-ctrl" style="flex:1 1 auto; min-width:140px; font-family:var(--font-mono);" placeholder="Subpath (e.g. /, /ping, /dashboard/, /metrics)" value="/" onkeydown="if(event.key==='Enter') executeWebProbe()" />
+              <button id="webProbeBtn" class="toggle-btn btn-export web-ctrl" onclick="executeWebProbe()" style="padding:0 1.25rem; font-weight:700;">&#x26A1; Send Probe</button>
+            </div>
+            <div style="display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap;">
+              <span style="font-size:0.72rem; color:var(--text-dim); text-transform:uppercase; font-weight:600; letter-spacing:0.04em; margin-right:0.2rem;">Quick:</span>
+              <button class="toggle-btn" style="font-size:0.72rem; padding:0.2rem 0.5rem;" onclick="setWebSubpath('/')">/</button>
+              <button class="toggle-btn" style="font-size:0.72rem; padding:0.2rem 0.5rem;" onclick="setWebSubpath('/ping')">/ping</button>
+              <button class="toggle-btn" style="font-size:0.72rem; padding:0.2rem 0.5rem;" onclick="setWebSubpath('/dashboard/')">/dashboard/</button>
+              <button class="toggle-btn" style="font-size:0.72rem; padding:0.2rem 0.5rem;" onclick="setWebSubpath('/health')">/health</button>
+              <button class="toggle-btn" style="font-size:0.72rem; padding:0.2rem 0.5rem;" onclick="setWebSubpath('/metrics')">/metrics</button>
+              <button class="toggle-btn" style="font-size:0.72rem; padding:0.2rem 0.5rem;" onclick="setWebSubpath('/api/rawdata')">/api/rawdata</button>
+            </div>
+          </div>
+
+          <!-- Probe Status Ribbon -->
+          <div id="webStatusRibbon" style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); border:1px solid var(--card-border); border-radius:6px; padding:0.45rem 0.85rem; font-family:var(--font-mono); font-size:0.8rem;">
+            <div style="display:flex; align-items:center; gap:0.6rem;">
+              <span id="webStatusBadge" class="status-pill running">Ready</span>
+              <span id="webTargetUrlText" style="color:#e2e8f0;">http://127.0.0.1:80/</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.75rem;">
+              <span id="webLatencyText" style="color:var(--cyan);">&#x23F1;&#xFE0F; 0.0ms</span>
+              <span id="webSizeText" style="color:#94a3b8;">0 B</span>
+            </div>
+          </div>
+
+          <!-- Mode 1: Rendered Sandboxed IFrame Preview -->
+          <div id="webPanePreview" style="display:flex; flex-direction:column; min-height:400px; height:450px; background:#000; border:1px solid var(--card-border); border-radius:8px; overflow:hidden;">
+            <iframe id="webPreviewIframe" sandbox="allow-scripts allow-forms" style="width:100%; height:100%; border:none; background:#fff;"></iframe>
+          </div>
+
+          <!-- Mode 2: Response Headers & Diagnostics Table -->
+          <div id="webPaneHeaders" style="display:none; flex-direction:column; gap:0.5rem;">
+            <div class="top-table-wrap" style="max-height:400px; overflow-y:auto;">
+              <table class="top-table">
+                <thead>
+                  <tr>
+                    <th style="width:250px;">HEADER</th>
+                    <th>VALUE</th>
+                  </tr>
+                </thead>
+                <tbody id="webHeadersTableBody">
+                  <tr><td colspan="2" style="text-align:center; color:var(--text-muted); padding:1.5rem;">Execute a probe to inspect headers</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Mode 3: Raw Source View -->
+          <div id="webPaneRaw" style="display:none; flex-direction:column; gap:0.5rem;">
+            <pre id="webRawContent" style="background:#090d16; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:0.85rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.78rem; max-height:420px; overflow:auto; white-space:pre-wrap; word-break:break-all;">Execute a probe to view raw response payload</pre>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1375,6 +1570,35 @@
           Plain-text report preview &bull; You can copy directly, select all with <kbd>Ctrl</kbd>+<kbd>A</kbd>, or download as a <code>.txt</code> file:
         </div>
         <textarea id="reportModalText" readonly style="width: 100%; height: 440px; background: #070b14; color: #f1f5f9; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; padding: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; resize: none; outline: none; white-space: pre;"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Zero-Leak Security Guard Authentication Modal -->
+  <div id="authModal" class="modal-backdrop" style="z-index: 9999; backdrop-filter: blur(16px); background: rgba(11, 15, 25, 0.88);">
+    <div class="modal-card" style="max-width: 460px; border: 1px solid rgba(6, 182, 212, 0.35); box-shadow: 0 0 40px rgba(6, 182, 212, 0.2); background: rgba(15, 23, 42, 0.95);">
+      <div class="modal-header" style="flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; padding: 1.5rem 1.5rem 1rem 1.5rem; border-bottom: 1px solid var(--card-border);">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <div class="logo">ctop</div>
+          <span style="font-size: 1.15rem; font-weight: 700; color: var(--text);">Security Guard</span>
+        </div>
+        <div style="font-size: 0.82rem; color: var(--text-dim);">Authentication Token Required</div>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem 1.5rem 1.5rem 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+        <p style="font-size: 0.83rem; color: var(--text-dim); line-height: 1.5;">
+          This <code>ctop</code> daemon is protected with web authentication. Enter the 32-character bearer token from <code>~/.config/ctop/token</code> to unlock the dashboard.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+          <label for="authTokenInput" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">Bearer Token</label>
+          <div class="auth-input-wrap">
+            <input type="password" id="authTokenInput" class="search-input" placeholder="Enter 64-character token..." style="width: 100%; font-family: var(--font-mono); font-size: 0.85rem; padding-right: 2.5rem;" autocomplete="off" />
+            <button type="button" id="authToggleVisibilityBtn" class="auth-eye-btn" title="Toggle token visibility">&#x1F441;</button>
+          </div>
+        </div>
+        <div id="authErrorMsg"></div>
+        <button id="authSubmitBtn" class="toggle-btn active" style="width: 100%; justify-content: center; padding: 0.65rem; font-weight: 600; font-size: 0.9rem; margin-top: 0.25rem; cursor: pointer;">
+          &#x1F513; Unlock Dashboard
+        </button>
       </div>
     </div>
   </div>
@@ -1816,7 +2040,8 @@
       'tab-image': '[i] Image Details',
       'tab-top': '[P] Top Processes',
       'tab-diff': '[D] Filesystem Diff',
-      'tab-files': '[F] File Explorer'
+      'tab-files': '[F] File Explorer',
+      'tab-web': '[w] Web & Probes'
     };
 
     function toggleTabsMenu(e) {
@@ -1869,6 +2094,9 @@
       }
       if (tabId === 'tab-files' && selectedContainerId) {
         fetchContainerFiles(selectedContainerId, currentBrowsedPath || '/');
+      }
+      if (tabId === 'tab-web' && selectedContainerId) {
+        fetchContainerEndpoints(selectedContainerId);
       }
       if (tabId === 'tab-overview') {
         renderDrillCharts();
@@ -2092,9 +2320,9 @@
       if (c.ports) {
         const pLines = c.ports.split('\n').filter(Boolean);
         portsGrid.innerHTML = pLines.map(p => `
-          <div class="kv-item">
-            <span class="kv-key">Port Mapping</span>
-            <span class="kv-val" style="color:#38bdf8;">${p}</span>
+          <div class="kv-item" style="display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:1rem; min-width:280px; flex:1 1 320px;">
+            <span class="kv-key" style="white-space:nowrap;">Port Mapping</span>
+            <span class="kv-val" style="color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem; word-break:break-all; text-align:right;">${p}</span>
           </div>
         `).join('');
       } else {
@@ -2643,6 +2871,149 @@
       }
     }
 
+    // Web & Probes Embedded Inspector
+    let latestWebEndpoints = [];
+    let currentWebMode = 'preview';
+    let lastProbeResult = null;
+
+    async function fetchContainerEndpoints(containerId) {
+      if (!containerId) return;
+      const select = document.getElementById('webEndpointSelect');
+      select.innerHTML = '<option value="">Discovering web endpoints...</option>';
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/containers/${encodeURIComponent(containerId)}/endpoints`);
+        if (!resp.ok) {
+          select.innerHTML = '<option value="80">Default Port 80 (HTTP)</option>';
+          executeWebProbe();
+          return;
+        }
+        const data = await resp.json();
+        latestWebEndpoints = data || [];
+        if (latestWebEndpoints.length === 0) {
+          select.innerHTML = '<option value="80" style="background:#0f172a; color:#f1f5f9;">Port 80 (Default)</option>';
+        } else {
+          select.innerHTML = latestWebEndpoints.map(ep => `
+            <option value="${ep.port}" style="background:#0f172a; color:#f1f5f9; padding:0.4rem;">${ep.protocol.toUpperCase()} Port ${ep.port} (${ep.description}) — ${ep.url}</option>
+          `).join('');
+        }
+        executeWebProbe();
+      } catch (err) {
+        select.innerHTML = '<option value="80">Port 80 (Default)</option>';
+        executeWebProbe();
+      }
+    }
+
+    function onWebEndpointChange() {
+      executeWebProbe();
+    }
+
+    function setWebSubpath(subpath) {
+      const input = document.getElementById('webSubpathInput');
+      if (input) {
+        input.value = subpath;
+        executeWebProbe();
+      }
+    }
+
+    function setWebMode(mode) {
+      currentWebMode = mode;
+      document.getElementById('webModePreviewBtn').className = `segmented-btn ${mode === 'preview' ? 'active' : ''}`;
+      document.getElementById('webModeHeadersBtn').className = `segmented-btn ${mode === 'headers' ? 'active' : ''}`;
+      document.getElementById('webModeRawBtn').className = `segmented-btn ${mode === 'raw' ? 'active' : ''}`;
+
+      document.getElementById('webPanePreview').style.display = mode === 'preview' ? 'flex' : 'none';
+      document.getElementById('webPaneHeaders').style.display = mode === 'headers' ? 'flex' : 'none';
+      document.getElementById('webPaneRaw').style.display = mode === 'raw' ? 'flex' : 'none';
+    }
+
+    function rotateWebPort() {
+      const select = document.getElementById('webEndpointSelect');
+      if (select && select.options.length > 1) {
+        select.selectedIndex = (select.selectedIndex + 1) % select.options.length;
+        executeWebProbe();
+      }
+    }
+
+    async function executeWebProbe() {
+      if (!selectedContainerId) return;
+      const select = document.getElementById('webEndpointSelect');
+      const port = select.value || '80';
+      let subpath = (document.getElementById('webSubpathInput')?.value || '/').trim();
+      if (!subpath.startsWith('/')) subpath = '/' + subpath;
+
+      const badge = document.getElementById('webStatusBadge');
+      const urlText = document.getElementById('webTargetUrlText');
+      const latText = document.getElementById('webLatencyText');
+      const sizeText = document.getElementById('webSizeText');
+      const iframe = document.getElementById('webPreviewIframe');
+
+      badge.className = 'status-pill paused';
+      badge.textContent = 'Probing...';
+      urlText.textContent = `port ${port} path ${subpath}`;
+      latText.textContent = '⏱️ ...';
+
+      // Load IFrame Preview
+      const proxyUrl = `${BASE_PATH}/api/v1/containers/${encodeURIComponent(selectedContainerId)}/proxy?port=${encodeURIComponent(port)}&path=${encodeURIComponent(subpath)}`;
+      iframe.src = proxyUrl;
+
+      // Fetch JSON metadata
+      try {
+        const resp = await fetch(`${proxyUrl}&format=json`);
+        if (!resp.ok) {
+          badge.className = 'status-pill exited';
+          badge.textContent = `HTTP ${resp.status}`;
+          latText.textContent = 'Failed';
+          return;
+        }
+        const data = await resp.json();
+        lastProbeResult = data;
+
+        if (data.error) {
+          badge.className = 'status-pill exited';
+          badge.textContent = 'ERR';
+          latText.textContent = 'Failed';
+          urlText.textContent = data.error;
+        } else {
+          badge.className = data.status_code >= 400 ? 'status-pill paused' : 'status-pill running';
+          badge.textContent = `${data.status_code} ${data.status_text || 'OK'}`;
+          latText.textContent = `⏱️ ${(data.duration_ms || 0).toFixed(1)}ms`;
+          sizeText.textContent = formatBytes(data.body_size || 0);
+          urlText.textContent = data.target_url || proxyUrl;
+        }
+
+        renderWebHeaders(data);
+        renderWebRaw(data);
+      } catch (err) {
+        badge.className = 'status-pill exited';
+        badge.textContent = 'ERR';
+        latText.textContent = err.message;
+      }
+    }
+
+    function renderWebHeaders(data) {
+      const tbody = document.getElementById('webHeadersTableBody');
+      if (!data || !data.headers) {
+        tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:var(--text-muted); padding:1rem;">No response headers received</td></tr>';
+        return;
+      }
+      const entries = Object.entries(data.headers).sort((a, b) => a[0].localeCompare(b[0]));
+      tbody.innerHTML = entries.map(([k, v]) => `
+        <tr>
+          <td style="color:#38bdf8; font-weight:600;">${k}</td>
+          <td style="word-break:break-all; font-family:var(--font-mono); font-size:0.8rem;">${v}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderWebRaw(data) {
+      const pre = document.getElementById('webRawContent');
+      if (!data || !data.body) {
+        pre.textContent = data?.error || 'Empty response payload';
+        return;
+      }
+      pre.textContent = data.body;
+    }
+
     // Render Container Table
     function renderTable() {
       const tbody = document.getElementById('containersTableBody');
@@ -2817,10 +3188,128 @@
       }
     }
 
+    // Active SSE EventSource handle
+    let activeSSE = null;
+
+    function showAuthModal(errorText) {
+      const modal = document.getElementById('authModal');
+      const errEl = document.getElementById('authErrorMsg');
+      if (errorText) {
+        errEl.textContent = errorText;
+        errEl.style.display = 'block';
+      } else {
+        errEl.style.display = 'none';
+      }
+      modal.classList.add('open');
+      const input = document.getElementById('authTokenInput');
+      input.focus();
+    }
+
+    function hideAuthModal() {
+      const modal = document.getElementById('authModal');
+      const errEl = document.getElementById('authErrorMsg');
+      errEl.style.display = 'none';
+      modal.classList.remove('open');
+    }
+
+    async function submitAuthLogin() {
+      const input = document.getElementById('authTokenInput');
+      const token = input.value.trim();
+      const errEl = document.getElementById('authErrorMsg');
+      const submitBtn = document.getElementById('authSubmitBtn');
+
+      if (!token) {
+        errEl.textContent = 'Please enter an authentication token.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      errEl.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Verifying...';
+
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token })
+        });
+
+        if (resp.status === 429) {
+          errEl.textContent = 'Too many failed login attempts. Please retry after 60 seconds.';
+          errEl.style.display = 'block';
+          return;
+        }
+
+        if (!resp.ok) {
+          errEl.textContent = 'Invalid authentication token. Please check ~/.config/ctop/token.';
+          errEl.style.display = 'block';
+          return;
+        }
+
+        // Login successful
+        hideAuthModal();
+        input.value = '';
+        document.getElementById('logoutBtn').style.display = 'inline-flex';
+        initSSE();
+      } catch (err) {
+        errEl.textContent = 'Network or connection error. Ensure ctop is running.';
+        errEl.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '&#x1F513; Unlock Dashboard';
+      }
+    }
+
+    async function submitAuthLogout() {
+      try {
+        await fetch(`${BASE_PATH}/api/v1/auth/logout`, { method: 'POST' });
+      } catch (_) {}
+      if (activeSSE) {
+        activeSSE.close();
+        activeSSE = null;
+      }
+      document.getElementById('logoutBtn').style.display = 'none';
+      const statusEl = document.getElementById('connStatus');
+      statusEl.classList.add('disconnected');
+      statusEl.querySelector('span').textContent = 'LOCKED';
+      showAuthModal('Logged out successfully.');
+    }
+
+    async function checkAuthStatus() {
+      try {
+        const resp = await fetch(`${BASE_PATH}/api/v1/auth/status`);
+        if (!resp.ok) {
+          showAuthModal();
+          return;
+        }
+        const data = await resp.json();
+        if (data.authenticated) {
+          hideAuthModal();
+          if (data.auth_enabled && !data.direct_local) {
+            document.getElementById('logoutBtn').style.display = 'inline-flex';
+          } else {
+            document.getElementById('logoutBtn').style.display = 'none';
+          }
+          initSSE();
+        } else {
+          showAuthModal();
+        }
+      } catch (err) {
+        showAuthModal();
+      }
+    }
+
     // Connect Server-Sent Events (SSE)
     function initSSE() {
+      if (activeSSE) {
+        activeSSE.close();
+        activeSSE = null;
+      }
+
       const statusEl = document.getElementById('connStatus');
       const es = new EventSource(`${BASE_PATH}/api/v1/stream`);
+      activeSSE = es;
 
       es.onopen = () => {
         statusEl.classList.remove('disconnected');
@@ -2839,6 +3328,7 @@
       es.onerror = () => {
         statusEl.classList.add('disconnected');
         statusEl.querySelector('span').textContent = 'RECONNECTING...';
+        checkAuthStatus();
       };
     }
 
@@ -2847,6 +3337,27 @@
     document.getElementById('exportAllBtn').addEventListener('click', exportAllTelemetry);
     document.getElementById('viewContainerReportBtn').addEventListener('click', openContainerReportModal);
     document.getElementById('exportContainerBtn').addEventListener('click', exportSelectedContainer);
+
+    // Auth Event Listeners
+    document.getElementById('authSubmitBtn').addEventListener('click', submitAuthLogin);
+    document.getElementById('authTokenInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitAuthLogin();
+      }
+    });
+    document.getElementById('authToggleVisibilityBtn').addEventListener('click', () => {
+      const input = document.getElementById('authTokenInput');
+      const btn = document.getElementById('authToggleVisibilityBtn');
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = '&#x1F576;';
+      } else {
+        input.type = 'password';
+        btn.innerHTML = '&#x1F441;';
+      }
+    });
+    document.getElementById('logoutBtn').addEventListener('click', submitAuthLogout);
 
     document.getElementById('rateToggleBtn').addEventListener('click', (e) => {
       rateMode = !rateMode;
@@ -2911,8 +3422,17 @@
       }
       // If modal is open and user isn't typing in an input, handle shortcut keys
       const modalOpen = document.getElementById('containerModal').classList.contains('open');
-      const isInputActive = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+      const isInputActive = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
       if (modalOpen && !isInputActive) {
+        const isWebTab = document.getElementById('tab-web')?.classList.contains('active');
+        if (isWebTab) {
+          if (e.key === 'n' || e.key === 'N') { rotateWebPort(); return; }
+          if (e.key === 'r' || e.key === 'R') { executeWebProbe(); return; }
+          if (e.key === '1') { setWebMode('preview'); return; }
+          if (e.key === '2') { setWebMode('headers'); return; }
+          if (e.key === '3') { setWebMode('raw'); return; }
+        }
+
         if (e.key === 'o' || e.key === 'O') switchModalTab('tab-overview');
         if (e.key === 'v' || e.key === 'V') switchModalTab('tab-volumes');
         if (e.key === 'n' || e.key === 'N') switchModalTab('tab-networking');
@@ -2928,6 +3448,7 @@
         }
         if (e.key === 'd' || e.key === 'D') switchModalTab('tab-diff');
         if (e.key === 'f' || e.key === 'F') switchModalTab('tab-files');
+        if (e.key === 'w' || e.key === 'W') switchModalTab('tab-web');
       }
     });
 
@@ -2938,8 +3459,8 @@
       renderDrillCharts();
     });
 
-    // Start SSE stream
-    initSSE();
+    // Check auth status and start telemetry stream
+    checkAuthStatus();
   </script>
 </body>
 </html>

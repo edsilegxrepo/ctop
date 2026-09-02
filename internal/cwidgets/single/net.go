@@ -42,7 +42,7 @@ func (w *Net) Align() {
 	}
 }
 
-func (w *Net) Update(rx int64, tx int64) {
+func (w *Net) Update(rx, tx int64) {
 	w.rxHist.Append(int(rx))
 	rateRx := strings.ToLower(cwidgets.ByteFormat(w.rxHist.Val))
 	w.rxTitle = fmt.Sprintf("RX [%s/s]", rateRx)

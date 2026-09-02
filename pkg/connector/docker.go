@@ -196,12 +196,20 @@ func (cm *Docker) watchEvents() {
 			if log.IsEnabledFor(logging.DEBUG) {
 				log.Debugf("handling docker event: action=health_status id=%s %s", e.ID, healthStatus)
 			}
-			cm.statuses <- StatusUpdate{e.ID, "health", healthStatus}
+			select {
+			case cm.statuses <- StatusUpdate{e.ID, "health", healthStatus}:
+			case <-cm.closed:
+				return
+			}
 		case "create":
 			if log.IsEnabledFor(logging.DEBUG) {
 				log.Debugf("handling docker event: action=create id=%s", e.ID)
 			}
-			cm.needsRefresh <- e.ID
+			select {
+			case cm.needsRefresh <- e.ID:
+			case <-cm.closed:
+				return
+			}
 		case "destroy":
 			if log.IsEnabledFor(logging.DEBUG) {
 				log.Debugf("handling docker event: action=destroy id=%s", e.ID)
@@ -214,7 +222,11 @@ func (cm *Docker) watchEvents() {
 				if log.IsEnabledFor(logging.DEBUG) {
 					log.Debugf("handling docker event: action=%s id=%s %s", actionName, e.ID, status)
 				}
-				cm.statuses <- StatusUpdate{e.ID, "status", status}
+				select {
+				case cm.statuses <- StatusUpdate{e.ID, "status", status}:
+				case <-cm.closed:
+					return
+				}
 			}
 		}
 	}
@@ -519,7 +531,7 @@ func (cm *Docker) refresh(c *container.Container) {
 	c.SetState(insp.State.Status)
 }
 
-func (cm *Docker) inspect(id string) (insp *api.Container, found bool, failed bool) {
+func (cm *Docker) inspect(id string) (insp *api.Container, found, failed bool) {
 	opts := api.InspectContainerOptions{ID: id}
 	c, err := cm.client.InspectContainerWithOptions(opts)
 	if err != nil {
@@ -599,7 +611,11 @@ func (cm *Docker) refreshAll() {
 				c.SetMeta("composeVersion", ver)
 			}
 		}
-		cm.needsRefresh <- c.Id
+		select {
+		case cm.needsRefresh <- c.Id:
+		case <-cm.closed:
+			return
+		}
 	}
 }
 

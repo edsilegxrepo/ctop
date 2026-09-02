@@ -20,7 +20,8 @@ const (
 	TabGenerator = 8
 	TabLabels    = 9
 	TabFiles     = 10
-	TotalTabs    = 11
+	TabWeb       = 11
+	TotalTabs    = 12
 )
 
 var TabTitles = []string{
@@ -35,6 +36,7 @@ var TabTitles = []string{
 	"9: Recreate",
 	"0: Labels",
 	"F: Files",
+	"W: Web",
 }
 
 // TabBar widget renders the top navigation header for class-based views.

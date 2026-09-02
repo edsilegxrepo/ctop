@@ -45,7 +45,7 @@ type githubAsset struct {
 }
 
 // CheckUpdate checks GitHub releases for a newer version of ctop.
-func CheckUpdate(currentVersion string, repo string) (*githubRelease, bool, error) {
+func CheckUpdate(currentVersion, repo string) (*githubRelease, bool, error) {
 	if repo == "" {
 		repo = defaultRepo
 	}

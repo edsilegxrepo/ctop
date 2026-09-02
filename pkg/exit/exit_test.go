@@ -34,4 +34,10 @@ func TestExitCodes(t *testing.T) {
 	if ExitDockerTLS != 8 {
 		t.Fatalf("expected ExitDockerTLS=8, got %d", ExitDockerTLS)
 	}
+	if ExitService != 9 {
+		t.Fatalf("expected ExitService=9, got %d", ExitService)
+	}
+	if ExitDaemonStartup != 10 {
+		t.Fatalf("expected ExitDaemonStartup=10, got %d", ExitDaemonStartup)
+	}
 }

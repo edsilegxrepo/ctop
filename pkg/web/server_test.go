@@ -1,17 +1,30 @@
+// Package web_test provides unit, integration, and security test suites for the embedded HTTP server and SSE broadcaster.
+//
+// Test Strategy:
+//   - REST Endpoints: Test /api/v1/health, /containers, /metrics, /schema, /diff, and file browsing.
+//   - Security & Auth: Test mandatory 64-character token authentication, session cookies, CSRF/CORS, and IP rate limiting.
+//   - Zero-Leak & SSRF Defense: Test loopback vs external TLS guards, unexposed port blocking, and multi-hop proxy IP extraction.
+//   - Real-Time Streaming: Test SSE client subscription, broadcast fan-out, circular ring buffer, and slow-subscriber non-blocking drops.
 package web
 
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edsilegx/ctop/pkg/serviceprobe"
 )
 
 type mockContainerProvider struct {
@@ -652,41 +665,7 @@ func TestWebServerAuthToken(t *testing.T) {
 		t.Fatalf("unexpected error enabling auth: %v", err)
 	}
 
-	// 1. Unauthorized without token
-	reqNoAuth := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
-	wNoAuth := httptest.NewRecorder()
-	s.corsMiddleware(s.mux).ServeHTTP(wNoAuth, reqNoAuth)
-	if wNoAuth.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 Unauthorized, got %d", wNoAuth.Code)
-	}
-
-	// 2. Unauthorized with invalid token
-	reqBadAuth := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
-	reqBadAuth.Header.Set("Authorization", "Bearer invalid-token")
-	wBadAuth := httptest.NewRecorder()
-	s.corsMiddleware(s.mux).ServeHTTP(wBadAuth, reqBadAuth)
-	if wBadAuth.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 Unauthorized for bad token, got %d", wBadAuth.Code)
-	}
-
-	// 3. Authorized with Bearer header
-	reqGoodHeader := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
-	reqGoodHeader.Header.Set("Authorization", "Bearer "+validToken)
-	wGoodHeader := httptest.NewRecorder()
-	s.corsMiddleware(s.mux).ServeHTTP(wGoodHeader, reqGoodHeader)
-	if wGoodHeader.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for valid Bearer token, got %d", wGoodHeader.Code)
-	}
-
-	// 4. Authorized with query parameter ?token=
-	reqGoodQuery := httptest.NewRequest(http.MethodGet, "/api/v1/containers?token="+validToken, nil)
-	wGoodQuery := httptest.NewRecorder()
-	s.corsMiddleware(s.mux).ServeHTTP(wGoodQuery, reqGoodQuery)
-	if wGoodQuery.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for valid query token, got %d", wGoodQuery.Code)
-	}
-
-	// 5. External client without TLS or proxy header -> 403 Forbidden
+	// 1. External client without TLS or proxy header -> 403 Forbidden
 	reqExternalInsecure := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
 	reqExternalInsecure.RemoteAddr = "192.168.1.50:54321"
 	reqExternalInsecure.Header.Set("Authorization", "Bearer "+validToken)
@@ -696,15 +675,333 @@ func TestWebServerAuthToken(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden for external unencrypted request, got %d", wExternalInsecure.Code)
 	}
 
-	// 6. External client with X-Forwarded-Proto: https -> 200 OK
-	reqExternalSecure := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
-	reqExternalSecure.RemoteAddr = "192.168.1.50:54321"
-	reqExternalSecure.Header.Set("Authorization", "Bearer "+validToken)
-	reqExternalSecure.Header.Set("X-Forwarded-Proto", "https")
-	wExternalSecure := httptest.NewRecorder()
-	s.corsMiddleware(s.mux).ServeHTTP(wExternalSecure, reqExternalSecure)
-	if wExternalSecure.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for external request with X-Forwarded-Proto https, got %d", wExternalSecure.Code)
+	// 2. External client with TLS header but missing token -> 401 Unauthorized
+	reqNoAuth := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqNoAuth.RemoteAddr = "192.168.1.50:54321"
+	reqNoAuth.Header.Set("X-Forwarded-Proto", "https")
+	wNoAuth := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wNoAuth, reqNoAuth)
+	if wNoAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", wNoAuth.Code)
+	}
+
+	// 3. External client with TLS header and invalid Bearer token -> 401 Unauthorized
+	reqBadAuth := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqBadAuth.RemoteAddr = "192.168.1.50:54321"
+	reqBadAuth.Header.Set("X-Forwarded-Proto", "https")
+	reqBadAuth.Header.Set("Authorization", "Bearer invalid-token")
+	wBadAuth := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wBadAuth, reqBadAuth)
+	if wBadAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for bad token, got %d", wBadAuth.Code)
+	}
+
+	// 4. External client with TLS header and valid Bearer header -> 200 OK
+	reqGoodHeader := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqGoodHeader.RemoteAddr = "192.168.1.50:54321"
+	reqGoodHeader.Header.Set("X-Forwarded-Proto", "https")
+	reqGoodHeader.Header.Set("Authorization", "Bearer "+validToken)
+	wGoodHeader := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wGoodHeader, reqGoodHeader)
+	if wGoodHeader.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid Bearer token, got %d", wGoodHeader.Code)
+	}
+
+	// 5. Query parameter tokens ?token= and ?auth= MUST be rejected with 401 Unauthorized (Zero-Leak Policy)
+	reqQueryToken := httptest.NewRequest(http.MethodGet, "/api/v1/containers?token="+validToken, nil)
+	reqQueryToken.RemoteAddr = "192.168.1.50:54321"
+	reqQueryToken.Header.Set("X-Forwarded-Proto", "https")
+	wQueryToken := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wQueryToken, reqQueryToken)
+	if wQueryToken.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for deprecated query token ?token=, got %d", wQueryToken.Code)
+	}
+
+	reqQueryAuth := httptest.NewRequest(http.MethodGet, "/api/v1/containers?auth="+validToken, nil)
+	reqQueryAuth.RemoteAddr = "192.168.1.50:54321"
+	reqQueryAuth.Header.Set("X-Forwarded-Proto", "https")
+	wQueryAuth := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wQueryAuth, reqQueryAuth)
+	if wQueryAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for deprecated query auth ?auth=, got %d", wQueryAuth.Code)
+	}
+}
+
+func TestWebServerSessionCookie(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "sess-c1", Name: "sess-app"}},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", mockProv, nil)
+	validToken, err := s.EnableAuth()
+	if err != nil {
+		t.Fatalf("unexpected error enabling auth: %v", err)
+	}
+
+	// 1. POST /api/v1/auth/login with invalid token -> 401 Unauthorized
+	badLoginBody := strings.NewReader(`{"token":"wrong-token"}`)
+	reqBadLogin := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", badLoginBody)
+	reqBadLogin.RemoteAddr = "198.51.100.10:12345"
+	reqBadLogin.Header.Set("X-Forwarded-Proto", "https")
+	reqBadLogin.Header.Set("Content-Type", "application/json")
+	wBadLogin := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wBadLogin, reqBadLogin)
+	if wBadLogin.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized on bad login, got %d", wBadLogin.Code)
+	}
+
+	// 2. POST /api/v1/auth/login with valid token -> 200 OK + Set-Cookie ctop_session
+	goodLoginBody := strings.NewReader(fmt.Sprintf(`{"token":%q}`, validToken))
+	reqGoodLogin := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", goodLoginBody)
+	reqGoodLogin.RemoteAddr = "198.51.100.10:12345"
+	reqGoodLogin.Header.Set("X-Forwarded-Proto", "https")
+	reqGoodLogin.Header.Set("Content-Type", "application/json")
+	wGoodLogin := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wGoodLogin, reqGoodLogin)
+	if wGoodLogin.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on valid login, got %d: %s", wGoodLogin.Code, wGoodLogin.Body.String())
+	}
+
+	cookies := wGoodLogin.Result().Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "ctop_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatalf("expected ctop_session cookie in login response, got none")
+	}
+	if !sessionCookie.HttpOnly {
+		t.Fatalf("expected session cookie to have HttpOnly=true")
+	}
+	if sessionCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("expected session cookie to have SameSite=Strict")
+	}
+
+	// 3. GET /api/v1/containers with ctop_session cookie -> 200 OK
+	reqWithCookie := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqWithCookie.RemoteAddr = "198.51.100.10:12345"
+	reqWithCookie.Header.Set("X-Forwarded-Proto", "https")
+	reqWithCookie.AddCookie(sessionCookie)
+	wWithCookie := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wWithCookie, reqWithCookie)
+	if wWithCookie.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK using session cookie, got %d", wWithCookie.Code)
+	}
+
+	// 4. POST /api/v1/auth/logout -> 200 OK + clears cookie
+	reqLogout := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	reqLogout.RemoteAddr = "198.51.100.10:12345"
+	reqLogout.Header.Set("X-Forwarded-Proto", "https")
+	reqLogout.AddCookie(sessionCookie)
+	wLogout := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wLogout, reqLogout)
+	if wLogout.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on logout, got %d", wLogout.Code)
+	}
+
+	// 5. Subsequent request with revoked cookie -> 401 Unauthorized
+	reqRevoked := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqRevoked.RemoteAddr = "198.51.100.10:12345"
+	reqRevoked.Header.Set("X-Forwarded-Proto", "https")
+	reqRevoked.AddCookie(sessionCookie)
+	wRevoked := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wRevoked, reqRevoked)
+	if wRevoked.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized with revoked cookie, got %d", wRevoked.Code)
+	}
+}
+
+func TestWebServerDirectLocalAccess(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "loc-c1", Name: "loc-app"}},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", mockProv, nil)
+	_, err := s.EnableAuth()
+	if err != nil {
+		t.Fatalf("unexpected error enabling auth: %v", err)
+	}
+
+	// 1. Direct local loopback request without proxy headers -> 200 OK without token
+	reqDirectLocal := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqDirectLocal.RemoteAddr = "127.0.0.1:45678"
+	wDirectLocal := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wDirectLocal, reqDirectLocal)
+	if wDirectLocal.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for direct local loopback request, got %d", wDirectLocal.Code)
+	}
+
+	// 2. Loopback request WITH X-Forwarded-For header -> classified as remote, requires TLS + auth -> 403 / 401
+	reqProxiedLocal := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqProxiedLocal.RemoteAddr = "127.0.0.1:45678"
+	reqProxiedLocal.Header.Set("X-Forwarded-For", "203.0.113.50")
+	wProxiedLocal := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wProxiedLocal, reqProxiedLocal)
+	if wProxiedLocal.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for proxied unencrypted loopback request, got %d", wProxiedLocal.Code)
+	}
+
+	// 3. Loopback request WITH X-Forwarded-For and X-Forwarded-Proto https (no token) -> 401 Unauthorized
+	reqProxiedSecureNoToken := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	reqProxiedSecureNoToken.RemoteAddr = "127.0.0.1:45678"
+	reqProxiedSecureNoToken.Header.Set("X-Forwarded-For", "203.0.113.50")
+	reqProxiedSecureNoToken.Header.Set("X-Forwarded-Proto", "https")
+	wProxiedSecureNoToken := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wProxiedSecureNoToken, reqProxiedSecureNoToken)
+	if wProxiedSecureNoToken.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for proxied remote request without token, got %d", wProxiedSecureNoToken.Code)
+	}
+}
+
+func TestWebServerSessionCapacityAndTTL(t *testing.T) {
+	// Create session store with capacity 3 and 50ms TTL for testing
+	store := NewSessionStore(3, 50*time.Millisecond, 50*time.Millisecond)
+
+	s1, _ := store.CreateSession()
+	s2, _ := store.CreateSession()
+	s3, _ := store.CreateSession()
+
+	if store.Count() != 3 {
+		t.Fatalf("expected 3 sessions, got %d", store.Count())
+	}
+	if !store.ValidateSession(s1) || !store.ValidateSession(s2) || !store.ValidateSession(s3) {
+		t.Fatalf("all initial sessions should be valid")
+	}
+
+	// Adding 4th session should evict oldest session (s1 was validated, s2 was validated, s3 was validated, order updated)
+	s4, _ := store.CreateSession()
+	if store.Count() > 3 {
+		t.Fatalf("expected max 3 sessions, got %d", store.Count())
+	}
+	if !store.ValidateSession(s4) {
+		t.Fatalf("new session s4 should be valid")
+	}
+
+	// Wait for TTL expiration
+	time.Sleep(60 * time.Millisecond)
+	if store.ValidateSession(s4) {
+		t.Fatalf("session s4 should have expired after TTL")
+	}
+}
+
+func TestWebServerLoginRateLimiting(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "rate-c1", Name: "rate-app"}},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", mockProv, nil)
+	validToken, err := s.EnableAuth()
+	if err != nil {
+		t.Fatalf("unexpected error enabling auth: %v", err)
+	}
+
+	attackerIP := "198.51.100.99"
+
+	// 5 failed login attempts should be allowed (returning 401)
+	for i := 1; i <= 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"token":"wrong"}`))
+		req.RemoteAddr = attackerIP + ":1234"
+		req.Header.Set("X-Forwarded-Proto", "https")
+		w := httptest.NewRecorder()
+		s.corsMiddleware(s.mux).ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected 401 Unauthorized, got %d", i, w.Code)
+		}
+	}
+
+	// 6th failed attempt should trigger 429 Too Many Requests
+	reqBlocked := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"token":"wrong"}`))
+	reqBlocked.RemoteAddr = attackerIP + ":1234"
+	reqBlocked.Header.Set("X-Forwarded-Proto", "https")
+	wBlocked := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wBlocked, reqBlocked)
+	if wBlocked.Code != http.StatusTooManyRequests {
+		t.Fatalf("attempt 6: expected 429 Too Many Requests, got %d", wBlocked.Code)
+	}
+	if retry := wBlocked.Header().Get("Retry-After"); retry != "60" {
+		t.Fatalf("expected Retry-After: 60 header, got %q", retry)
+	}
+
+	// Different IP should NOT be blocked
+	otherIP := "198.51.100.100"
+	reqOther := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(fmt.Sprintf(`{"token":%q}`, validToken)))
+	reqOther.RemoteAddr = otherIP + ":1234"
+	reqOther.Header.Set("X-Forwarded-Proto", "https")
+	wOther := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wOther, reqOther)
+	if wOther.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for separate unblocked IP, got %d", wOther.Code)
+	}
+}
+
+func TestWebServerAuthStatus(t *testing.T) {
+	s := NewServer("127.0.0.1:0", "0.9.0", nil, nil)
+	validToken, _ := s.EnableAuth()
+
+	// 1. Direct local -> direct_local=true, authenticated=true
+	reqLocal := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	reqLocal.RemoteAddr = "127.0.0.1:1234"
+	wLocal := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wLocal, reqLocal)
+	var respLocal AuthStatusResponse
+	_ = json.NewDecoder(wLocal.Body).Decode(&respLocal)
+	if !respLocal.Authenticated || !respLocal.DirectLocal {
+		t.Fatalf("expected authenticated=true and direct_local=true, got %+v", respLocal)
+	}
+
+	// 2. Remote without credentials -> authenticated=false, direct_local=false
+	reqRemote := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	reqRemote.RemoteAddr = "203.0.113.1:1234"
+	reqRemote.Header.Set("X-Forwarded-Proto", "https")
+	wRemote := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wRemote, reqRemote)
+	var respRemote AuthStatusResponse
+	_ = json.NewDecoder(wRemote.Body).Decode(&respRemote)
+	if respRemote.Authenticated || respRemote.DirectLocal {
+		t.Fatalf("expected authenticated=false and direct_local=false, got %+v", respRemote)
+	}
+
+	// 3. Remote with Bearer header -> authenticated=true
+	reqBearer := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	reqBearer.RemoteAddr = "203.0.113.1:1234"
+	reqBearer.Header.Set("X-Forwarded-Proto", "https")
+	reqBearer.Header.Set("Authorization", "Bearer "+validToken)
+	wBearer := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wBearer, reqBearer)
+	var respBearer AuthStatusResponse
+	_ = json.NewDecoder(wBearer.Body).Decode(&respBearer)
+	if !respBearer.Authenticated {
+		t.Fatalf("expected authenticated=true with Bearer header, got %+v", respBearer)
+	}
+}
+
+func TestGenerateSessionID(t *testing.T) {
+	id1, err := GenerateSessionID()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	id2, err := GenerateSessionID()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(id1) != 64 || len(id2) != 64 {
+		t.Fatalf("expected 64 hex characters for 256-bit session ID, got len(id1)=%d, len(id2)=%d", len(id1), len(id2))
+	}
+	if id1 == id2 {
+		t.Fatalf("session IDs must be unique, got duplicate: %s", id1)
+	}
+}
+
+func TestTLSVersionEnforcement(t *testing.T) {
+	s := NewServer("127.0.0.1:0", "0.9.0", nil, nil)
+	_ = s.Start()
+	defer func() { _ = s.Stop(context.Background()) }()
+
+	if s.httpServer == nil || s.httpServer.TLSConfig == nil {
+		t.Fatalf("expected TLSConfig on server")
+	}
+	if s.httpServer.TLSConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("expected MinVersion tls.VersionTLS12, got %d", s.httpServer.TLSConfig.MinVersion)
 	}
 }
 
@@ -783,8 +1080,8 @@ func TestGenerateAuthToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error generating token: %v", err)
 	}
-	if len(tok1) != 32 {
-		t.Fatalf("expected 32 hex characters for token, got %d (%q)", len(tok1), tok1)
+	if len(tok1) != 64 {
+		t.Fatalf("expected 64 characters for token, got %d (%q)", len(tok1), tok1)
 	}
 
 	tok2, err := GenerateAuthToken()
@@ -801,8 +1098,8 @@ func TestGenerateAuthToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error enabling auth: %v", err)
 	}
-	if len(autoTok) != 32 {
-		t.Fatalf("expected 32-char auto generated token, got %q", autoTok)
+	if len(autoTok) != 64 {
+		t.Fatalf("expected 64-char auto generated token, got %q", autoTok)
 	}
 	if s.AuthToken() != autoTok {
 		t.Fatalf("expected AuthToken() to match %q, got %q", autoTok, s.AuthToken())
@@ -812,7 +1109,7 @@ func TestGenerateAuthToken(t *testing.T) {
 func TestSecureTokenFileOperations(t *testing.T) {
 	tempDir := t.TempDir()
 	targetFile := filepath.Join(tempDir, "sub", "test.token")
-	token := "abcdef0123456789abcdef0123456789"
+	token := "9kL2xP8vB1mN7qR4tY6wZ3aC5eG8hJ0kL2xP8vB1mN7qR4tY6wZ3aC5eG8hJ0kL2"
 
 	writtenPath, err := WriteSecureTokenFile(targetFile, token)
 	if err != nil {
@@ -830,7 +1127,28 @@ func TestSecureTokenFileOperations(t *testing.T) {
 		t.Fatalf("expected token content %q, got %q", token, string(content))
 	}
 
-	// Verify file permissions (0600) on non-Windows
+	// Test ReadSecureTokenFile
+	readTok, err := ReadSecureTokenFile(targetFile)
+	if err != nil {
+		t.Fatalf("failed to read secure token file: %v", err)
+	}
+	if readTok != token {
+		t.Fatalf("expected read token %q, got %q", token, readTok)
+	}
+
+	// Test EnableAuthWithToken
+	s := NewServer("127.0.0.1:0", "0.9.3", nil, nil)
+	if err := s.EnableAuthWithToken("short"); err == nil {
+		t.Fatalf("expected error for short token in EnableAuthWithToken")
+	}
+	if err := s.EnableAuthWithToken(token); err != nil {
+		t.Fatalf("failed to enable auth with token: %v", err)
+	}
+	if s.AuthToken() != token {
+		t.Fatalf("expected AuthToken() to be %q, got %q", token, s.AuthToken())
+	}
+
+	// Verify file permissions (0400) on non-Windows
 	if runtime.GOOS != "windows" {
 		fi, err := os.Stat(targetFile)
 		if err != nil {
@@ -845,6 +1163,11 @@ func TestSecureTokenFileOperations(t *testing.T) {
 	RemoveSecureTokenFile(targetFile)
 	if _, err := os.Stat(targetFile); !os.IsNotExist(err) {
 		t.Fatalf("expected token file to be deleted, stat err: %v", err)
+	}
+
+	// Test ReadSecureTokenFile on missing file
+	if _, err := ReadSecureTokenFile(targetFile); err == nil {
+		t.Fatalf("expected error reading non-existent token file")
 	}
 }
 
@@ -863,15 +1186,15 @@ func (f *fullMockProvider) GetContainerDiff(id string) ([]DiffChange, error) {
 	return f.diffs, nil
 }
 
-func (f *fullMockProvider) ReadContainerDir(id string, path string) ([]FileEntry, error) {
+func (f *fullMockProvider) ReadContainerDir(id, path string) ([]FileEntry, error) {
 	return f.files, nil
 }
 
-func (f *fullMockProvider) ReadContainerFile(id string, path string, maxBytes int64) (string, error) {
+func (f *fullMockProvider) ReadContainerFile(id, path string, maxBytes int64) (string, error) {
 	return f.fileData, nil
 }
 
-func (f *fullMockProvider) SearchContainerFiles(id string, basePath string, pattern string, maxResults int) ([]FileEntry, error) {
+func (f *fullMockProvider) SearchContainerFiles(id, basePath, pattern string, maxResults int) ([]FileEntry, error) {
 	return []FileEntry{
 		{Name: "traefik.yml", Path: "/etc/traefik/traefik.yml", IsDir: false, Size: 1024, Mode: "-rw-r--r--", ModTime: "2026-08-31T12:00:00Z"},
 	}, nil
@@ -1014,5 +1337,364 @@ func TestWebServerProbes(t *testing.T) {
 		if p.Target == "" || p.Label == "" || p.Status == "" {
 			t.Fatalf("invalid probe response structure: %+v", p)
 		}
+	}
+}
+
+func TestLiveZeroLeakSecurityGuardE2E(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "live-c1", Name: "live-app"}},
+	}
+	broadcaster := NewBroadcaster()
+	s := NewServer("127.0.0.1:0", "0.9.2", mockProv, broadcaster)
+	token, err := s.EnableAuth()
+	if err != nil {
+		t.Fatalf("failed to enable auth: %v", err)
+	}
+
+	if err := s.Start(); err != nil {
+		t.Fatalf("failed to start live server: %v", err)
+	}
+	defer func() { _ = s.Stop(context.Background()) }()
+
+	baseURL := "http://" + s.Addr()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("failed to create cookiejar: %v", err)
+	}
+	client := &http.Client{
+		Jar:     jar,
+		Timeout: 5 * time.Second,
+	}
+
+	// 1. Direct local access to /api/v1/containers on loopback without auth header -> 200 OK
+	respLocal, err := client.Get(baseURL + "/api/v1/containers")
+	if err != nil {
+		t.Fatalf("direct local request failed: %v", err)
+	}
+	_ = respLocal.Body.Close()
+	if respLocal.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for direct local loopback access, got %d", respLocal.StatusCode)
+	}
+
+	// 2. Proxied access (simulating external user behind reverse proxy with X-Forwarded-For) without HTTPS -> 403 Forbidden
+	reqProxiedInsecure, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/containers", nil)
+	reqProxiedInsecure.Header.Set("X-Forwarded-For", "203.0.113.195")
+	respProxiedInsecure, err := client.Do(reqProxiedInsecure)
+	if err != nil {
+		t.Fatalf("proxied request failed: %v", err)
+	}
+	_ = respProxiedInsecure.Body.Close()
+	if respProxiedInsecure.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for unencrypted proxied request, got %d", respProxiedInsecure.StatusCode)
+	}
+
+	// 3. Proxied HTTPS access without token -> 401 Unauthorized
+	reqProxiedSecureNoToken, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/containers", nil)
+	reqProxiedSecureNoToken.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqProxiedSecureNoToken.Header.Set("X-Forwarded-Proto", "https")
+	respProxiedSecureNoToken, err := client.Do(reqProxiedSecureNoToken)
+	if err != nil {
+		t.Fatalf("proxied request failed: %v", err)
+	}
+	_ = respProxiedSecureNoToken.Body.Close()
+	if respProxiedSecureNoToken.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for secure proxied request without token, got %d", respProxiedSecureNoToken.StatusCode)
+	}
+
+	// 4. Proxied HTTPS access with Bearer header -> 200 OK
+	reqBearer, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/containers", nil)
+	reqBearer.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqBearer.Header.Set("X-Forwarded-Proto", "https")
+	reqBearer.Header.Set("Authorization", "Bearer "+token)
+	respBearer, err := client.Do(reqBearer)
+	if err != nil {
+		t.Fatalf("bearer request failed: %v", err)
+	}
+	_ = respBearer.Body.Close()
+	if respBearer.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid Bearer token, got %d", respBearer.StatusCode)
+	}
+
+	// 5. Query parameter token rejection over live socket (?token=...) -> 401 Unauthorized
+	reqQuery, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/containers?token="+token, nil)
+	reqQuery.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqQuery.Header.Set("X-Forwarded-Proto", "https")
+	respQuery, err := client.Do(reqQuery)
+	if err != nil {
+		t.Fatalf("query token request failed: %v", err)
+	}
+	_ = respQuery.Body.Close()
+	if respQuery.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for query parameter token over live socket, got %d", respQuery.StatusCode)
+	}
+
+	// 6. Login via POST /api/v1/auth/login and verify cookie session
+	loginBody := strings.NewReader(fmt.Sprintf(`{"token":%q}`, token))
+	reqLogin, _ := http.NewRequest(http.MethodPost, baseURL+"/api/v1/auth/login", loginBody)
+	reqLogin.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqLogin.Header.Set("X-Forwarded-Proto", "https")
+	reqLogin.Header.Set("Content-Type", "application/json")
+	respLogin, err := client.Do(reqLogin)
+	if err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
+	_ = respLogin.Body.Close()
+	if respLogin.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on login, got %d", respLogin.StatusCode)
+	}
+
+	// 7. Session cookie now authorizes proxied HTTPS requests to /api/v1/containers
+	reqWithSession, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/containers", nil)
+	reqWithSession.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqWithSession.Header.Set("X-Forwarded-Proto", "https")
+	respWithSession, err := client.Do(reqWithSession)
+	if err != nil {
+		t.Fatalf("session request failed: %v", err)
+	}
+	_ = respWithSession.Body.Close()
+	if respWithSession.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK using session cookie over live socket, got %d", respWithSession.StatusCode)
+	}
+
+	// 8. Connect to live SSE stream using session cookie
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	reqSSE, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/v1/stream", nil)
+	reqSSE.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqSSE.Header.Set("X-Forwarded-Proto", "https")
+	respSSE, err := client.Do(reqSSE)
+	if err != nil {
+		t.Fatalf("live SSE connection failed: %v", err)
+	}
+	defer func() { _ = respSSE.Body.Close() }()
+	if respSSE.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for live SSE stream with session cookie, got %d", respSSE.StatusCode)
+	}
+
+	sseReader := bufio.NewReader(respSSE.Body)
+	line, err := sseReader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("failed to read initial SSE stream data: %v", err)
+	}
+	if !strings.HasPrefix(line, "data: ") {
+		t.Fatalf("expected SSE data frame, got: %q", line)
+	}
+
+	// 9. Logout via POST /api/v1/auth/logout
+	reqLogout, _ := http.NewRequest(http.MethodPost, baseURL+"/api/v1/auth/logout", nil)
+	reqLogout.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqLogout.Header.Set("X-Forwarded-Proto", "https")
+	respLogout, err := client.Do(reqLogout)
+	if err != nil {
+		t.Fatalf("logout request failed: %v", err)
+	}
+	_ = respLogout.Body.Close()
+	if respLogout.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on logout, got %d", respLogout.StatusCode)
+	}
+
+	// 10. Subsequent proxied request without Bearer header is now rejected with 401 Unauthorized
+	reqAfterLogout, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/containers", nil)
+	reqAfterLogout.Header.Set("X-Forwarded-For", "203.0.113.195")
+	reqAfterLogout.Header.Set("X-Forwarded-Proto", "https")
+	respAfterLogout, err := client.Do(reqAfterLogout)
+	if err != nil {
+		t.Fatalf("post-logout request failed: %v", err)
+	}
+	_ = respAfterLogout.Body.Close()
+	if respAfterLogout.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized after session logout, got %d", respAfterLogout.StatusCode)
+	}
+}
+
+func TestWebServerIPv6Fallback(t *testing.T) {
+	prov := &fullMockProvider{}
+
+	// 1. Explicit IPv4 address "0.0.0.0:0" MUST bind to IPv4 0.0.0.0:
+	sIPv4 := NewServer("0.0.0.0:0", "0.9.2", prov, nil)
+	sIPv4.SetTLS("../../tests/tls/server.crt", "../../tests/tls/server.key")
+	if err := sIPv4.Start(); err != nil {
+		t.Fatalf("failed to start IPv4 server: %v", err)
+	}
+	defer func() { _ = sIPv4.Stop(context.Background()) }()
+
+	if !strings.HasPrefix(sIPv4.Addr(), "0.0.0.0:") {
+		t.Fatalf("expected explicit 0.0.0.0:0 to bind 0.0.0.0, got %s", sIPv4.Addr())
+	}
+
+	// 2. Dual-stack ":0" or "[::]:0" starts and binds appropriately (IPv6 if supported, otherwise IPv4)
+	sDual := NewServer(":0", "0.9.2", prov, nil)
+	sDual.SetTLS("../../tests/tls/server.crt", "../../tests/tls/server.key")
+	if err := sDual.Start(); err != nil {
+		t.Fatalf("failed to start dual-stack server: %v", err)
+	}
+	defer func() { _ = sDual.Stop(context.Background()) }()
+
+	if sDual.Addr() == "" {
+		t.Fatalf("expected non-empty listening address for dual-stack server")
+	}
+}
+
+func TestWebServerEndpointsAndProxy(t *testing.T) {
+	// Spin up a mock backend container HTTP service
+	mockContainerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("X-Test-Server", "mock-container")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "<html><body><h1>App on %s</h1></body></html>", r.URL.Path)
+	}))
+	defer mockContainerServer.Close()
+
+	// Extract port
+	mockPortStr := mockContainerServer.URL[strings.LastIndex(mockContainerServer.URL, ":")+1:]
+	mockPort, _ := strconv.Atoi(mockPortStr)
+
+	prov := &fullMockProvider{
+		snapshots: []ContainerSnapshot{
+			{
+				ID:    "c_web_proxy_123",
+				Name:  "web-proxy-app",
+				Ports: fmt.Sprintf("0.0.0.0:%d->80/tcp", mockPort),
+				Networks: []NetworkInfo{
+					{Name: "bridge", IPAddress: "127.0.0.1", Gateway: "127.0.0.1", PrefixLen: 16},
+				},
+				Env:   []string{"PORT=8080"},
+				State: "running",
+			},
+		},
+	}
+
+	s := NewServer("127.0.0.1:0", "0.9.2", prov, nil)
+
+	// 1. Test /endpoints
+	reqEP := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_web_proxy_123/endpoints", nil)
+	wEP := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wEP, reqEP)
+
+	if wEP.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /endpoints, got %d", wEP.Code)
+	}
+
+	var endpoints []serviceprobe.Endpoint
+	if err := json.NewDecoder(wEP.Body).Decode(&endpoints); err != nil {
+		t.Fatalf("failed to decode endpoints JSON: %v", err)
+	}
+	if len(endpoints) == 0 {
+		t.Fatalf("expected at least 1 discovered endpoint")
+	}
+
+	// 2. Test /proxy (JSON format)
+	reqProxyJSON := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_web_proxy_123/proxy?path=/healthz&format=json", nil)
+	wProxyJSON := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wProxyJSON, reqProxyJSON)
+
+	if wProxyJSON.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /proxy JSON, got %d", wProxyJSON.Code)
+	}
+
+	var probeRes serviceprobe.HTTPProbeResult
+	if err := json.NewDecoder(wProxyJSON.Body).Decode(&probeRes); err != nil {
+		t.Fatalf("failed to decode proxy result JSON: %v", err)
+	}
+	if probeRes.StatusCode != http.StatusOK || !strings.Contains(probeRes.Body, "/healthz") {
+		t.Fatalf("unexpected probe result: %+v", probeRes)
+	}
+
+	// 3. Test /proxy (HTML format with CSP)
+	reqProxyHTML := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_web_proxy_123/proxy?path=/status", nil)
+	wProxyHTML := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wProxyHTML, reqProxyHTML)
+
+	if wProxyHTML.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /proxy HTML, got %d", wProxyHTML.Code)
+	}
+	if !strings.Contains(wProxyHTML.Body.String(), "/status") {
+		t.Errorf("expected HTML body to contain '/status', got %q", wProxyHTML.Body.String())
+	}
+
+	// 4. Test SSRF protection: reject port not exposed by container
+	reqUnexposed := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_web_proxy_123/proxy?port=22&path=/", nil)
+	wUnexposed := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wUnexposed, reqUnexposed)
+	if wUnexposed.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for unexposed port 22, got %d", wUnexposed.Code)
+	}
+
+	// 5. Test subpath validation: reject path with @ userinfo injection
+	reqInvalidPath := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_web_proxy_123/proxy?path=@evil.com/leak", nil)
+	wInvalidPath := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wInvalidPath, reqInvalidPath)
+	if wInvalidPath.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for userinfo @ subpath, got %d", wInvalidPath.Code)
+	}
+}
+
+func TestWebServer_MultiHopProxyIPExtraction(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "c_multihop_1", Name: "multihop-app"}},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", mockProv, nil)
+	_, _ = s.EnableAuth()
+
+	// Multi-hop X-Forwarded-For: client, proxy1, proxy2
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"token":"wrong_token"}`))
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Header.Set("X-Forwarded-For", "203.0.113.195, 198.51.100.1, 127.0.0.1")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", w.Code)
+	}
+
+	// Verify the rate limiter recorded against the real client IP (203.0.113.195)
+	extractedIP := getClientIP(req)
+	if extractedIP != "203.0.113.195" {
+		t.Errorf("expected extracted client IP '203.0.113.195', got %q", extractedIP)
+	}
+}
+
+func TestWebServer_SSEBroadcasterSlowSubscriberNonBlocking(t *testing.T) {
+	b := NewBroadcaster()
+	b.SetMaxSubscribers(32)
+
+	// Create 5 normal subscribers and 5 slow/full subscribers
+	var fastChans []chan TelemetryEvent
+	for i := 0; i < 5; i++ {
+		ch := b.Subscribe()
+		fastChans = append(fastChans, ch)
+	}
+
+	var blockedChans []chan TelemetryEvent
+	for i := 0; i < 5; i++ {
+		ch := b.Subscribe()
+		// Fill channel to capacity
+		for capCount := 0; capCount < 64; capCount++ {
+			ch <- TelemetryEvent{Timestamp: "old"}
+		}
+		blockedChans = append(blockedChans, ch)
+	}
+
+	// Broadcast an event - must NOT block or deadlock despite 5 fully blocked channels
+	done := make(chan bool, 1)
+	go func() {
+		b.Broadcast(TelemetryEvent{Timestamp: "2026-09-01T21:30:00Z"})
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Broadcast completed non-blockingly
+	case <-time.After(1 * time.Second):
+		t.Fatalf("Broadcast deadlocked or blocked on full subscriber channel!")
+	}
+
+	// Cleanup
+	for _, ch := range append(fastChans, blockedChans...) {
+		b.Unsubscribe(ch)
 	}
 }

@@ -43,7 +43,7 @@ func (w *Mem) Align() {
 	w.valHist.SetLimit(numBars)
 }
 
-func (w *Mem) Update(val int, limit int) {
+func (w *Mem) Update(val, limit int) {
 	w.val = val
 	w.limit = limit
 	w.valHist.Append(val)

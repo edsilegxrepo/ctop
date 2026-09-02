@@ -44,7 +44,6 @@ import (
 	"github.com/edsilegx/ctop/pkg/diag"
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
-	"github.com/pkg/browser"
 )
 
 // MenuFn executes a menu window, returning the next menu or nil
@@ -1299,29 +1298,14 @@ func ExecShell() MenuFn {
 	return nil
 }
 
-var openBrowserURL = browser.OpenURL
-
 func OpenInBrowser() MenuFn {
 	c := cursor.Selected()
 	if c == nil {
 		return nil
 	}
-
-	webPort := c.Meta.Get("Web Port")
-	if webPort == "" {
-		return nil
+	return func() MenuFn {
+		return SingleViewWithTab(single.TabWeb)
 	}
-	link := "http://" + webPort + "/"
-	if err := openBrowserURL(link); err != nil {
-		log.Errorf("failed to open browser: %s", err)
-	}
-
-	if tb.IsInit {
-		tb.HideCursor()
-		_ = tb.Sync()
-	}
-	RedrawRows(true)
-	return nil
 }
 
 // Confirm creates a confirmation dialog with a given description string and func to perform if confirmed
@@ -1387,7 +1371,7 @@ func logReader(container *container.Container) (logs chan widgets.ToggleText, qu
 		logs = make(chan widgets.ToggleText)
 		quit = make(chan bool, 1)
 		close(logs)
-		return
+		return logs, quit
 	}
 	stream := logCollector.Stream()
 	logs = make(chan widgets.ToggleText, 100)
@@ -1414,7 +1398,7 @@ func logReader(container *container.Container) (logs chan widgets.ToggleText, qu
 			}
 		}
 	}()
-	return
+	return logs, quit
 }
 
 func confirmTxt(a, n string) string { return fmt.Sprintf("%s container %s?", a, n) }

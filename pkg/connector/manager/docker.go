@@ -3,6 +3,7 @@ package manager
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/edsilegx/ctop/pkg/models"
 	api "github.com/fsouza/go-dockerclient"
-	"github.com/pkg/errors"
 )
 
 type dirCacheEntry struct {
@@ -64,7 +64,7 @@ const (
 	STDERR = 2
 )
 
-var wrongFrameFormat = errors.New("Wrong frame format")
+var errWrongFrameFormat = errors.New("wrong frame format")
 
 // A frame has a Header and a Payload
 // Header: [8]byte{STREAM_TYPE, 0, 0, 0, SIZE1, SIZE2, SIZE3, SIZE4}
@@ -98,14 +98,14 @@ func (w *frameWriter) Write(p []byte) (n int, err error) {
 		case STDERR:
 			targetWriter = w.stderr
 		default:
-			return 0, wrongFrameFormat
+			return 0, errWrongFrameFormat
 		}
 
 		n, err := targetWriter.Write(p[8:])
 		return n + 8, err
 	}
 
-	return 0, wrongFrameFormat
+	return 0, errWrongFrameFormat
 }
 
 func (dc *Docker) Exec(cmd []string) error {

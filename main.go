@@ -36,11 +36,13 @@ import (
 	"github.com/edsilegx/ctop/internal/cwidgets/compact"
 	"github.com/edsilegx/ctop/internal/theme"
 	"github.com/edsilegx/ctop/internal/widgets"
+	"github.com/edsilegx/ctop/pkg/audit"
 	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/connector"
 	"github.com/edsilegx/ctop/pkg/container"
 	"github.com/edsilegx/ctop/pkg/exit"
 	"github.com/edsilegx/ctop/pkg/logging"
+	"github.com/edsilegx/ctop/pkg/service"
 	"github.com/edsilegx/ctop/pkg/update"
 	"github.com/edsilegx/ctop/pkg/web"
 	ui "github.com/gizak/termui/v3"
@@ -88,29 +90,42 @@ func main() {
 		os.Exit(exit.ExitSuccess)
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == "service" {
+		if err := service.Run(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "service error: %v\n", err)
+			os.Exit(exit.ExitService)
+		}
+		os.Exit(exit.ExitSuccess)
+	}
+
 	// parse command line arguments
 	var (
-		versionFlag     bool
-		helpFlag        bool
-		filterFlag      string
-		activeOnlyFlag  bool
-		sortFieldFlag   string
-		reverseSortFlag bool
-		invertFlag      bool
-		iconsFlag       string
-		readOnlyFlag    bool
-		downloadDirFlag string
-		connectorFlag   string
-		tlsVerifyFlag   bool
-		tlsCAFlag       string
-		tlsCertFlag     string
-		tlsKeyFlag      string
-		cumulativeFlag  bool
-		rateFlag        bool
-		webFlag         string
-		urlPrefixFlag   string
-		headlessFlag    bool
-		hostFlags       stringSlice
+		versionFlag         bool
+		helpFlag            bool
+		filterFlag          string
+		activeOnlyFlag      bool
+		sortFieldFlag       string
+		reverseSortFlag     bool
+		invertFlag          bool
+		iconsFlag           string
+		readOnlyFlag        bool
+		downloadDirFlag     string
+		connectorFlag       string
+		tlsVerifyFlag       bool
+		tlsCAFlag           string
+		tlsCertFlag         string
+		tlsKeyFlag          string
+		cumulativeFlag      bool
+		rateFlag            bool
+		webFlag             string
+		urlPrefixFlag       string
+		webAuthTokenFlag    bool
+		persistentTokenFlag bool
+		webTLSCertFlag      string
+		webTLSKeyFlag       string
+		auditLogFlag        string
+		headlessFlag        bool
+		hostFlags           stringSlice
 	)
 
 	flag.BoolVar(&versionFlag, "version", false, "output version information and exit")
@@ -132,6 +147,11 @@ func main() {
 	flag.BoolVar(&rateFlag, "rate", false, "show real-time throughput rates (bytes/sec) for network and I/O (default)")
 	flag.StringVar(&webFlag, "web", "", "start embedded read-only web dashboard and REST/SSE API on specified address (e.g. ':9090')")
 	flag.StringVar(&urlPrefixFlag, "url-prefix", "", "Base URL subpath when running behind reverse proxies (e.g. /probe)")
+	flag.BoolVar(&webAuthTokenFlag, "web-auth-token", false, "enforce web authentication token (auto-generated in ~/.config/ctop/token)")
+	flag.BoolVar(&persistentTokenFlag, "persistent-token", false, "persist authentication token across restarts (requires --web-auth-token)")
+	flag.StringVar(&webTLSCertFlag, "web-tls-cert", "", "path to server TLS certificate PEM file for web HTTPS")
+	flag.StringVar(&webTLSKeyFlag, "web-tls-key", "", "path to server TLS private key PEM file for web HTTPS")
+	flag.StringVar(&auditLogFlag, "audit-log", "", "path to audit log file (records all events and access in NDJSON with daily rotation)")
 	flag.BoolVar(&headlessFlag, "headless", false, "run in headless daemon mode without terminal UI (requires --web)")
 	flag.Var(&hostFlags, "host", "Docker host endpoint(s) to connect to (can be specified multiple times)")
 	flag.Usage = printHelp
@@ -154,8 +174,33 @@ func main() {
 		os.Exit(exit.ExitSuccess)
 	}
 
+	if persistentTokenFlag && !webAuthTokenFlag {
+		fmt.Fprintf(os.Stderr, "error: --persistent-token requires --web-auth-token\n")
+		os.Exit(exit.ExitUsage)
+	}
+
+	if persistentTokenFlag && webFlag == "" {
+		fmt.Fprintf(os.Stderr, "error: --persistent-token requires --web <address>\n")
+		os.Exit(exit.ExitUsage)
+	}
+
 	// init logger
 	log = logging.Init()
+
+	// init audit logger if requested
+	if auditLogFlag != "" {
+		if _, err := audit.Init(auditLogFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "error initializing audit logger: %v\n", err)
+			os.Exit(exit.ExitGeneral)
+		}
+		defer audit.Close()
+		audit.LogApp("startup", audit.LevelInfo, map[string]interface{}{
+			"version":  versionStr,
+			"headless": headlessFlag,
+			"web":      webFlag,
+			"pid":      os.Getpid(),
+		})
+	}
 
 	// init global config and read config file if exists
 	config.Init()
@@ -236,7 +281,14 @@ func main() {
 	// start web server if requested
 	var webSrv *web.Server
 	if webFlag != "" {
-		srv, cleanup, err := startWebServer(webFlag, version, urlPrefixFlag, cSuper)
+		srv, cleanup, err := startWebServer(webFlag, version, urlPrefixFlag, cSuper, WebOptions{
+			URLPrefix:       urlPrefixFlag,
+			AuthToken:       webAuthTokenFlag,
+			PersistentToken: persistentTokenFlag,
+			TLSCert:         webTLSCertFlag,
+			TLSKey:          webTLSKeyFlag,
+			AuditLog:        auditLogFlag,
+		})
 		if err != nil {
 			errStr := strings.ToLower(err.Error())
 			if strings.Contains(errStr, "address already in use") || strings.Contains(errStr, "only one usage of each socket address") {
@@ -248,7 +300,11 @@ func main() {
 		}
 		defer cleanup()
 		webSrv = srv
-		log.Infof("embedded web dashboard listening on http://%s (read-only)", srv.Addr())
+		proto := "http"
+		if webTLSCertFlag != "" && webTLSKeyFlag != "" {
+			proto = "https"
+		}
+		log.Infof("embedded web dashboard listening on %s://%s (read-only)", proto, srv.Addr())
 	}
 
 	// Headless daemon mode
@@ -257,11 +313,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "--headless mode requires --web <address>\n")
 			os.Exit(exit.ExitUsage)
 		}
+		proto := "http"
+		if webTLSCertFlag != "" && webTLSKeyFlag != "" {
+			proto = "https"
+		}
 		listenAddr := webFlag
 		if webSrv != nil {
 			listenAddr = webSrv.Addr()
 		}
-		fmt.Printf("ctop running in headless mode (read-only web dashboard on http://%s). Press Ctrl+C to exit.\n", listenAddr)
+		fmt.Printf("ctop running in headless mode (read-only web dashboard on %s://%s). Press Ctrl+C to exit.\n", proto, listenAddr)
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		<-sigChan
@@ -297,6 +357,10 @@ func main() {
 }
 
 func Shutdown() {
+	audit.LogApp("shutdown", audit.LevelInfo, map[string]interface{}{
+		"pid": os.Getpid(),
+	})
+	audit.Close()
 	if log != nil {
 		log.Notice("shutting down")
 		log.Exit()
@@ -328,6 +392,7 @@ usage:
 
 commands:
   update                 Check and install the latest ctop release
+  service [action]       Manage systemd background service (install|uninstall|status|generate)
 
 options:
   General & Help:
@@ -346,9 +411,14 @@ options:
     --rate               show real-time throughput rates (bytes/sec) for network and I/O (default: true)
     --cumulative         show cumulative lifetime metrics (total bytes) instead of real-time rates
 
-  Web Dashboard & Remote Telemetry:
+  Web Dashboard, TLS & Auth Security:
     --web string         start embedded read-only web dashboard and REST/SSE API on specified address (e.g. ':9090')
     --url-prefix string  Base URL subpath when running behind reverse proxies (e.g. /probe)
+    --web-auth-token     enforce web authentication token (auto-generated in ~/.config/ctop/token)
+    --persistent-token   persist authentication token across restarts (requires --web-auth-token)
+    --web-tls-cert string path to server TLS certificate PEM file for web HTTPS
+    --web-tls-key string  path to server TLS private key PEM file for web HTTPS
+    --audit-log string   path to audit log file (records all events and access in NDJSON with daily rotation)
     --headless           run in headless daemon mode without terminal UI (requires --web)
 
   Remote Hosts & TLS Security:

@@ -146,8 +146,13 @@ func (w *Network) RunProbes() {
 						port := hostPart[lastColon+1:]
 						var label string
 						if hostIP == "::" || hostIP == "::1" || hostIP == "[::]" {
-							hostIP = "::1"
-							label = "External (IPv6)"
+							if prober.SupportsIPv6() {
+								hostIP = "::1"
+								label = "External (IPv6)"
+							} else {
+								hostIP = "127.0.0.1"
+								label = "External (IPv4 Fallback)"
+							}
 						} else {
 							hostIP = "127.0.0.1"
 							label = "External (IPv4)"

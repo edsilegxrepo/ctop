@@ -71,7 +71,7 @@ func (mc *MultiConnector) Close() {
 
 // ParseHostSpec parses a host connection argument (e.g. "ssh://user@host:2222", "tcp://host:2375", "local")
 // and returns the endpoint and clean host identifier label.
-func ParseHostSpec(spec string) (endpoint string, hostID string) {
+func ParseHostSpec(spec string) (endpoint, hostID string) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" || spec == "local" {
 		return ResolveDockerEndpoint(), "local"

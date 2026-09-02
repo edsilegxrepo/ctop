@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/edsilegx/ctop/pkg/config"
@@ -25,9 +26,6 @@ import (
 
 func TestMain(m *testing.M) {
 	initTheme()
-	openBrowserURL = func(url string) error {
-		return nil
-	}
 	os.Exit(m.Run())
 }
 
@@ -49,8 +47,24 @@ func TestPrintHelp(t *testing.T) {
 
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !bytes.Contains(buf.Bytes(), []byte("ctop - interactive container viewer")) {
-		t.Fatalf("expected help message, got %s", buf.String())
+	helpStr := buf.String()
+	if !strings.Contains(helpStr, "ctop - interactive container viewer") {
+		t.Fatalf("expected help message, got %s", helpStr)
+	}
+	expectedFlags := []string{
+		"--web",
+		"--web-auth-token",
+		"--persistent-token",
+		"--web-tls-cert",
+		"--web-tls-key",
+		"--url-prefix",
+		"--headless",
+		"--audit-log",
+	}
+	for _, f := range expectedFlags {
+		if !strings.Contains(helpStr, f) {
+			t.Errorf("expected help message to contain flag %s", f)
+		}
 	}
 }
 

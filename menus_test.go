@@ -442,28 +442,10 @@ func TestExecShellAndOpenInBrowser(t *testing.T) {
 		t.Fatal("expected nil returned from ExecShell")
 	}
 
-	// OpenInBrowser without Web Port
-	fnBrowserNoPort := OpenInBrowser()
-	if fnBrowserNoPort != nil {
-		t.Fatal("expected nil when no Web Port set")
-	}
-
-	// OpenInBrowser with Web Port
-	var openedURL string
-	origOpen := openBrowserURL
-	openBrowserURL = func(u string) error {
-		openedURL = u
-		return nil
-	}
-	defer func() { openBrowserURL = origOpen }()
-
-	mockContainers[0].SetMeta("Web Port", "localhost:8080")
-	fnBrowserWithPort := OpenInBrowser()
-	if fnBrowserWithPort != nil {
-		t.Fatal("expected nil returned from OpenInBrowser")
-	}
-	if openedURL != "http://localhost:8080/" {
-		t.Fatalf("expected openedURL 'http://localhost:8080/', got '%s'", openedURL)
+	// OpenInBrowser with selected container
+	fnBrowser := OpenInBrowser()
+	if fnBrowser == nil {
+		t.Fatal("expected non-nil MenuFn returned from OpenInBrowser when container is selected")
 	}
 
 	cursor = oldCursor

@@ -127,15 +127,15 @@ func TestFrameWriterEmptyAndInvalid(t *testing.T) {
 
 	// Short invalid header (< 8 bytes)
 	_, err = fw.Write([]byte{1, 2, 3})
-	if err != wrongFrameFormat {
-		t.Fatalf("expected wrongFrameFormat error for short slice, got %v", err)
+	if err != errWrongFrameFormat {
+		t.Fatalf("expected errWrongFrameFormat error for short slice, got %v", err)
 	}
 
 	// Invalid stream type (> 2)
 	invalidFrame := []byte{99, 0, 0, 0, 0, 0, 0, 4, 't', 'e', 's', 't'}
 	_, err = fw.Write(invalidFrame)
-	if err != wrongFrameFormat {
-		t.Fatalf("expected wrongFrameFormat error for invalid stream type, got %v", err)
+	if err != errWrongFrameFormat {
+		t.Fatalf("expected errWrongFrameFormat error for invalid stream type, got %v", err)
 	}
 }
 

@@ -16,11 +16,15 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edsilegx/ctop/pkg/audit"
 	"github.com/edsilegx/ctop/pkg/connector"
 	"github.com/edsilegx/ctop/pkg/container"
 	"github.com/edsilegx/ctop/pkg/web"
@@ -271,5 +275,227 @@ func TestWebBridgeE2E(t *testing.T) {
 		if respPost.StatusCode != http.StatusMethodNotAllowed {
 			t.Fatalf("CRITICAL SECURITY: expected 405 MethodNotAllowed on POST %s, got %d", route, respPost.StatusCode)
 		}
+	}
+}
+
+func TestWebBridgeWithOptionsAndAuth(t *testing.T) {
+	cSuper, err := connector.ByName("mock")
+	if err != nil {
+		t.Fatalf("failed to initialize mock connector: %v", err)
+	}
+
+	srv, cleanup, err := startWebServer("127.0.0.1:0", "0.9.2", "/authprefix", cSuper, WebOptions{
+		URLPrefix: "/authprefix",
+		AuthToken: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start authenticated web bridge: %v", err)
+	}
+
+	tokenPath := web.DefaultAuthTokenPath()
+	tokenBytes, err := os.ReadFile(tokenPath)
+	if err != nil {
+		cleanup()
+		t.Fatalf("expected token file at %s: %v", tokenPath, err)
+	}
+	token := strings.TrimSpace(string(tokenBytes))
+	if len(token) < 32 {
+		cleanup()
+		t.Fatalf("expected token length >= 32, got %d: %s", len(token), token)
+	}
+
+	// Make authenticated request over live bridge
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, _ := http.NewRequest(http.MethodGet, "http://"+srv.Addr()+"/authprefix/api/v1/containers", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		cleanup()
+		t.Fatalf("authenticated request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		cleanup()
+		t.Fatalf("expected 200 OK for valid bearer token, got %d", resp.StatusCode)
+	}
+
+	// Cleanup and verify token removal
+	cleanup()
+	if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
+		t.Fatalf("expected token file to be deleted on shutdown, but it still exists at %s", tokenPath)
+	}
+}
+
+func TestWebBridgePersistentToken(t *testing.T) {
+	cSuper, err := connector.ByName("mock")
+	if err != nil {
+		t.Fatalf("failed to initialize mock connector: %v", err)
+	}
+
+	tokenPath := web.DefaultAuthTokenPath()
+	// Pre-cleanup
+	web.RemoveSecureTokenFile(tokenPath)
+	defer web.RemoveSecureTokenFile(tokenPath)
+
+	// Run 1: Autogenerate persistent token
+	srv1, cleanup1, err := startWebServer("127.0.0.1:0", "0.9.3", "", cSuper, WebOptions{
+		AuthToken:       true,
+		PersistentToken: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start server 1 with persistent token: %v", err)
+	}
+	tok1 := srv1.AuthToken()
+	if len(tok1) != 64 {
+		cleanup1()
+		t.Fatalf("expected 64-char token, got %d chars: %s", len(tok1), tok1)
+	}
+
+	// Verify token file was written
+	tokFile1, err := web.ReadSecureTokenFile(tokenPath)
+	if err != nil {
+		cleanup1()
+		t.Fatalf("failed to read token file: %v", err)
+	}
+	if tokFile1 != tok1 {
+		cleanup1()
+		t.Fatalf("expected token file to contain %q, got %q", tok1, tokFile1)
+	}
+
+	// Shutdown Run 1: Token MUST persist on disk
+	cleanup1()
+	if _, err := os.Stat(tokenPath); err != nil {
+		t.Fatalf("expected persistent token file to remain on disk after shutdown: %v", err)
+	}
+
+	// Run 2: Start new server with persistent token - MUST reuse existing token
+	srv2, cleanup2, err := startWebServer("127.0.0.1:0", "0.9.3", "", cSuper, WebOptions{
+		AuthToken:       true,
+		PersistentToken: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start server 2 with persistent token: %v", err)
+	}
+	defer cleanup2()
+
+	tok2 := srv2.AuthToken()
+	if tok2 != tok1 {
+		t.Fatalf("expected server 2 to reuse persistent token %q, but got newly generated %q", tok1, tok2)
+	}
+
+	// Verify authenticated API request works with original token
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, _ := http.NewRequest(http.MethodGet, "http://"+srv2.Addr()+"/api/v1/containers", nil)
+	req.Header.Set("Authorization", "Bearer "+tok1)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("authenticated request to server 2 failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for persistent token, got %d", resp.StatusCode)
+	}
+}
+
+func TestWebBridgeTLSBinding(t *testing.T) {
+	cSuper, err := connector.ByName("mock")
+	if err != nil {
+		t.Fatalf("failed to initialize mock connector: %v", err)
+	}
+
+	// 1. Plain HTTP without host binds to 127.0.0.1
+	srvHTTP, cleanupHTTP, err := startWebServer(":0", "0.9.2", "", cSuper)
+	if err != nil {
+		t.Fatalf("failed to start plain HTTP web server: %v", err)
+	}
+	defer cleanupHTTP()
+
+	if !strings.HasPrefix(srvHTTP.Addr(), "127.0.0.1:") {
+		t.Fatalf("expected plain HTTP server to bind 127.0.0.1, got %s", srvHTTP.Addr())
+	}
+
+	// 2. TLS server with ":0" binds to dual-stack or IPv4 fallback
+	srvTLS, cleanupTLS, err := startWebServer(":0", "0.9.2", "", cSuper, WebOptions{
+		TLSCert: "tests/tls/server.crt",
+		TLSKey:  "tests/tls/server.key",
+	})
+	if err != nil {
+		t.Fatalf("failed to start TLS web server: %v", err)
+	}
+	defer cleanupTLS()
+
+	if srvTLS.Addr() == "" {
+		t.Fatalf("expected non-empty listening address for TLS server, got %s", srvTLS.Addr())
+	}
+
+	// 3. Plain HTTP with explicit 0.0.0.0 and web-auth-token is FORCED to 127.0.0.1
+	srvForced, cleanupForced, err := startWebServer("0.0.0.0:0", "0.9.2", "", cSuper, WebOptions{
+		AuthToken: true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start web server with auth token: %v", err)
+	}
+	defer cleanupForced()
+
+	if !strings.HasPrefix(srvForced.Addr(), "127.0.0.1:") {
+		t.Fatalf("CRITICAL SECURITY: expected auth-token server without TLS to be forced to 127.0.0.1, got %s", srvForced.Addr())
+	}
+
+	// 4. TLS server with explicit 0.0.0.0:0 MUST bind strictly to IPv4 0.0.0.0:
+	srvIPv4, cleanupIPv4, err := startWebServer("0.0.0.0:0", "0.9.2", "", cSuper, WebOptions{
+		TLSCert: "tests/tls/server.crt",
+		TLSKey:  "tests/tls/server.key",
+	})
+	if err != nil {
+		t.Fatalf("failed to start TLS web server on 0.0.0.0:0: %v", err)
+	}
+	defer cleanupIPv4()
+
+	if !strings.HasPrefix(srvIPv4.Addr(), "0.0.0.0:") {
+		t.Fatalf("expected explicit 0.0.0.0:0 to bind strictly to IPv4 0.0.0.0:, got %s", srvIPv4.Addr())
+	}
+}
+
+func TestWebBridgeAuditLog(t *testing.T) {
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "audit.ndjson")
+
+	cSuper, err := connector.ByName("mock")
+	if err != nil {
+		t.Fatalf("failed to initialize mock connector: %v", err)
+	}
+
+	srv, cleanup, err := startWebServer(":0", "0.9.2", "/probe", cSuper, WebOptions{
+		AuditLog: logPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to start web server with audit log: %v", err)
+	}
+	defer cleanup()
+
+	// Perform HTTP requests
+	resp, err := http.Get(fmt.Sprintf("http://%s/probe/api/v1/health", srv.Addr()))
+	if err != nil {
+		t.Fatalf("failed to execute GET request: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	// Flush and close audit logger
+	audit.Close()
+
+	activePath := audit.Get().ActivePath()
+	if activePath == "" {
+		// Calculate expected date path
+		activePath = filepath.Join(tempDir, fmt.Sprintf("audit-%s.ndjson", time.Now().Format("2006-01-02")))
+	}
+
+	data, err := os.ReadFile(activePath)
+	if err != nil {
+		t.Fatalf("failed to read audit log file %s: %v", activePath, err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "/probe/api/v1/health") {
+		t.Fatalf("expected audit log to record /probe/api/v1/health request, got:\n%s", content)
 	}
 }

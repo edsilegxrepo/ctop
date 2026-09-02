@@ -64,6 +64,20 @@
 - `ctop` executes entirely unprivileged and does not require root permissions. Standard user accounts only require membership in the `docker` user group (`sudo usermod -aG docker $USER`) or a configured sudo/socket access policy to interact with the container runtime socket (`/var/run/docker.sock`).
 - When deployed in containerized environments, `ctop` can execute as a non-root user (`nobody` or custom UID) with read-only access to the Docker socket.
 
+### f. Web Telemetry & Zero-Leak Security Guard
+- **Zero-Leak Dual-Channel Architecture**:
+  - **Local Loopback Auto-Unlock**: Direct local access on `127.0.0.1` / `localhost` without reverse proxy headers bypasses password prompts for instant local convenience.
+  - **Remote Access Invariant**: Remote or proxied access strictly requires **Transport Encryption (TLS 1.2+ or Secure Reverse Proxy) + Web Authentication Token** (`--web-auth-token`). Unencrypted remote requests are rejected with `403 Forbidden`.
+  - **Reverse Proxy Loopback Guard**: Requests arriving at `127.0.0.1` that contain proxy forwarding headers (`X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are classified as **remote**, strictly enforcing TLS and authentication.
+- **Strict Query Parameter Deprecation**: Following RFC 6750 §5.3 and OWASP guidelines, query parameter tokens (`?token=` or `?auth=`) are strictly rejected with `401 Unauthorized` to prevent credential leakage in browser histories, proxy access logs, and referrer headers.
+- **REST / SSE Dual Channel**:
+  - **REST API / SSE Streams / CLI**: Authenticated via standard `Authorization: Bearer <token>` headers.
+  - **Web Dashboard UI**: Authenticated via an ephemeral, in-memory `ctop_session` cookie (`HttpOnly; SameSite=Strict; Secure; Max-Age=86400`).
+- **Memory-Bounded Ephemeral Session Store**: Thread-safe in-memory session store bounded at 100 concurrent sessions with Least Recently Used (LRU) eviction, a 24-hour absolute TTL, and a 2-hour idle timeout. Sessions are wiped automatically on daemon restart.
+- **Sliding-Window Login Rate Limiter**: Max 5 failed login attempts per client IP per minute; subsequent attempts receive `429 Too Many Requests` with `Retry-After: 60` headers.
+- **Constant-Time Verification**: All token and session validations enforce `crypto/subtle.ConstantTimeCompare` to eliminate timing side-channel attacks.
+- **Filesystem Security**: Tokens are stored in `~/.config/ctop/token` with strict owner-only permissions (`0400` file, `0700` directory) and cleaned up automatically on daemon shutdown.
+
 ---
 
 ## 3. Code Quality & Architecture Review
@@ -106,14 +120,19 @@ For test specifications, defect logs, and coverage reports, see [TESTING.md](TES
 | `--rate` | `bool` | `true` | Show real-time throughput rates (`bytes/sec`) for network and I/O (default). |
 | `--cumulative` | `bool` | `false` | Show cumulative lifetime metrics (total bytes) instead of real-time throughput rates. |
 
-#### Web Dashboard & Remote Telemetry
+#### Web Dashboard, TLS & Auth Security
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `--web` | `string` | `""` | Start embedded read-only web dashboard and REST/SSE API on specified address (e.g. `:9090` or `127.0.0.1:9090`). |
 | `--url-prefix` | `string` | `""` | Base URL subpath when running behind reverse proxies (e.g. `/probe`). |
+| `--web-auth-token` | `bool` | `false` | Enforce 64-character web authentication token (automatically generated and stored in `~/.config/ctop/token` with `0400` permissions). |
+| `--persistent-token` | `bool` | `false` | Prevent token regeneration on startup; autogenerates token once and persists across restarts (requires `--web-auth-token`). |
+| `--web-tls-cert` | `string` | `""` | Path to server TLS certificate PEM file for web HTTPS. |
+| `--web-tls-key` | `string` | `""` | Path to server TLS private key PEM file for web HTTPS. |
+| `--audit-log` | `string` | `""` | Path to daily-rotated NDJSON audit log file (e.g. `/var/log/ctop/audit.ndjson`). |
 | `--headless` | `bool` | `false` | Run in headless daemon mode without terminal UI (requires `--web`). |
 
-#### Remote Hosts & TLS Security
+#### Remote Hosts & Docker Daemon TLS Security
 | Flag | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `--host` | `string` | `""` | Docker host endpoint(s) to monitor (can be specified multiple times: `local`, `tcp://`, `ssh://`, `unix://`). |
@@ -134,6 +153,7 @@ For test specifications, defect logs, and coverage reports, see [TESTING.md](TES
 | Command | Description | Example |
 | :--- | :--- | :--- |
 | `ctop update` | Query latest GitHub releases, verify assets, and perform atomic in-place binary upgrade. | `ctop update` |
+| `ctop service <action>` | Generate and manage background daemon systemd service units (`install`, `uninstall`, `status`, `generate`). | `ctop service generate` |
 
 ### Web Telemetry & Headless Daemon
 
@@ -143,19 +163,35 @@ For test specifications, defect logs, and coverage reports, see [TESTING.md](TES
 # Launch ctop TUI and serve web dashboard simultaneously on port 9090
 ctop --web :9090
 
-# Run ctop as a headless background monitoring daemon (e.g. systemd or Docker container)
-ctop --headless --web :9090
+# Run ctop as a headless background monitoring daemon with auto-generated 64-character token
+ctop --headless --web 127.0.0.1:9090 --web-auth-token
+
+# Run ctop with native TLS 1.2+ encryption, web authentication token, and daily audit logging
+ctop --headless --web :9443 \
+     --web-tls-cert /path/to/server.crt \
+     --web-tls-key /path/to/server.key \
+     --web-auth-token \
+     --audit-log /var/log/ctop/audit.ndjson
 ```
 
 #### REST & SSE API Surface (Read-Only)
 
-- **`GET /`**: Interactive HTML5 Canvas 2D telemetry dashboard.
+- **`GET /`**: Interactive HTML5 Canvas 2D telemetry dashboard (includes Security Guard unlock modal).
+- **`POST /api/v1/auth/login`**: Exchange 64-character token for an authenticated `ctop_session` cookie (rate limited to 5 attempts/min per IP).
+- **`POST /api/v1/auth/logout`**: Revoke active session and clear cookie.
+- **`GET /api/v1/auth/status`**: Check authentication state and loopback bypass status.
 - **`GET /api/v1/health`**: Service liveness and readiness probe.
 - **`GET /api/v1/metrics`**: Aggregated cluster and host resource telemetry JSON.
 - **`GET /api/v1/containers`**: List of active container snapshots.
 - **`GET /api/v1/containers/{id}`**: Single container telemetry details.
+- **`GET /api/v1/containers/{id}/top`**: In-container running process table.
+- **`GET /api/v1/containers/{id}/diff`**: Writable layer filesystem change set.
+- **`GET /api/v1/containers/{id}/files`**: In-container directory listings (`?path=/...`).
+- **`GET /api/v1/containers/{id}/endpoints`**: Candidate container HTTP/HTTPS endpoints discovered by in-engine prober.
+- **`GET /api/v1/containers/{id}/proxy`**: Secure server-side container web proxy gateway (`?port=80&path=/&format=json|html`).
+- **`GET /api/v1/containers/{id}/probes`**: In-container network and exposed port reachability probes.
 - **`GET /api/v1/stream`**: Real-time Server-Sent Events (SSE) stream (`text/event-stream`).
-- **`GET /api/v1/export`**: Complete telemetry snapshot JSON export.
+- **`GET /api/v1/export`**: Complete telemetry snapshot JSON export (`?container=<id>`).
 
 ---
 
@@ -291,7 +327,8 @@ ctop --web :9090 --url-prefix /probe
     - `[n] Networking & Ports`: Network interfaces (IP, Gateway, MAC, CIDR prefix) and Port Forwarding cards.
     - `[E] Process & Env`: Searchable environment variable key-value table with one-click copy buttons.
     - `[P] In-Container Top`: Live process table queried from `/api/v1/containers/{id}/top`.
-  - **Keyboard Navigation**: Press `Esc` to close modal, or `o`, `v`, `n`, `e`, `p` to switch inspection tabs.
+    - `[w] Web & Probes`: Zero-dependency embedded web prober, sandboxed IFrame preview, live response headers, and raw payload viewer.
+  - **Keyboard Navigation**: Press `Esc` to close modal, or `o`, `v`, `n`, `e`, `i`, `p`, `d`, `f`, `w` to switch inspection tabs.
 
 #### 3. Telemetry Export & Interactive Reports
 - **Cluster & Container JSON Export (`📥 Export JSON`)**: Downloads pretty-formatted (2-space indented) JSON containing complete system metrics, container metadata, and running telemetry samples.
@@ -303,37 +340,170 @@ To prevent accidental credential disclosure on shared monitoring dashboards:
 
 #### 5. REST & SSE API Reference (Read-Only)
 
-All endpoints strictly enforce `GET`/`HEAD` read-only access (mutating requests return `405 Method Not Allowed`):
+All endpoints strictly enforce `GET`/`HEAD` read-only access (mutating requests return `405 Method Not Allowed`, with the exception of authenticated session login/logout `POST` handlers):
 
-| Endpoint | Method | Description |
-| :--- | :---: | :--- |
-| `/api/v1/health` | `GET` | Server liveness probe, version, and uptime. |
-| `/api/v1/metrics` | `GET` | Aggregated cluster-wide CPU, memory, network, and disk I/O metrics. |
-| `/api/v1/containers` | `GET` | Array of all container metadata and telemetry snapshots. |
-| `/api/v1/containers/{id}` | `GET` | Detailed telemetry and inspect metadata for a specific container. |
-| `/api/v1/containers/{id}/top` | `GET` | Running process table inside the container namespace. |
-| `/api/v1/export` | `GET` | Pretty JSON download of cluster telemetry (supports `?container=<id>`). |
-| `/api/v1/stream` | `GET` | High-throughput Server-Sent Events (SSE) live telemetry feed. |
+| Endpoint | Method | Auth Required | Description |
+| :--- | :---: | :---: | :--- |
+| `/` | `GET` | Cookie / Local | Interactive Web Dashboard SPA (Zero-Leak Unlock Modal). |
+| `/api/v1/auth/status` | `GET` | No | Check auth status (`authenticated`, `auth_enabled`, `direct_local`). |
+| `/api/v1/auth/login` | `POST` | No | Submit 32-char token to establish `ctop_session` cookie (Rate limited: 5 attempts/min). |
+| `/api/v1/auth/logout` | `POST` | Cookie | Terminate active web session and clear cookie. |
+| `/api/v1/health` | `GET` | No | Server liveness probe, version, and uptime. |
+| `/api/v1/metrics` | `GET` | Yes (Remote) | Aggregated cluster-wide CPU, memory, network, and disk I/O metrics. |
+| `/api/v1/containers` | `GET` | Yes (Remote) | Array of all container metadata and telemetry snapshots. |
+| `/api/v1/containers/{id}` | `GET` | Yes (Remote) | Detailed telemetry and inspect metadata for a specific container. |
+| `/api/v1/containers/{id}/top` | `GET` | Yes (Remote) | In-container running process table. |
+| `/api/v1/containers/{id}/diff` | `GET` | Yes (Remote) | Writable layer filesystem change set. |
+| `/api/v1/containers/{id}/files` | `GET` | Yes (Remote) | In-container directory listings (`?path=/...`). |
+| `/api/v1/containers/{id}/endpoints` | `GET` | Yes (Remote) | Candidate container HTTP/HTTPS endpoints discovered by in-engine prober. |
+| `/api/v1/containers/{id}/proxy` | `GET` | Yes (Remote) | Secure server-side container web proxy gateway (`?port=80&path=/&format=json|html`). |
+| `/api/v1/containers/{id}/probes` | `GET` | Yes (Remote) | In-container network and exposed port reachability probes. |
+| `/api/v1/export` | `GET` | Yes (Remote) | Pretty JSON download of cluster telemetry (supports `?container=<id>`). |
+| `/api/v1/stream` | `GET` | Yes (Remote) | High-throughput Server-Sent Events (SSE) live telemetry feed. |
 
-#### 6. Reverse Proxy Configuration Examples
+#### 6. Zero-Leak Security Guard & TLS Testing Guide
 
-**NGINX:**
+For full technical specifications and threat models, see [docs/SECGUARD.md](docs/SECGUARD.md).
+
+##### A. Automated Unit & Integration Tests
+```bash
+# Run web server unit tests (constant-time compare, rate limiter, session store, TLS config)
+go test -v ./pkg/web/...
+
+# Run live bridge end-to-end integration tests
+go test -v -run "TestWebBridge" .
+```
+
+##### B. Testing Native TLS & Auth Token with cURL and Web Browser
+
+1. **Test self-signed certificates:**
+   Pre-generated test certificates are available in `tests/tls/server.crt` and `tests/tls/server.key` (or generate fresh ones with `openssl req -x509 -newkey rsa:4096 -nodes -keyout tests/tls/server.key -out tests/tls/server.crt -days 365 -subj "/CN=localhost"`).
+
+2. **Start `ctop` in headless mode with TLS and Web Auth Token:**
+   ```bash
+   ctop --headless --web :9443 \
+        --web-tls-cert tests/tls/server.crt \
+        --web-tls-key tests/tls/server.key \
+        --web-auth-token
+   ```
+   *`ctop` automatically generates a 64-character Base62 alphanumeric token in `~/.config/ctop/token` (`0400` permissions).*
+
+3. **Test with cURL (Bearer Header):**
+   ```bash
+   TOKEN=$(cat ~/.config/ctop/token)
+
+   # Unauthenticated request -> 401 Unauthorized
+   curl -k -i https://localhost:9443/api/v1/containers
+
+   # Authenticated request with Bearer header -> 200 OK
+   curl -k -i -H "Authorization: Bearer $TOKEN" https://localhost:9443/api/v1/containers
+
+   # Deprecated URL query parameter (?token=...) -> 401 Unauthorized
+   curl -k -i https://localhost:9443/api/v1/containers?token=$TOKEN
+
+   # Live Real-Time SSE Stream
+   curl -k -N -H "Authorization: Bearer $TOKEN" https://localhost:9443/api/v1/stream
+   ```
+
+4. **Test with Web Browser Dashboard:**
+   - Open **`https://localhost:9443/`** in your browser.
+   - The **Security Guard** modal will prompt for the bearer token from `~/.config/ctop/token`.
+   - Incorrect entries trigger error feedback (5 failed attempts trigger rate-limiting: `429 Too Many Requests`).
+   - Entering the correct token unlocks the dashboard, sets the `ctop_session` cookie (`HttpOnly; SameSite=Strict; Secure`), and streams live metrics.
+   - Click the **🔒 Logout** button in the top navigation bar to terminate the active session.
+
+##### C. Testing Behind a Reverse Proxy
+
+When running `ctop` behind a reverse proxy (e.g. NGINX, Traefik, Caddy, AWS ALB):
+- Direct local requests on `127.0.0.1` without forwarding headers automatically unlock the local dashboard.
+- Any request with proxy headers (`X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`) is classified as **remote**, strictly enforcing HTTPS and authentication.
+
+**Simulate with cURL:**
+```bash
+# 1. Local Direct Access (Bypasses UI prompt)
+curl -i http://localhost:9090/api/v1/containers
+# -> 200 OK
+
+# 2. Remote Access without HTTPS (Rejected)
+curl -i -H "X-Forwarded-For: 203.0.113.10" http://localhost:9090/api/v1/containers
+# -> 403 Forbidden ("TLS encryption required")
+
+# 3. Remote Access with HTTPS & Bearer Token (Authorized)
+curl -i -H "X-Forwarded-For: 203.0.113.10" \
+        -H "X-Forwarded-Proto: https" \
+        -H "Authorization: Bearer $TOKEN" \
+        http://localhost:9090/api/v1/containers
+# -> 200 OK
+```
+
+#### 7. Reverse Proxy Configuration Examples
+
+**NGINX (with SSL Termination & SSE Streaming):**
 ```nginx
-location /probe/ {
-    proxy_pass http://127.0.0.1:9090/probe/;
-    proxy_http_version 1.1;
-    proxy_set_header Connection '';
-    proxy_buffering off;
-    proxy_cache off;
-    chunked_transfer_encoding off;
+server {
+    listen 443 ssl http2;
+    server_name telemetry.example.com;
+
+    ssl_certificate     /etc/ssl/certs/example.crt;
+    ssl_certificate_key /etc/ssl/private/example.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    location /probe/ {
+        proxy_pass http://127.0.0.1:9090/probe/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection '';
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding off;
+    }
 }
 ```
 
 **Caddy:**
 ```caddy
-handle_path /probe/* {
-    reverse_proxy 127.0.0.1:9090
+telemetry.example.com {
+    handle_path /probe/* {
+        reverse_proxy 127.0.0.1:9090 {
+            header_up X-Forwarded-Proto "https"
+        }
+    }
 }
+```
+
+---
+
+### Compliance & NDJSON Audit Logging (`--audit-log`)
+
+`ctop` provides structured, immutable audit logging in **Newline Delimited JSON (NDJSON)** format with automatic **daily file rotation**. When configured via `--audit-log <path>`, all security, access, authentication, container lifecycle, and daemon events are recorded with sub-millisecond timestamps and client attribution.
+
+#### 1. Enabling Audit Logging
+```bash
+# Start ctop with daily rotated audit logging
+ctop --headless --web :9443 \
+     --web-tls-cert tests/tls/server.crt \
+     --web-tls-key tests/tls/server.key \
+     --web-auth-token \
+     --audit-log /var/log/ctop/audit.ndjson
+```
+*`ctop` automatically writes active daily records to `/var/log/ctop/audit-YYYY-MM-DD.ndjson` and rotates file descriptors at midnight.*
+
+#### 2. Audit Event Schema & Categories
+Every line in the audit log is a complete, single JSON object:
+
+| Category | Actions Recorded | Description |
+| :--- | :--- | :--- |
+| **`access`** | `http_request`, `sse_connect`, `sse_disconnect` | HTTP method, route path, status code, latency (ms), client IP, TLS cipher/version, and auth mode. |
+| **`auth`** | `login_success`, `login_failure`, `logout`, `rate_limited` | Authentication attempts, session token issuance, rate limit triggers, and session revocations. |
+| **`container`** | `container_start`, `container_stop`, `container_inspect` | Container lifecycle transitions and inspect operations. |
+| **`app`** | `startup`, `shutdown` | Daemon initialization, version information, PID, and termination. |
+
+*Sample NDJSON Audit Record:*
+```json
+{"timestamp":"2026-09-01T20:00:00.123Z","level":"INFO","category":"access","action":"http_request","client_ip":"192.168.1.100","method":"GET","path":"/api/v1/containers","status":200,"duration_ms":1.45,"auth":{"type":"bearer","authenticated":true,"token_prefix":"9469..."},"details":{"tls":"TLSv1.3","user_agent":"curl/7.76.1"}}
 ```
 
 ---
@@ -393,7 +563,7 @@ MEMORY BREAKDOWN                       METADATA
   Swap: 0 B | Kernel: 4.2 MB             Ports: 0.0.0.0:8080->8080/tcp
 ```
 
-The multi-tab inspector provides deep inspection across 11 specialized tabs:
+The multi-tab inspector provides deep inspection across 12 specialized tabs:
 - **`[1]` Overview & Metrics**: Real-time telemetry sparklines (CPU, Memory, Net Rx/Tx, Disk I/O), memory breakdown (RSS, Cache, Swap, Kernel Memory, OOM Kill detection), and container metadata.
 - **`[2]` Live Logs**: Real-time container stdout/stderr log stream viewer with timestamp toggle, keyword filtering, and disk export.
 - **`[3]` Volumes & Mounts**: Storage bindings table showing Destination path, Source path, Mount Type (`volume`/`bind`/`tmpfs`), and Access Mode (`rw`/`ro`).
@@ -402,11 +572,12 @@ The multi-tab inspector provides deep inspection across 11 specialized tabs:
 - **`[6]` Image Details**: Detailed container image metadata, layer hierarchy, labels, and tags.
 - **`[7]` In-Container Top**: Live running process table inside the container namespace (`PID`, `USER`, `TIME`, `CMD`).
 - **`[8]` Filesystem Diff**: Real-time filesystem changes on the writable layer with Added (`[A]`), Changed (`[C]`), and Deleted (`[D]`) status indicators.
-- **`[9]` Recreate / Compose**: Equivalent `docker run` command and `docker-compose.yml` specification generator.
-- **`[0]` Labels & Compose**: Docker Compose orchestration tags and container labels.
+- **`[9]` Web Services**: Interactive in-terminal web service inspector & live HTTP/HTTPS prober. Features rendered ANSI HTML, sorted HTTP response headers, raw response body, port cycling (`n` next, `p` prev), and custom subpath prompt (`g`).
+- **`[0]` Recreate / Compose**: Equivalent `docker run` command and `docker-compose.yml` specification generator.
+- **`[L]` Labels & Compose**: Docker Compose orchestration tags and container labels.
 - **`[F]` In-Container Files**: Interactive directory browser, in-TUI file previewer (`<Enter>`/`<Space>`), host download exporter (`[d]`), and host file uploader (`[u]` to upload host files/directories into the container).
 
-*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-9`/`0`/`F`, or class hotkeys (`o`, `l`, `v`, `n`, `E`, `i`, `P`, `D`, `G`, `L`, `F`) to switch views. Use `u` to toggle environment variable secret masks. In File Explorer: `d` downloads to host, `u` uploads from host, `D` customizes download directory. In Network tab: `p` runs live TCP port probes. Use `↑`/`↓` to scroll.
+*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-9`/`0`/`L`/`F`, or class hotkeys (`o`, `l`, `v`, `n`, `E`, `i`, `P`, `D`, `W`, `G`, `L`, `F`) to switch views. In Web tab: `n`/`p` cycles ports, `g` prompts for target URL/path, `1-3` switches view modes. In File Explorer: `d` downloads to host, `u` uploads from host, `D` customizes download directory. In Network tab: `p` runs live TCP port probes. Use `↑`/`↓` to scroll.
 
 #### 3. Log Stream Drawer (`[l]` key)
 ```text
@@ -485,6 +656,7 @@ If a container is configured with a Docker health check, a health badge appears 
 ## 7. Associated Documentation
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: Detailed system architecture, component contracts, data flow diagrams, and concurrency models.
+- **[docs/SECGUARD.md](docs/SECGUARD.md)**: Zero-Leak Web Authentication, TLS Enforcement & Security Guard Specification.
 - **[docs/DESIGN.md](docs/DESIGN.md)**: Headless engine architecture, REST/WebSocket streaming API, and modular package decoupling specification.
 - **[docs/MODERNIZATION.md](docs/MODERNIZATION.md)**: Go modernization roadmap, dependency upgrades (`termui` v3, `runc` v1.3), and static analysis remediation record.
 - **[TESTING.md](TESTING.md)**: Complete test strategy, categorized test catalog (14 groups), 10 identified defect resolutions, and coverage verification report.

@@ -15,8 +15,26 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
+
+var (
+	ipv6Once      sync.Once
+	ipv6Supported bool
+)
+
+// SupportsIPv6 detects whether the operating system and network stack support IPv6 sockets.
+func SupportsIPv6() bool {
+	ipv6Once.Do(func() {
+		ln, err := net.Listen("tcp6", "[::1]:0")
+		if err == nil {
+			_ = ln.Close()
+			ipv6Supported = true
+		}
+	})
+	return ipv6Supported
+}
 
 // ProbeResult holds individual endpoint reachability telemetry
 type ProbeResult struct {
@@ -34,6 +52,14 @@ func ProbeTCP(ctx context.Context, label, target string, timeout time.Duration) 
 	start := time.Now()
 	dialer := net.Dialer{Timeout: timeout}
 	conn, err := dialer.DialContext(ctx, "tcp", target)
+	if err != nil && (strings.Contains(err.Error(), "address family not supported") || strings.Contains(err.Error(), "protocol not supported") || strings.Contains(err.Error(), "network is unreachable")) {
+		// If IPv6 dial failed due to missing host IPv6 support, fallback to IPv4
+		host, port, splitErr := net.SplitHostPort(target)
+		if splitErr == nil && (host == "::1" || host == "::" || host == "[::1]") {
+			target = net.JoinHostPort("127.0.0.1", port)
+			conn, err = dialer.DialContext(ctx, "tcp", target)
+		}
+	}
 	dur := time.Since(start)
 
 	if err == nil {
@@ -88,8 +114,13 @@ func ExtractProbeTargets(portsVal, networkStr string) []TargetTask {
 					port := hostPart[lastColon+1:]
 					label := "External (IPv4)"
 					if hostIP == "::" || hostIP == "::1" || hostIP == "[::]" {
-						hostIP = "::1"
-						label = "External (IPv6)"
+						if SupportsIPv6() {
+							hostIP = "::1"
+							label = "External (IPv6)"
+						} else {
+							hostIP = "127.0.0.1"
+							label = "External (IPv4 Fallback)"
+						}
 					} else {
 						hostIP = "127.0.0.1"
 					}

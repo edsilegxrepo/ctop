@@ -40,20 +40,31 @@ func TestExtractProbeTargets(t *testing.T) {
 	}
 
 	foundHostIPv4 := false
-	foundHostIPv6 := false
+	foundHostIPv6OrFallback := false
 	for _, target := range targets {
 		if target.Target == "127.0.0.1:8080" {
 			foundHostIPv4 = true
 		}
-		if target.Target == "[::1]:9090" || target.Target == "::1:9090" {
-			foundHostIPv6 = true
+		if SupportsIPv6() {
+			if target.Target == "[::1]:9090" || target.Target == "::1:9090" {
+				foundHostIPv6OrFallback = true
+			}
+		} else {
+			if target.Target == "127.0.0.1:9090" {
+				foundHostIPv6OrFallback = true
+			}
 		}
 	}
 
 	if !foundHostIPv4 {
 		t.Errorf("expected 127.0.0.1:8080 in extracted targets")
 	}
-	if !foundHostIPv6 {
-		t.Errorf("expected ::1:9090 in extracted targets")
+	if !foundHostIPv6OrFallback {
+		t.Errorf("expected 9090 target (IPv6 or IPv4 fallback) in extracted targets")
 	}
+}
+
+func TestSupportsIPv6(t *testing.T) {
+	// Verify SupportsIPv6 executes without panic and returns a boolean
+	_ = SupportsIPv6()
 }

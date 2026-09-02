@@ -2,11 +2,21 @@
 //
 // Objective:
 //
-//	Generate and inspect systemd service unit configurations for headless background telemetry collection.
+//	Generate, inspect, and manage systemd service unit configurations for headless background telemetry collection.
 //
 // Core Components:
 //   - SystemdUnitTemplate: Standard unit definition specifying restart policies, environment variables, and web flags.
 //   - GenerateSystemdUnit: Populates the unit template with the absolute binary path.
+//   - Run: Command-line subcommand dispatcher handling install, uninstall, status, and unit generation.
+//
+// Functionality:
+//   - Dynamic systemd unit templating with customized flags and environment variables.
+//   - Detection of target OS (Linux systemd vs non-Linux warnings).
+//   - Subcommand routing for ctop service management.
+//
+// Data Flow:
+//
+//	CLI Args ('service install') -> service.Run() -> GenerateSystemdUnit() -> Written Unit File / STDOUT.
 package service
 
 import (
@@ -24,7 +34,7 @@ Requires=docker.service
 
 [Service]
 Type=simple
-ExecStart=%s --headless --web :9090 --web-auth-token auto
+ExecStart=%s --headless --web :9090 --web-auth-token
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536

@@ -21,4 +21,8 @@ const (
 	ExitDockerPermission = 7
 	// ExitDockerTLS indicates TLS or client certificate validation failure.
 	ExitDockerTLS = 8
+	// ExitService indicates a system service management command failure (install/uninstall/generate/status).
+	ExitService = 9
+	// ExitDaemonStartup indicates a fatal background daemon startup error.
+	ExitDaemonStartup = 10
 )

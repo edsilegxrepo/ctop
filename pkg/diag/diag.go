@@ -113,7 +113,7 @@ type ContainerSnapshot struct {
 }
 
 // BuildReport constructs a ContainerReport from container state, metadata, and telemetry.
-func BuildReport(id string, meta map[string]string, m *models.Metrics, hostID string, runCmd string, compose string) *ContainerReport {
+func BuildReport(id string, meta map[string]string, m *models.Metrics, hostID, runCmd, compose string) *ContainerReport {
 	if meta == nil {
 		meta = make(map[string]string)
 	}
@@ -341,7 +341,7 @@ func FormatTextReport(r *ContainerReport) string {
 }
 
 // SaveReport exports the container report to the specified directory in JSON, Text, or both formats.
-func SaveReport(report *ContainerReport, destDir string, format string) ([]string, error) {
+func SaveReport(report *ContainerReport, destDir, format string) ([]string, error) {
 	if destDir == "" {
 		destDir = "."
 	}

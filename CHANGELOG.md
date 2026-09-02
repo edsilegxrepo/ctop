@@ -4,6 +4,28 @@ All notable changes to `ctop` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.3] - 2026-09-01
+
+### Added
+- **Mandatory 64-Character Base62 Authentication Token**: Upgraded `--web-auth-token` to generate and enforce 64-character alphanumeric tokens (`[a-zA-Z0-9]`, ~381-bit entropy) with automatic `0400` permission file storage in `~/.config/ctop/token`.
+- **Persistent Token Mode (`--persistent-token`)**: Added option used exclusively with `--web-auth-token` to prevent token regeneration across restarts, autogenerating the token once and preserving it on disk.
+- **In-Terminal Web Service Inspector (Tab 9 / WebView)**: Embedded interactive HTTP/HTTPS prober in TUI (`[9]` / `W`) and Web Dashboard Tab 9 supporting Rendered ANSI HTML, sorted HTTP headers, raw body viewing, dynamic port cycling (`n`/`p`), and custom subpath probing (`g`).
+- **Pure-Go HTML AST Parser & Terminal Renderer (`pkg/htmlrender`)**: Zero-dependency HTML tokenizer and DOM walker with Unicode box-drawing table formatting, runewidth-aware word-wrapping, and strict anti-XSS tag stripping (`<script>`, `<style>`, `<svg>`).
+- **Automated Service Discovery & Bounded HTTP Prober (`pkg/serviceprobe`)**: Automated endpoint resolution from port mappings, internal bridge IPs, and ENV declarations with 2MB response ceilings, 3-redirect limits, and Slowloris timeout protection.
+- **Thread-Safe Daily-Rotated NDJSON Audit Logging (`pkg/audit`)**: Added `--audit-log <path>` flag generating immutable access and compliance audit trails with automatic midnight file rotation and zero-secret leakage.
+- **CLI Service Subcommand Dispatcher (`pkg/service`)**: Integrated `ctop service <action>` (`install`, `uninstall`, `status`, `generate`) for managing background systemd telemetry daemons.
+- **Automated Reverse Proxy E2E Test Suite (`tests/nginx/`)**: Added 16-scenario automated NGINX integration test harness validating SSL termination, subpath prefixes, live SSE feeds, token auth, session cookies, and daily audit rotation.
+
+### Security & Performance
+- **Zero-Leak Remote Security Invariant**: Remote/proxied requests strictly require Transport Encryption (TLS or HTTPS reverse proxy) and authentication; unencrypted remote requests are rejected with `403 Forbidden`.
+- **Multi-Hop IP Spoofing Defense**: Rate limiting and audit logging isolate true client IPs from multi-hop `X-Forwarded-For` proxy chains.
+- **Non-Blocking SSE Broadcaster**: Ring buffer ensures stalled or slow subscribers are dropped without delaying remaining connected clients.
+- **Connector Shutdown Hardening**: Guarded all background event dispatcher sends against `cm.closed` to prevent goroutine shutdown deadlocks.
+- **OS-Specific Cgroup v2 Optimization**: Guarded `/sys/fs/cgroup` directory walks on Linux only to eliminate unnecessary syscalls on Windows.
+- **Standardized Process Exit Codes (`pkg/exit`)**: Added `ExitService` (9) and `ExitDaemonStartup` (10) for automated process supervision.
+
+---
+
 ## [v0.9.2] - 2026-08-31
 
 ### Added

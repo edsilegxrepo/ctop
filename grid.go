@@ -252,6 +252,82 @@ func SingleViewWithTab(initialTab int) MenuFn {
 		case e := <-uiEvents:
 			switch e.Type {
 			case ui.KeyboardEvent:
+				if ex.ActiveTab == single.TabWeb {
+					if e.ID == "<Escape>" || e.ID == "q" || e.ID == "Q" {
+						return nil
+					} else if e.ID == "r" || e.ID == "R" {
+						ex.Web.FetchCurrent()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "n" || e.ID == "N" {
+						ex.Web.NextEndpoint()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "p" || e.ID == "P" {
+						ex.Web.PrevEndpoint()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "<Tab>" {
+						ex.Web.ToggleMode()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "1" {
+						ex.Web.SetMode(single.ModeRendered)
+						ui.Render(ex)
+						continue
+					} else if e.ID == "2" {
+						ex.Web.SetMode(single.ModeHeaders)
+						ui.Render(ex)
+						continue
+					} else if e.ID == "3" {
+						ex.Web.SetMode(single.ModeRaw)
+						ui.Render(ex)
+						continue
+					} else if e.ID == "k" || IsKeyMatch("up", e.ID) {
+						ex.Web.ScrollUp(1)
+						ui.Render(ex)
+						continue
+					} else if e.ID == "j" || IsKeyMatch("down", e.ID) {
+						ex.Web.ScrollDown(1)
+						ui.Render(ex)
+						continue
+					} else if e.ID == "<PageUp>" || IsKeyMatch("pgup", e.ID) {
+						ex.Web.ScrollUp(10)
+						ui.Render(ex)
+						continue
+					} else if e.ID == "<PageDown>" || IsKeyMatch("pgdown", e.ID) {
+						ex.Web.ScrollDown(10)
+						ui.Render(ex)
+						continue
+					} else if e.ID == "g" || e.ID == "G" {
+						inp := widgets.NewInput()
+						inp.Title = "Enter Port, Subpath, or URL (e.g. :8080/dashboard/, /ping, :8080, Enter: Apply, Esc: Cancel)"
+						inp.Data = "/"
+						tw, th := theme.TermDimensions()
+						inp.SetRect(0, th-3, tw, th)
+						ui.Render(ex, inp)
+						for {
+							ge := <-uiEvents
+							if ge.Type == ui.KeyboardEvent {
+								if ge.ID == "<Escape>" {
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else if ge.ID == "<Enter>" {
+									ex.Web.SetCustomPath(inp.Data)
+									ui.Clear()
+									ui.Render(ex)
+									break
+								} else {
+									inp.KeyPress(ge.ID)
+									ui.Render(ex, inp)
+								}
+							}
+						}
+						continue
+					}
+				}
+
 				if ex.ActiveTab == single.TabFiles {
 					if ex.Explorer.Previewing {
 						if e.ID == "<Escape>" || e.ID == "<Enter>" || e.ID == "q" || e.ID == "Q" {
@@ -626,6 +702,10 @@ func SingleViewWithTab(initialTab int) MenuFn {
 					switchTab(single.TabFiles)
 					ui.Clear()
 					ui.Render(ex)
+				} else if e.ID == "W" || e.ID == "w" {
+					switchTab(single.TabWeb)
+					ui.Clear()
+					ui.Render(ex)
 				} else if (e.ID == "X" || e.ID == "x") && ex.ActiveTab != single.TabFiles {
 					report := diag.BuildReport(c.Id, c.Meta, &c.Metrics, c.HostID, c.GenerateRunCmd(), c.GenerateCompose())
 					exportDir := config.GetVal("downloadDir")
@@ -727,6 +807,10 @@ func SingleViewLabels() MenuFn {
 
 func SingleViewFiles() MenuFn {
 	return SingleViewWithTab(single.TabFiles)
+}
+
+func SingleViewWeb() MenuFn {
+	return SingleViewWithTab(single.TabWeb)
 }
 
 func RefreshDisplay() error {

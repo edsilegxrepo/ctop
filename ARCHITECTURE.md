@@ -257,6 +257,20 @@ ctop/
 │   │
 │   ├── update/                   # Self-update engine and GitHub release asset manager
 │   │   └── update.go             # GitHub release API client, platform binary matcher, checksum verifier, and in-place replacer
+│   ├── serviceprobe/             # In-engine container HTTP/HTTPS service discovery and probing
+│   │   ├── discover.go           # Port parsing, bridge IP extraction, and candidate endpoint resolution
+│   │   └── probe.go              # Context-bounded HTTP prober, redirect limits, and self-signed TLS support
+│   │
+│   ├── htmlrender/               # Pure-Go HTML parser, AST walker, and ANSI terminal renderer
+│   │   ├── renderer.go           # DOM walker, word wrapper, footnote collector, and tag sanitizer
+│   │   ├── table.go              # Unicode box-drawing table formatter and column width allocator
+│   │   └── ansi.go               # ANSI terminal color and styling decorators
+│   │
+│   ├── audit/                    # Thread-safe daily-rotated NDJSON compliance audit logging
+│   │   └── audit.go              # Event schemas, RWMutex file writer, daily rotation, and secret masking
+│   │
+│   ├── service/                  # System service management and systemd unit generator
+│   │   └── service.go            # Systemd service unit generator and CLI subcommand dispatcher
 │   │
 │   ├── keys/                     # Abstract keyboard sequence parser
 │   │   └── keys.go               # Key sequence matcher mapping TermBox keys to logical UI actions
@@ -265,7 +279,7 @@ ctop/
 │   │   └── sanitize.go           # Regex ANSI CSI/OSC escape stripper and sensitive secret key masking (passwords, tokens, keys)
 │   │
 │   └── exit/                     # POSIX process termination exit codes
-│       └── exit.go               # Standardized exit codes (ExitSuccess, ExitUsage, ExitUI, ExitConnector, ExitGeneral)
+│       └── exit.go               # Standardized exit codes (ExitSuccess, ExitUsage, ExitUI, ExitConnector, ExitGeneral, ExitService, ExitDaemonStartup)
 │
 ├── internal/                     # Private Terminal User Interface (TUI) Packages
 │   ├── cwidgets/                 # Custom termui container visualization widgets
@@ -280,9 +294,9 @@ ctop/
 │   │   │   ├── gauge.go          # CPUCol, CpuScaledCol, MemCol (MEM Alloc / Total with adaptive color scales)
 │   │   │   ├── status.go         # Status glyph column with color-coded operational state icons
 │   │   │   └── util.go           # Compact row width and coordinate alignment helpers
-│   │   └── single/               # 11-Tab detailed single-container inspector view
+│   │   └── single/               # 12-Tab detailed single-container inspector view
 │   │       ├── main.go           # Single view controller, tab navigation, scroll bounds clamping, key delegation
-│   │       ├── tabbar.go         # Tab selection bar with tab indices [1..9, 0, F]
+│   │       ├── tabbar.go         # Tab selection bar with tab indices [1..9, 0, L, F]
 │   │       ├── cpu.go            # CPU utilization gauge and historical sparkline chart
 │   │       ├── mem.go            # Memory usage gauge, RSS/Cache/Swap breakdown, and historical sparkline chart
 │   │       ├── net.go            # Network Rx/Tx volume gauges and transfer rate sparklines
@@ -294,6 +308,7 @@ ctop/
 │   │       ├── image.go          # Container image metadata, layers, and configuration properties
 │   │       ├── top.go            # In-container live process table viewer (PID, USER, TIME, COMMAND)
 │   │       ├── diff.go           # Writable filesystem layer changes table (Added, Changed, Deleted)
+│   │       ├── webview.go        # In-terminal web service inspector & live HTTP/HTTPS prober (Rendered DOM, Headers, Raw body)
 │   │       ├── generator.go      # Equivalent `docker run` command and `docker-compose.yml` snippet display
 │   │       ├── labels.go         # Container label key-value table viewer
 │   │       ├── explorer.go       # In-container interactive file explorer with download and viewing capabilities
@@ -315,8 +330,15 @@ ctop/
 │       ├── theme.go              # TermUI color definitions, style attributes, light/dark color map inversion, terminal sync
 │       └── icons.go              # Icon glyph system supporting standard Unicode runes and modern Nerd Font symbols
 │
-└── integration/                  # Live Docker Daemon E2E Integration Test Suite
-    └── docker_integration_test.go# 100% real-world Docker workflow integration tests (spawning, streaming, exec, mTLS, rates)
+├── tests/                        # Automated End-to-End Test Suites
+│   ├── nginx/                    # Live NGINX reverse proxy E2E test harness
+│   │   ├── test_nginx_e2e.sh     # 16 automated E2E tests (SSL, subpath /probe/, SSE, token auth, cookies, logout, audit log)
+│   │   └── nginx.conf.template   # Dynamic NGINX reverse proxy configuration template
+│   └── tls/                      # Pre-generated test TLS certificates and keys
+│
+└── integration/                  # Live Docker Daemon & Reverse Proxy Integration Suite
+    ├── docker_integration_test.go# 100% real-world Docker workflow integration tests (spawning, streaming, exec, mTLS, rates)
+    └── nginx_proxy_test.go       # Go integration test for reverse proxy headers, TLS termination, and authentication
 ```
 
 ---

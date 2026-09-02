@@ -22,6 +22,7 @@ package single
 
 import (
 	"image"
+	"strings"
 	"sync"
 
 	"github.com/edsilegx/ctop/internal/theme"
@@ -51,6 +52,7 @@ type Single struct {
 	Generator *Generator
 	Labels    *Labels
 	Explorer  *Explorer
+	Web       *WebView
 	ActiveTab int
 	Y         int
 	Width     int
@@ -79,6 +81,7 @@ func NewSingle() *Single {
 		Generator: NewGenerator(),
 		Labels:    NewLabels(),
 		Explorer:  NewExplorer(),
+		Web:       NewWebView(),
 		ActiveTab: TabMetrics,
 		Width:     termW,
 	}
@@ -329,6 +332,11 @@ func (e *Single) SetMeta(m models.Meta) {
 	if name, ok := m["name"]; ok {
 		e.Logs.SetContainerName(name)
 	}
+	var envList []string
+	if envStr, ok := m["[ENV-VAR]"]; ok {
+		envList = strings.Split(envStr, ":::")
+	}
+	e.Web.SetContainer(m["id"], m["name"], m["ports"], m["[NETWORKS]"], envList)
 
 	// 3. Info header fields
 	for k, v := range m {
@@ -385,6 +393,13 @@ func (e *Single) getHeightUnsafe() (h int) {
 		h += e.Labels.GetHeight()
 	case TabFiles:
 		h += e.Explorer.GetHeight()
+	case TabWeb:
+		_, termH := theme.TermDimensions()
+		expH := termH - 2
+		if expH < 6 {
+			expH = 6
+		}
+		h += expH
 	}
 	return h
 }
@@ -490,6 +505,14 @@ func (e *Single) alignUnsafe() {
 			expH = 6
 		}
 		e.Explorer.SetRect(0, y, leftW, y+expH)
+
+	case TabWeb:
+		_, termH := theme.TermDimensions()
+		expH := termH - y
+		if expH < 6 {
+			expH = 6
+		}
+		e.Web.SetRect(0, y, leftW, y+expH)
 	}
 }
 
@@ -536,5 +559,7 @@ func (e *Single) Draw(buf *ui.Buffer) {
 		e.Labels.Draw(buf)
 	case TabFiles:
 		e.Explorer.Draw(buf)
+	case TabWeb:
+		e.Web.Draw(buf)
 	}
 }

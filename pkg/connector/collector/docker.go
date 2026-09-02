@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -312,6 +313,10 @@ func (c *Docker) ReadIO(stats *api.Stats) {
 }
 
 func (c *Docker) readCgroupV2IO() (int64, int64) {
+	if runtime.GOOS != "linux" {
+		return 0, 0
+	}
+
 	// 1. Try cached path first
 	if c.cgroupIOPath != "" {
 		if r, w, ok := parseIOStat(c.cgroupIOPath); ok {
