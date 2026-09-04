@@ -186,7 +186,7 @@ func (w *Explorer) ClearFilterAndSearch() {
 
 // EditKeyPress processes a keystroke during inline editing (target dir, filter, or search).
 // Returns done=true when finished (Enter or Esc), applied=true if confirmed, the mode, and the entered value.
-func (w *Explorer) EditKeyPress(keyID string) (done bool, applied bool, mode InlineEditMode, value string) {
+func (w *Explorer) EditKeyPress(keyID string) (done, applied bool, mode InlineEditMode, value string) {
 	mode = w.EditMode
 	if mode == EditModeNone && w.EditingTargetDir {
 		mode = EditModeTargetDir
@@ -264,7 +264,7 @@ func (w *Explorer) EditKeyPress(keyID string) (done bool, applied bool, mode Inl
 }
 
 // EditDirKeyPress processes a keystroke during inline host target directory editing (legacy helper).
-func (w *Explorer) EditDirKeyPress(keyID string) (done bool, applied bool) {
+func (w *Explorer) EditDirKeyPress(keyID string) (done, applied bool) {
 	d, a, _, _ := w.EditKeyPress(keyID)
 	return d, a
 }
