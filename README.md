@@ -321,7 +321,7 @@ ctop --web :9090 --url-prefix /probe
 - **Interactive Container Drill-Down Modal**: Click any container row to open a full glassmorphic inspector:
   - **4 Real-Time Sparkline Charts**: CPU %, Memory allocation, Network throughput (Rx/Tx), and Disk I/O rate (Read/Write).
   - **Running Telemetry History**: Fixed-width rolling 5-sample live history table.
-  - **5 Inspection Tabs**:
+  - **6 Inspection Tabs**:
     - `[o] Overview & Metrics`: Live charts, 5-sample running history table, and runtime specs (Created, Uptime, Command, Entrypoint, User, IPs, Ports).
     - `[v] Volumes & Mounts`: Destination, Source, Type (`volume`/`bind`), Mode (`rw`/`ro`), and Driver.
     - `[n] Networking & Ports`: Network interfaces (IP, Gateway, MAC, CIDR prefix) and Port Forwarding cards.
@@ -346,7 +346,7 @@ All endpoints strictly enforce `GET`/`HEAD` read-only access (mutating requests 
 | :--- | :---: | :---: | :--- |
 | `/` | `GET` | Cookie / Local | Interactive Web Dashboard SPA (Zero-Leak Unlock Modal). |
 | `/api/v1/auth/status` | `GET` | No | Check auth status (`authenticated`, `auth_enabled`, `direct_local`). |
-| `/api/v1/auth/login` | `POST` | No | Submit 32-char token to establish `ctop_session` cookie (Rate limited: 5 attempts/min). |
+| `/api/v1/auth/login` | `POST` | No | Submit 64-character token to establish `ctop_session` cookie (Rate limited: 5 attempts/min). |
 | `/api/v1/auth/logout` | `POST` | Cookie | Terminate active web session and clear cookie. |
 | `/api/v1/health` | `GET` | No | Server liveness probe, version, and uptime. |
 | `/api/v1/metrics` | `GET` | Yes (Remote) | Aggregated cluster-wide CPU, memory, network, and disk I/O metrics. |
@@ -572,12 +572,12 @@ The multi-tab inspector provides deep inspection across 12 specialized tabs:
 - **`[6]` Image Details**: Detailed container image metadata, layer hierarchy, labels, and tags.
 - **`[7]` In-Container Top**: Live running process table inside the container namespace (`PID`, `USER`, `TIME`, `CMD`).
 - **`[8]` Filesystem Diff**: Real-time filesystem changes on the writable layer with Added (`[A]`), Changed (`[C]`), and Deleted (`[D]`) status indicators.
-- **`[9]` Web Services**: Interactive in-terminal web service inspector & live HTTP/HTTPS prober. Features rendered ANSI HTML, sorted HTTP response headers, raw response body, port cycling (`n` next, `p` prev), and custom subpath prompt (`g`).
-- **`[0]` Recreate / Compose**: Equivalent `docker run` command and `docker-compose.yml` specification generator.
-- **`[L]` Labels & Compose**: Docker Compose orchestration tags and container labels.
-- **`[F]` In-Container Files**: Interactive directory browser, in-TUI file previewer (`<Enter>`/`<Space>`), host download exporter (`[d]`), and host file uploader (`[u]` to upload host files/directories into the container).
+- **`[9]` Recreate / Compose**: Equivalent `docker run` command and `docker-compose.yml` specification generator (`[9]` or `G`).
+- **`[0]` Labels & Compose**: Docker Compose orchestration tags and container labels (`[0]`).
+- **`[F]` In-Container Files**: Interactive directory browser with text preview (`<Enter>`/`<Space>`), host download (`[d]`), host upload (`[u]`), in-container file editing with `$EDITOR` (`[e]`/`[E]`), file deletion (`[x]`/`[X]`/`<Delete>`), filter (`[/]`), deep search (`[f]`), and clear (`[c]`).
+- **`[W]` Web Services**: Interactive in-terminal web service inspector & live HTTP/HTTPS prober (`[W]` or `w`). Features rendered ANSI HTML, sorted HTTP response headers, raw response body, port cycling (`n` next, `p` prev), and custom subpath prompt (`g`).
 
-*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-9`/`0`/`L`/`F`, or class hotkeys (`o`, `l`, `v`, `n`, `E`, `i`, `P`, `D`, `W`, `G`, `L`, `F`) to switch views. In Web tab: `n`/`p` cycles ports, `g` prompts for target URL/path, `1-3` switches view modes. In File Explorer: `d` downloads to host, `u` uploads from host, `D` customizes download directory. In Network tab: `p` runs live TCP port probes. Use `↑`/`↓` to scroll.
+*Navigation:* Use `<Tab>` / `<Shift+Tab>`, number keys `1-9`/`0`/`F`/`W`, or class hotkeys (`o`, `l`, `v`, `n`, `E`, `i`, `P`, `D`, `G`, `0`, `F`, `W`) to switch views. In Web tab: `n`/`p` cycles ports, `g` prompts for target URL/path, `1-3` switches view modes. In File Explorer: `d` downloads to host, `u` uploads from host, `e` edits via host `$EDITOR`, `x` deletes file, `D` customizes download directory, `/` filters, `f` deep-searches, `c` clears filter/search, `Home`/`End`/`PgUp`/`PgDown` navigates. In Network tab: `p` runs live TCP port probes. Use `↑`/`↓` to scroll.
 
 #### 3. Log Stream Drawer (`[l]` key)
 ```text
@@ -613,15 +613,19 @@ Directly adjust container limits and policies without container restarts or down
 | `s` | Open sort selection menu (`cpu`, `mem`, `mem %`, `net`, `io`, `pids`, `name`, `state`, `uptime`, `compose`) |
 | `r` | Reverse active sort order |
 | `c` | Open column configuration menu |
-| `o` | Open multi-tab container inspector (Overview, Mounts, Network, Env, Top, Diff, Recreate, Labels, Files) |
-| `v` | Open volumes & mounts inspector directly |
-| `n` | Open networking & ports inspector directly |
+| `o` | Open multi-tab container inspector (12 tabs: Overview, Logs, Mounts, Network, Env, Image, Top, Diff, Recreate, Labels, Files, Web) |
+| `v` | Open volumes & mounts inspector directly (Tab 3) |
+| `n` | Open networking & ports inspector directly (Tab 4) |
 | `p` | Re-run live TCP port reachability probes (in Network tab) |
-| `F` | Open interactive in-container file explorer & text previewer directly |
+| `F` | Open interactive in-container file explorer & text previewer directly (Tab F) |
+| `W` / `w` | Open in-terminal web service inspector directly (Tab W) |
 | `l` | Open live container log drawer (`t` timestamps, `/` filter, `s` save, `D` dir, `q` close) |
+| `X` / `x` | Export container diagnostic report directly (JSON/Text) |
 | `U` | Open live resource hot-tuning dialog (Memory limit MB, CPU quota, Restart policy) |
-| `k` | Open granular POSIX signal menu (`SIGHUP`, `SIGQUIT`, `SIGUSR1`, `SIGUSR2`, `SIGTERM`, `SIGKILL`) |
+| `k` (in menu) | Open granular POSIX signal menu inside container action menu (`<Enter>` -> `[k]`) |
 | `e` | Open interactive shell inside selected container |
+| `e` / `E` (explorer) | Edit container file with host `$EDITOR` (in File Explorer) |
+| `x` / `X` (explorer) | Delete container file with confirmation (in File Explorer) |
 | `w` | Open web port in default browser (first mapped HTTP port) with clean screen restoration |
 | `u` | Toggle secret masking in Environment inspector / Upload in File Explorer |
 | `d` | Download selected container file/directory to host (in File Explorer) |

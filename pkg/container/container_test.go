@@ -158,6 +158,13 @@ func (m *trackingManager) Upload(srcPath, dstPath string) error {
 	return nil
 }
 
+func (m *trackingManager) DeleteFile(path string) error {
+	if m.fail {
+		return errors.New("delete failed")
+	}
+	return nil
+}
+
 func (m *trackingManager) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
 	if m.fail {
 		return errors.New("update resources failed")

@@ -37,6 +37,11 @@ var defaultSwitches = []*Switch{
 		Val:   true,
 		Label: "Real-time rate metrics (/s) vs. cumulative totals",
 	},
+	{
+		Key:   "logWrap",
+		Val:   false,
+		Label: "Wrap log lines (vs. truncate)",
+	},
 }
 
 type Switch struct {

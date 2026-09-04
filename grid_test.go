@@ -15,6 +15,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func TestSingleViewNavigation(t *testing.T) {
 		keys []string
 	}{
 		{"Metrics", SingleView, []string{"j", "k", "h", "l", "<Tab>", "<BackTab>", "1", "u", "X", "2", "3", "4", "5", "6", "7", "8", "9", "0", "F", "1", "q"}},
-		{"Logs", SingleViewLogs, []string{"j", "k", "l", "t", "s", "g", "G", "<Tab>", "q"}},
+		{"Logs", SingleViewLogs, []string{"j", "k", "l", "t", "w", "W", "s", "g", "G", "D", "t", "m", "p", "<Enter>", "<Tab>", "q"}},
 		{"Volumes", SingleViewVolumes, []string{"j", "k", "v", "<Tab>", "q"}},
 		{"Network", SingleViewNetwork, []string{"j", "k", "n", "p", "<Tab>", "q"}},
 		{"Process", SingleViewProcess, []string{"j", "k", "E", "u", "<Tab>", "q"}},
@@ -88,12 +89,12 @@ func TestSingleViewNavigation(t *testing.T) {
 		{"Diff", SingleViewDiff, []string{"j", "k", "D", "<Tab>", "q"}},
 		{"Generator", SingleViewGenerator, []string{"j", "k", "G", "<Tab>", "q"}},
 		{"Labels", SingleViewLabels, []string{"j", "k", "L", "<Tab>", "q"}},
-		{"Files", SingleViewFiles, []string{"j", "k", "<Enter>", "<Backspace>", "j", "v", "<Escape>", "d", "D", "t", "m", "p", "<Enter>", "u", "s", "r", "c", "<Enter>", "r", "q"}},
+		{"Files", SingleViewFiles, []string{"j", "k", "<Enter>", "<Backspace>", "j", "v", "<Down>", "j", "<Up>", "k", "<End>", "G", "<Home>", "g", "<PageDown>", "<PageUp>", "<Escape>", "e", "n", "x", "n", "d", "D", "t", "m", "p", "<Enter>", "u", "s", "r", "c", "<Enter>", "r", "q"}},
 		{"Web", SingleViewWeb, []string{"j", "k", "1", "2", "3", "<Tab>", "n", "r", "q"}},
 	}
 
 	for _, tv := range testViews {
-		mockEvents := make(chan ui.Event, 40)
+		mockEvents := make(chan ui.Event, 60)
 		mockEvents <- ui.Event{Type: ui.ResizeEvent}
 		for _, k := range tv.keys {
 			mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: k}
@@ -128,6 +129,8 @@ func TestDisplayLoop(t *testing.T) {
 		cursor = nil
 	}()
 
+	tempCfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tempCfg)
 	config.Init()
 	config.Update("downloadDir", t.TempDir())
 	header = widgets.NewCTopHeader()
@@ -372,7 +375,12 @@ func TestExportReportMenu(t *testing.T) {
 	c.Meta["image"] = "nginx:alpine"
 	c.Meta["state"] = "running"
 
-	// 1. Test cancel with 'q'
+	// 1. Nil container
+	if fn := ExportReportMenu(nil); fn == nil || fn() != nil {
+		t.Fatalf("expected nil MenuFn from ExportReportMenu(nil)()")
+	}
+
+	// 2. Test cancel with 'q'
 	mockEvents := make(chan ui.Event, 5)
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
 	uiEvents = mockEvents
@@ -386,7 +394,7 @@ func TestExportReportMenu(t *testing.T) {
 		t.Fatalf("expected nil next MenuFn on cancel")
 	}
 
-	// 2. Test export with '3' (both JSON and Text)
+	// 3. Test export with '3' (both JSON and Text)
 	tmpDir = t.TempDir()
 	config.Update("downloadDir", tmpDir)
 
@@ -401,5 +409,140 @@ func TestExportReportMenu(t *testing.T) {
 	next = fn()
 	if next != nil {
 		t.Fatalf("expected nil next MenuFn on complete")
+	}
+
+	// 4. Test changing download dir via 'D' and exporting with '1' (JSON)
+	customDir := t.TempDir()
+	mockEvents = make(chan ui.Event, 200)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}
+	for i := 0; i < len(config.GetDownloadDir()); i++ {
+		mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Backspace>"}
+	}
+	for _, ch := range customDir {
+		mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: string(ch)}
+	}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "1"}
+	uiEvents = mockEvents
+
+	fn = ExportReportMenu(c)
+	if fn == nil {
+		t.Fatalf("expected non-nil MenuFn from ExportReportMenu")
+	}
+	next = fn()
+	if next != nil {
+		t.Fatalf("expected nil next MenuFn on complete")
+	}
+	if config.GetDownloadDir() != customDir {
+		t.Fatalf("expected config.GetDownloadDir() to be %s, got %s", customDir, config.GetDownloadDir())
+	}
+	entries, err := os.ReadDir(customDir)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("expected report file in %s, got %v (err: %v)", customDir, entries, err)
+	}
+
+	// 5. Test navigating to [D] Target Directory item with cursor and pressing Enter to change dir
+	customDir2 := t.TempDir()
+	mockEvents = make(chan ui.Event, 200)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Down>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Down>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Down>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // Press Enter on "dir"
+	for i := 0; i < len(config.GetDownloadDir()); i++ {
+		mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Backspace>"}
+	}
+	for _, ch := range customDir2 {
+		mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: string(ch)}
+	}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "2"} // Export text report
+	uiEvents = mockEvents
+
+	fn = ExportReportMenu(c)
+	if fn == nil {
+		t.Fatalf("expected non-nil MenuFn from ExportReportMenu")
+	}
+	next = fn()
+	if next != nil {
+		t.Fatalf("expected nil next MenuFn on complete")
+	}
+	if config.GetDownloadDir() != customDir2 {
+		t.Fatalf("expected config.GetDownloadDir() to be %s, got %s", customDir2, config.GetDownloadDir())
+	}
+	entries2, err := os.ReadDir(customDir2)
+	if err != nil || len(entries2) == 0 {
+		t.Fatalf("expected report file in %s, got %v (err: %v)", customDir2, entries2, err)
+	}
+}
+
+func TestSingleViewFilesTabFilterAndSearch(t *testing.T) {
+	initTheme()
+	config.Init()
+
+	mockContainers := createMockContainers(1)
+	c := mockContainers[0]
+	oldCursor := cursor
+	cursor = &GridCursor{
+		filtered:   mockContainers,
+		selectedID: c.Id,
+	}
+	defer func() { cursor = oldCursor }()
+
+	mockEvents := make(chan ui.Event, 80)
+	mockEvents <- ui.Event{Type: ui.ResizeEvent}
+	// Trigger inline filter
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "/"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // apply filter
+	// Clear filter with 'c'
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"}
+	// Trigger inline deep search
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "f"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "l"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "o"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "g"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // apply deep search
+	// Clear deep search with 'c'
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"}
+	// Press 'c' again when nothing active
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"}
+	// Edit & delete on parent/directory ('..') -> should reject
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "x"}
+	// Test Home, End, PageUp, PageDown in file listings
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<PageDown>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<PageUp>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<End>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Home>"}
+	// Move down to file
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}
+	// Edit confirmation and cancel
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "n"}
+	// Delete confirmation and cancel
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "x"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "n"}
+	// Delete confirmation and confirm
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "x"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "y"}
+	// Inline upload: start and cancel
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "u"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Escape>"}
+	// Inline upload: start and apply
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "u"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	// Exit single view
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	uiEvents = mockEvents
+
+	fn := SingleViewWithTab(single.TabFiles)
+	if fn != nil {
+		fn()
 	}
 }

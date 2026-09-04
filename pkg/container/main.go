@@ -239,6 +239,10 @@ func (c *Container) Upload(srcHostPath, dstContainerPath string) error {
 	return c.manager.Upload(srcHostPath, dstContainerPath)
 }
 
+func (c *Container) DeleteFile(path string) error {
+	return c.manager.DeleteFile(path)
+}
+
 func (c *Container) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
 	return c.manager.UpdateResources(memoryMB, cpus, restartPolicy)
 }

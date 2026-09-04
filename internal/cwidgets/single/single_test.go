@@ -14,9 +14,11 @@ package single
 import (
 	"fmt"
 	"image"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/models"
 	ui "github.com/gizak/termui/v3"
 )
@@ -182,6 +184,35 @@ func TestLogsWidget(t *testing.T) {
 	savedPath, err := logsWidget.SaveLogs(tmpDir)
 	if err != nil || savedPath == "" {
 		t.Fatalf("expected successful logs export, got err: %v", err)
+	}
+
+	// Test SaveLogs with empty destDir falling back to config.GetDownloadDir()
+	config.Init()
+	customLogDir := t.TempDir()
+	config.SetDownloadDir(customLogDir)
+	savedPathDefault, err := logsWidget.SaveLogs("")
+	if err != nil || !strings.HasPrefix(savedPathDefault, customLogDir) {
+		t.Fatalf("expected SaveLogs('') to save into %s, got %s (err: %v)", customLogDir, savedPathDefault, err)
+	}
+
+	// Test ephemeral status message replacing the action bar, then auto-clearing
+	logsWidget.SetStatus("✔ Saved to /tmp/ctop_logs_test.log")
+	logsWidget.Draw(buf)
+	if !strings.Contains(logsWidget.Title, "✔ Saved to /tmp/ctop_logs_test.log") {
+		t.Fatalf("expected logsWidget.Title to contain status message, got '%s'", logsWidget.Title)
+	}
+	if strings.Contains(logsWidget.Title, "D: target") {
+		t.Fatalf("expected status message to replace action bar in title, got '%s'", logsWidget.Title)
+	}
+
+	// Fast-forward past 2.5s expiration
+	logsWidget.StatusTime = time.Now().Add(-3 * time.Second)
+	logsWidget.Draw(buf)
+	if strings.Contains(logsWidget.Title, "✔ Saved to") {
+		t.Fatalf("expected status message to disappear after timeout, got '%s'", logsWidget.Title)
+	}
+	if !strings.Contains(logsWidget.Title, "D: target") {
+		t.Fatalf("expected title to revert to action bar with 'D: target', got '%s'", logsWidget.Title)
 	}
 }
 
@@ -408,6 +439,19 @@ func TestExplorerWidget(t *testing.T) {
 		t.Fatalf("expected 3 total items, got %d", len(exp.TotalItems()))
 	}
 
+	// Host download directory defaults and fallbacks
+	if exp.HostDownloadDir != config.GetDownloadDir() {
+		t.Fatalf("expected HostDownloadDir to match config.GetDownloadDir(), got %s", exp.HostDownloadDir)
+	}
+	exp.SetDownloadDir("")
+	if exp.HostDownloadDir != config.GetDownloadDir() {
+		t.Fatalf("expected SetDownloadDir('') to fall back to config.GetDownloadDir(), got %s", exp.HostDownloadDir)
+	}
+	exp.SetDownloadDir("/tmp/custom-test")
+	if exp.HostDownloadDir != "/tmp/custom-test" {
+		t.Fatalf("expected SetDownloadDir to update to /tmp/custom-test, got %s", exp.HostDownloadDir)
+	}
+
 	// Navigation
 	exp.Down()
 	exp.Up()
@@ -427,11 +471,83 @@ func TestExplorerWidget(t *testing.T) {
 	if !exp.Previewing {
 		t.Fatalf("expected Previewing to be true")
 	}
+	if exp.PreviewPath != "/app/config.json" {
+		t.Fatalf("expected PreviewPath to be '/app/config.json', got '%s'", exp.PreviewPath)
+	}
+	exp.Draw(buf)
+
+	// Multi-line preview scrolling tests
+	var multiLines []string
+	for i := 1; i <= 50; i++ {
+		multiLines = append(multiLines, fmt.Sprintf("line %d of content", i))
+	}
+	exp.SetPreview(strings.Join(multiLines, "\n"))
+	exp.SetRect(0, 0, 80, 15)
+	exp.Draw(buf)
+	if exp.PreviewOffset != 0 {
+		t.Fatalf("expected initial PreviewOffset 0, got %d", exp.PreviewOffset)
+	}
+
+	// Up when already at 0 should stay at 0
+	exp.PreviewUp()
+	if exp.PreviewOffset != 0 {
+		t.Fatalf("expected PreviewOffset to remain 0, got %d", exp.PreviewOffset)
+	}
+
+	exp.PreviewDown()
+	if exp.PreviewOffset != 1 {
+		t.Fatalf("expected PreviewOffset 1 after PreviewDown, got %d", exp.PreviewOffset)
+	}
+
+	exp.PreviewUp()
+	if exp.PreviewOffset != 0 {
+		t.Fatalf("expected PreviewOffset 0 after PreviewUp, got %d", exp.PreviewOffset)
+	}
+
+	exp.PreviewEnd()
+	if exp.PreviewOffset == 0 {
+		t.Fatalf("expected PreviewOffset > 0 after PreviewEnd")
+	}
+	maxOff := exp.PreviewOffset
+	// Down when already at end should not exceed max
+	exp.PreviewDown()
+	if exp.PreviewOffset != maxOff {
+		t.Fatalf("expected PreviewOffset not to exceed maxOff %d, got %d", maxOff, exp.PreviewOffset)
+	}
+
+	exp.PreviewHome()
+	if exp.PreviewOffset != 0 {
+		t.Fatalf("expected PreviewOffset 0 after PreviewHome, got %d", exp.PreviewOffset)
+	}
+
+	exp.PreviewPgDown(5)
+	if exp.PreviewOffset != 5 {
+		t.Fatalf("expected PreviewOffset 5 after PreviewPgDown, got %d", exp.PreviewOffset)
+	}
+
+	exp.PreviewPgUp(5)
+	if exp.PreviewOffset != 0 {
+		t.Fatalf("expected PreviewOffset 0 after PreviewPgUp, got %d", exp.PreviewOffset)
+	}
+
+	// Test default page step (step <= 0)
+	exp.PreviewPgDown(0)
+	if exp.PreviewOffset <= 0 {
+		t.Fatalf("expected PreviewPgDown(0) to advance offset, got %d", exp.PreviewOffset)
+	}
+	exp.PreviewPgUp(0)
+	if exp.PreviewOffset != 0 {
+		t.Fatalf("expected PreviewPgUp(0) to return to 0, got %d", exp.PreviewOffset)
+	}
+
 	exp.Draw(buf)
 
 	exp.ClearPreview()
 	if exp.Previewing {
 		t.Fatalf("expected Previewing to be false")
+	}
+	if exp.PreviewOffset != 0 || exp.PreviewPath != "" {
+		t.Fatalf("expected ClearPreview to reset offset and path")
 	}
 	exp.Draw(buf)
 
@@ -473,6 +589,302 @@ func TestExplorerWidget(t *testing.T) {
 	exp.Home()
 	if exp.CursorPos != 0 {
 		t.Fatalf("expected cursor at 0 after Home, got %d", exp.CursorPos)
+	}
+
+	// Test inline host target directory editing
+	exp.StartEditTargetDir()
+	if !exp.EditingTargetDir || exp.EditDirBuffer != exp.HostDownloadDir {
+		t.Fatalf("expected EditingTargetDir to be true and buffer to match HostDownloadDir")
+	}
+
+	// Draw while editing
+	exp.Draw(buf)
+
+	// Cancel with Escape
+	done, applied := exp.EditDirKeyPress("<Escape>")
+	if !done || applied || exp.EditingTargetDir {
+		t.Fatalf("expected Escape to cancel editing without applying")
+	}
+
+	// Start again and edit path
+	exp.StartEditTargetDir()
+	exp.EditDirKeyPress("<C-u>")
+	if exp.EditDirBuffer != "" {
+		t.Fatalf("expected C-u to clear EditDirBuffer, got %s", exp.EditDirBuffer)
+	}
+
+	for _, ch := range "/var/test_dl" {
+		exp.EditDirKeyPress(string(ch))
+	}
+	if exp.EditDirBuffer != "/var/test_dl" {
+		t.Fatalf("expected buffer to be '/var/test_dl', got %s", exp.EditDirBuffer)
+	}
+
+	// Test backspace and space
+	exp.EditDirKeyPress("<Backspace>")
+	if exp.EditDirBuffer != "/var/test_d" {
+		t.Fatalf("expected buffer to be '/var/test_d', got %s", exp.EditDirBuffer)
+	}
+	exp.EditDirKeyPress("l")
+	exp.EditDirKeyPress("<Space>")
+	exp.EditDirKeyPress("<Backspace>")
+
+	// Draw while editing with modified path
+	exp.Draw(buf)
+
+	// Apply with Enter
+	done, applied = exp.EditDirKeyPress("<Enter>")
+	if !done || !applied || exp.EditingTargetDir {
+		t.Fatalf("expected Enter to complete and apply editing")
+	}
+	if exp.HostDownloadDir != "/var/test_dl" {
+		t.Fatalf("expected HostDownloadDir to be '/var/test_dl', got %s", exp.HostDownloadDir)
+	}
+	if config.GetDownloadDir() != "/var/test_dl" {
+		t.Fatalf("expected config downloadDir to be '/var/test_dl', got %s", config.GetDownloadDir())
+	}
+}
+
+func TestExplorerInlineFilterAndSearch(t *testing.T) {
+	exp := NewExplorer()
+	exp.Set("/app", []models.FileInfo{
+		{Name: "config.json", Path: "/app/config.json", IsDir: false, Size: 128},
+		{Name: "server.go", Path: "/app/server.go", IsDir: false, Size: 1024},
+		{Name: "server_test.go", Path: "/app/server_test.go", IsDir: false, Size: 512},
+		{Name: "data", Path: "/app/data", IsDir: true},
+	})
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	exp.SetRect(0, 0, 100, 15)
+
+	// 1. Start inline filter
+	exp.StartEditFilter()
+	if !exp.IsEditing() || exp.EditMode != EditModeFilter {
+		t.Fatalf("expected EditModeFilter and IsEditing()=true")
+	}
+	exp.Draw(buf)
+
+	// Type filter query "server*"
+	for _, ch := range "server*" {
+		done, applied, _, _ := exp.EditKeyPress(string(ch))
+		if done || applied {
+			t.Fatalf("keystroke should not complete edit")
+		}
+	}
+	if exp.InputBuffer != "server*" {
+		t.Fatalf("expected InputBuffer to be 'server*', got %s", exp.InputBuffer)
+	}
+
+	// Test backspace and character re-entry
+	exp.EditKeyPress("<Backspace>")
+	if exp.InputBuffer != "server" {
+		t.Fatalf("expected InputBuffer to be 'server', got %s", exp.InputBuffer)
+	}
+	exp.EditKeyPress("*")
+
+	// Render while editing
+	exp.Draw(buf)
+
+	// Apply filter with Enter
+	done, applied, mode, val := exp.EditKeyPress("<Enter>")
+	if !done || !applied || mode != EditModeFilter || val != "server*" {
+		t.Fatalf("expected applied filter 'server*', got done=%v applied=%v mode=%v val=%s", done, applied, mode, val)
+	}
+	if exp.IsEditing() {
+		t.Fatalf("expected editing to be finished")
+	}
+	if exp.Filter != "server*" {
+		t.Fatalf("expected exp.Filter to be 'server*', got %s", exp.Filter)
+	}
+	// ".." + server.go + server_test.go = 3 items
+	if len(exp.TotalItems()) != 3 {
+		t.Fatalf("expected 3 filtered items, got %d", len(exp.TotalItems()))
+	}
+
+	// Draw with active filter badge
+	exp.Draw(buf)
+
+	// Clear filter using ClearFilterAndSearch
+	exp.ClearFilterAndSearch()
+	if exp.Filter != "" {
+		t.Fatalf("expected filter to be cleared")
+	}
+	if len(exp.TotalItems()) != 5 { // ".." + 4 entries = 5
+		t.Fatalf("expected 5 total items after clear, got %d", len(exp.TotalItems()))
+	}
+
+	// 2. Start inline deep search
+	exp.StartEditDeepSearch()
+	if !exp.IsEditing() || exp.EditMode != EditModeDeepSearch {
+		t.Fatalf("expected EditModeDeepSearch and IsEditing()=true")
+	}
+	exp.Draw(buf)
+
+	// Type search query and cancel with Escape
+	for _, ch := range "query" {
+		exp.EditKeyPress(string(ch))
+	}
+	done, applied, _, _ = exp.EditKeyPress("<Escape>")
+	if !done || applied || exp.IsEditing() {
+		t.Fatalf("expected Escape to cancel search edit")
+	}
+
+	// Start deep search again, type and confirm
+	exp.StartEditDeepSearch()
+	for _, ch := range "main.go" {
+		exp.EditKeyPress(string(ch))
+	}
+	done, applied, mode, val = exp.EditKeyPress("<Enter>")
+	if !done || !applied || mode != EditModeDeepSearch || val != "main.go" {
+		t.Fatalf("expected deep search confirmed with 'main.go'")
+	}
+
+	// Simulate deep search results applied
+	exp.Set("/app", []models.FileInfo{
+		{Name: "main.go", Path: "/app/cmd/main.go", IsDir: false},
+	})
+	exp.SetDeepSearch("main.go")
+	if !exp.IsDeepSearch || exp.DeepSearchTerm != "main.go" {
+		t.Fatalf("expected deep search state active")
+	}
+	exp.Draw(buf)
+
+	// Clear deep search
+	exp.ClearFilterAndSearch()
+	if exp.IsDeepSearch || exp.DeepSearchTerm != "" {
+		t.Fatalf("expected deep search state cleared")
+	}
+}
+
+func TestExplorerInlineUpload(t *testing.T) {
+	exp := NewExplorer()
+	exp.Set("/app", []models.FileInfo{
+		{Name: "server.go", Path: "/app/server.go", IsDir: false},
+	})
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	exp.SetRect(0, 0, 100, 15)
+
+	// 1. Start inline upload
+	exp.StartEditUpload()
+	if !exp.IsEditing() || exp.EditMode != EditModeUpload {
+		t.Fatalf("expected EditModeUpload and IsEditing()=true")
+	}
+
+	for _, ch := range "/tmp/local.tar" {
+		exp.EditKeyPress(string(ch))
+	}
+	exp.Draw(buf)
+
+	// Check buffer contains Upload prompt
+	var drawnLines []string
+	for y := buf.Min.Y; y < buf.Max.Y; y++ {
+		var lineRunes []rune
+		for x := buf.Min.X; x < buf.Max.X; x++ {
+			cell := buf.GetCell(image.Pt(x, y))
+			if cell.Rune != 0 {
+				lineRunes = append(lineRunes, cell.Rune)
+			}
+		}
+		if len(lineRunes) > 0 {
+			drawnLines = append(drawnLines, strings.TrimSpace(string(lineRunes)))
+		}
+	}
+	joined := strings.Join(drawnLines, "\n")
+	if !strings.Contains(joined, "Upload:") {
+		t.Fatalf("expected inline upload prompt in header, got:\n%s", joined)
+	}
+
+	// 2. Cancel with Escape
+	done, applied, mode, _ := exp.EditKeyPress("<Escape>")
+	if !done || applied || exp.IsEditing() || mode != EditModeUpload {
+		t.Fatalf("expected Escape to cancel upload mode")
+	}
+
+	// 3. Start again and confirm with Enter
+	exp.StartEditUpload()
+	for _, ch := range "/etc/hosts" {
+		exp.EditKeyPress(string(ch))
+	}
+	done, applied, mode, val := exp.EditKeyPress("<Enter>")
+	if !done || !applied || mode != EditModeUpload || val != "/etc/hosts" {
+		t.Fatalf("expected Enter to apply upload with '/etc/hosts', got %v, %v, %v, %s", done, applied, mode, val)
+	}
+}
+
+func TestExplorerInlineDeleteAndEditConfirm(t *testing.T) {
+	exp := NewExplorer()
+	fileItem := models.FileInfo{Name: "app.log", Path: "/var/log/app.log", IsDir: false}
+	exp.Set("/var/log", []models.FileInfo{fileItem})
+	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))
+	exp.SetRect(0, 0, 100, 15)
+
+	// 1. Delete confirmation - Cancel with 'n'
+	exp.StartConfirmDelete(fileItem)
+	if !exp.IsEditing() || exp.EditMode != EditModeConfirmDelete {
+		t.Fatalf("expected EditModeConfirmDelete and IsEditing()=true")
+	}
+	exp.Draw(buf)
+
+	// Verify prompt is rendered above Directory and not duplicated on Directory line
+	var drawnLines []string
+	for y := buf.Min.Y; y < buf.Max.Y; y++ {
+		var lineRunes []rune
+		for x := buf.Min.X; x < buf.Max.X; x++ {
+			cell := buf.GetCell(image.Pt(x, y))
+			if cell.Rune != 0 {
+				lineRunes = append(lineRunes, cell.Rune)
+			}
+		}
+		if len(lineRunes) > 0 {
+			drawnLines = append(drawnLines, strings.TrimSpace(string(lineRunes)))
+		}
+	}
+	joinedBuf := strings.Join(drawnLines, "\n")
+	if !strings.Contains(joinedBuf, "Delete app.log? [y: confirm, n/Esc: cancel]") {
+		t.Fatalf("expected delete confirmation prompt above directory, buf:\n%s", joinedBuf)
+	}
+	// Verify directory line is clean
+	for _, l := range drawnLines {
+		if strings.Contains(l, "Directory:") && strings.Contains(l, "Delete app.log?") {
+			t.Fatalf("directory line should not contain duplicate delete prompt, got: %s", l)
+		}
+	}
+
+	done, applied, mode, _ := exp.EditKeyPress("n")
+	if !done || applied || exp.IsEditing() || mode != EditModeConfirmDelete {
+		t.Fatalf("expected 'n' to cancel delete confirmation")
+	}
+
+	// 2. Delete confirmation - Cancel with Escape
+	exp.StartConfirmDelete(fileItem)
+	done, applied, _, _ = exp.EditKeyPress("<Escape>")
+	if !done || applied || exp.IsEditing() {
+		t.Fatalf("expected Escape to cancel delete confirmation")
+	}
+
+	// 3. Delete confirmation - Confirm with 'y'
+	exp.StartConfirmDelete(fileItem)
+	done, applied, mode, val := exp.EditKeyPress("y")
+	if !done || !applied || mode != EditModeConfirmDelete || val != fileItem.Path {
+		t.Fatalf("expected 'y' to confirm delete of %s, got applied=%v val=%s", fileItem.Path, applied, val)
+	}
+
+	// 4. Edit confirmation - Cancel with 'n'
+	exp.StartConfirmEdit(fileItem)
+	if !exp.IsEditing() || exp.EditMode != EditModeConfirmEdit {
+		t.Fatalf("expected EditModeConfirmEdit and IsEditing()=true")
+	}
+	exp.Draw(buf)
+
+	done, applied, mode, _ = exp.EditKeyPress("n")
+	if !done || applied || exp.IsEditing() || mode != EditModeConfirmEdit {
+		t.Fatalf("expected 'n' to cancel edit confirmation")
+	}
+
+	// 5. Edit confirmation - Confirm with 'y'
+	exp.StartConfirmEdit(fileItem)
+	done, applied, mode, val = exp.EditKeyPress("y")
+	if !done || !applied || mode != EditModeConfirmEdit || val != fileItem.Path {
+		t.Fatalf("expected 'y' to confirm edit of %s, got applied=%v val=%s", fileItem.Path, applied, val)
 	}
 }
 
@@ -558,4 +970,72 @@ func TestImageWidget(t *testing.T) {
 		t.Fatalf("expected positive height, got %d", im.GetHeight())
 	}
 	im.Draw(buf)
+}
+
+func TestLogsWidgetWrapAndTruncate(t *testing.T) {
+	config.Init()
+	l := NewLogs()
+	if l == nil {
+		t.Fatal("expected non-nil Logs widget")
+	}
+
+	// Default wrap should be false
+	if l.IsWrap() {
+		t.Errorf("expected default Wrap to be false, got true")
+	}
+
+	// Test ToggleWrap
+	val := l.ToggleWrap()
+	if !val || !l.IsWrap() {
+		t.Errorf("expected Wrap to be true after toggle")
+	}
+
+	// Test SetWrap
+	l.SetWrap(false)
+	if l.IsWrap() {
+		t.Errorf("expected Wrap to be false after SetWrap(false)")
+	}
+
+	// Add long log entry
+	longMsg := strings.Repeat("ABCDEFGHIJ", 20) // 200 chars
+	l.Add(models.Log{
+		Timestamp: time.Now(),
+		Message:   longMsg,
+	})
+
+	// Render truncated (Wrap = false)
+	bufTruncated := ui.NewBuffer(image.Rect(0, 0, 80, 20))
+	l.SetRect(0, 0, 80, 20)
+	l.Draw(bufTruncated)
+
+	// Render wrapped (Wrap = true)
+	l.SetWrap(true)
+	bufWrapped := ui.NewBuffer(image.Rect(0, 0, 80, 20))
+	l.SetRect(0, 0, 80, 20)
+	l.Draw(bufWrapped)
+}
+
+func TestEnsureIconSpacing(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"ℹ Delete cancelled", "ℹ  Delete cancelled"},
+		{"ℹDelete cancelled", "ℹ  Delete cancelled"},
+		{"ℹ  Delete cancelled", "ℹ  Delete cancelled"},
+		{"🗑 Delete foo? [y: confirm, n/Esc: cancel]", "🗑  Delete foo? [y: confirm, n/Esc: cancel]"},
+		{"✏ Edit bar? [y: confirm, n/Esc: cancel]", "✏  Edit bar? [y: confirm, n/Esc: cancel]"},
+		{"✔ Filter applied", "✔  Filter applied"},
+		{"❌ Search error", "❌  Search error"},
+		{"🔍 Searching...", "🔍  Searching..."},
+		{"📁 Directory: /app   ⬇ Host Target: /tmp", "📁  Directory: /app   ⬇  Host Target: /tmp"},
+		{"no icons here", "no icons here"},
+	}
+
+	for _, tc := range tests {
+		got := ensureIconSpacing(tc.input)
+		if got != tc.expected {
+			t.Errorf("ensureIconSpacing(%q) = %q, expected %q", tc.input, got, tc.expected)
+		}
+	}
 }

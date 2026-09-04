@@ -13,7 +13,6 @@
 package main
 
 import (
-	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -27,25 +26,6 @@ func TestConfirmTxt(t *testing.T) {
 	expected := "restart container nginx?"
 	if res != expected {
 		t.Fatalf("expected '%s', got '%s'", expected, res)
-	}
-}
-
-func TestToggleLog(t *testing.T) {
-	fixedTime := time.Date(2026, 8, 18, 12, 34, 56, 0, time.UTC)
-	tl := &toggleLog{
-		timestamp: fixedTime,
-		message:   "server started",
-	}
-
-	// Toggle false -> message only
-	if msg := tl.Toggle(false); msg != "server started" {
-		t.Fatalf("expected 'server started', got '%s'", msg)
-	}
-
-	// Toggle true -> timestamp + message
-	expectedWithTs := fixedTime.Local().Format("2006-01-02 15:04:05.000") + "  server started"
-	if msg := tl.Toggle(true); msg != expectedWithTs {
-		t.Fatalf("expected '%s', got '%s'", expectedWithTs, msg)
 	}
 }
 
@@ -103,6 +83,94 @@ func TestColumnsMenu(t *testing.T) {
 	fn := ColumnsMenu()
 	if fn != nil {
 		t.Fatal("expected ColumnsMenu to return nil on 'q'")
+	}
+}
+
+func TestConfigMenu(t *testing.T) {
+	config.Init()
+	tempDir := t.TempDir()
+
+	// 1. Set download dir via 'D' key in ConfigMenu
+	mockEvents := make(chan ui.Event, 100)
+	mockEvents <- ui.Event{Type: ui.ResizeEvent}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}
+	// Clear pre-populated default "/tmp"
+	for i := 0; i < len(config.DefaultDownloadDir); i++ {
+		mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Backspace>"}
+	}
+	for _, ch := range tempDir {
+		mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: string(ch)}
+	}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	uiEvents = mockEvents
+
+	fn := ConfigMenu()
+	if fn != nil {
+		t.Fatal("expected ConfigMenu to return nil on 'q'")
+	}
+
+	if val := config.GetDownloadDir(); val != tempDir {
+		t.Fatalf("expected downloadDir to be '%s', got '%s'", tempDir, val)
+	}
+
+	// 2. Clear download dir via 'D' and backspaces, ensuring it defaults back to /tmp
+	mockEvents2 := make(chan ui.Event, 100)
+	mockEvents2 <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}
+	for i := 0; i < len(tempDir); i++ {
+		mockEvents2 <- ui.Event{Type: ui.KeyboardEvent, ID: "<Backspace>"}
+	}
+	mockEvents2 <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	mockEvents2 <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	uiEvents = mockEvents2
+
+	fn = ConfigMenu()
+	if fn != nil {
+		t.Fatal("expected ConfigMenu to return nil on 'q'")
+	}
+
+	if val := config.GetDownloadDir(); val != config.DefaultDownloadDir {
+		t.Fatalf("expected downloadDir to fall back to '%s', got '%s'", config.DefaultDownloadDir, val)
+	}
+
+	// 3. Test Escape cancel in D prompt
+	mockEvents3 := make(chan ui.Event, 10)
+	mockEvents3 <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}
+	mockEvents3 <- ui.Event{Type: ui.KeyboardEvent, ID: "<Escape>"}
+	mockEvents3 <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	uiEvents = mockEvents3
+
+	fn = ConfigMenu()
+	if fn != nil {
+		t.Fatal("expected ConfigMenu to return nil on 'q'")
+	}
+
+	// 4. Test selecting downloadDir row with Down navigation and pressing Enter
+	customDir2 := t.TempDir()
+	mockEvents4 := make(chan ui.Event, 100)
+	// Navigate down to the downloadDir item (past all columns)
+	for i := 0; i < len(config.GlobalColumns)+2; i++ {
+		mockEvents4 <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}
+	}
+	mockEvents4 <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // opens prompt
+	// Clear previous
+	for i := 0; i < len(config.GetDownloadDir()); i++ {
+		mockEvents4 <- ui.Event{Type: ui.KeyboardEvent, ID: "<Backspace>"}
+	}
+	for _, ch := range customDir2 {
+		mockEvents4 <- ui.Event{Type: ui.KeyboardEvent, ID: string(ch)}
+	}
+	mockEvents4 <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	mockEvents4 <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	uiEvents = mockEvents4
+
+	fn = ConfigMenu()
+	if fn != nil {
+		t.Fatal("expected ConfigMenu to return nil on 'q'")
+	}
+
+	if val := config.GetDownloadDir(); val != customDir2 {
+		t.Fatalf("expected downloadDir to be '%s' after Enter on row, got '%s'", customDir2, val)
 	}
 }
 
@@ -211,70 +279,6 @@ func TestContainerMenuNavigation(t *testing.T) {
 	cursor = oldCursor
 }
 
-func TestLogMenuAndReader(t *testing.T) {
-	tempDir := t.TempDir()
-	origWd, _ := os.Getwd()
-	_ = os.Chdir(tempDir)
-	defer func() { _ = os.Chdir(origWd) }()
-
-	// LogMenu when cursor is nil
-	oldCursor := cursor
-	cursor = nil
-	if fn := LogMenu(); fn != nil {
-		t.Fatal("expected nil when cursor is nil")
-	}
-
-	mockContainers := createMockContainers(1)
-	mockContainers[0].SetMeta("name", "nginx-test")
-	gc := &GridCursor{
-		filtered:   mockContainers,
-		selectedID: mockContainers[0].Id,
-	}
-	cursor = gc
-
-	// Test logReader with nil collector
-	logsCh, quitCh := logReader(mockContainers[0])
-	if logsCh != nil {
-		// channel should be closed
-		<-logsCh
-	}
-	if quitCh != nil {
-		select {
-		case quitCh <- true:
-		default:
-		}
-	}
-
-	// Configure isolated temp directory for log exports
-	config.Update("downloadDir", t.TempDir())
-
-	// Test LogMenu keyboard events including D (set dir) and s (export logs)
-	mockEvents := make(chan ui.Event, 20)
-	mockEvents <- ui.Event{Type: ui.ResizeEvent}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}        // open directory prompt
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Escape>"} // cancel
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}        // open directory prompt again
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "m"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "p"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // apply
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"}       // export logs
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "/"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
-	uiEvents = mockEvents
-
-	fn := LogMenu()
-	if fn != nil {
-		t.Fatal("expected LogMenu to return nil on 'q'")
-	}
-
-	cursor = oldCursor
-}
-
 func TestFileExplorerMenu(t *testing.T) {
 	// When cursor is nil
 	oldCursor := cursor
@@ -291,22 +295,62 @@ func TestFileExplorerMenu(t *testing.T) {
 	}
 	cursor = gc
 
-	mockEvents := make(chan ui.Event, 30)
+	mockEvents := make(chan ui.Event, 120)
 	mockEvents <- ui.Event{Type: ui.ResizeEvent}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "k"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<PageDown>"}  // listing page down
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<PageUp>"}    // listing page up
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<End>"}       // listing end
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Home>"}      // listing home
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}     // enter dir
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Backspace>"} // parent dir
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}           // move to file
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "v"}           // preview file
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Escape>"}    // close preview
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "d"}           // download file
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}           // download target dialog
+	// Try edit and delete on directory / parent ('..') - should be rejected
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "x"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}          // move to file
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "v"}          // preview file
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Down>"}     // preview scroll down
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}          // preview scroll down (vi)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Up>"}       // preview scroll up
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "k"}          // preview scroll up (vi)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<End>"}      // preview end
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "G"}          // preview end (vi)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Home>"}     // preview home
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "g"}          // preview home (vi)
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<PageDown>"} // preview pgdown
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<PageUp>"}   // preview pgup
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Escape>"}   // close preview
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "d"}          // download file
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "D"}          // download target dialog
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "m"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "p"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"} // apply download target
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "u"}       // upload dialog
+	// inline filter and clear
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "/"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "x"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"} // clear filter
+	// inline deep search and clear
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "f"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "a"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "p"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "p"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"} // clear search
+	// Edit confirmation and cancel
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "n"} // cancel edit
+	// Delete confirmation and cancel
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "x"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "n"} // cancel delete
+	// Delete confirmation and confirm
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "x"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "y"} // confirm delete
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "u"} // upload dialog
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
 	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "c"}
@@ -505,52 +549,10 @@ func TestModalRapidLifecycleStress(t *testing.T) {
 	}
 }
 
-func TestLogMenuHighThroughputStress(t *testing.T) {
-	initTheme()
-	config.Init()
-	config.Update("downloadDir", t.TempDir())
-
-	mockContainers := createMockContainers(1)
-	gc := &GridCursor{
-		filtered:   mockContainers,
-		selectedID: mockContainers[0].Id,
-	}
-	cursor = gc
-	defer func() { cursor = nil }()
-
-	mockEvents := make(chan ui.Event, 20)
-	mockEvents <- ui.Event{Type: ui.ResizeEvent}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "t"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "/"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "e"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "r"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "s"}
-	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
-	uiEvents = mockEvents
-
-	done := make(chan bool)
-	go func() {
-		fn := LogMenu()
-		if fn != nil {
-			t.Errorf("expected LogMenu to return nil on 'q'")
-		}
-		done <- true
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("DEADLOCK DETECTED: LogMenu hung under streaming log load")
-	}
-}
-
 func TestGoroutineLeakVerification(t *testing.T) {
 	initialGoroutines := runtime.NumGoroutine()
 
 	TestModalRapidLifecycleStress(t)
-	TestLogMenuHighThroughputStress(t)
 
 	time.Sleep(100 * time.Millisecond)
 

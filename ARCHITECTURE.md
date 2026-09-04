@@ -105,7 +105,7 @@ The data is structured logically to separate the container's identity from its m
 Each container's lifecycle and data streams are handled by dedicated components.
 
 - **`Collector` (`pkg/connector/collector/`):** Responsible for collecting metrics for a single container (`docker.go`, `docker_logs.go`, `runc.go`, `mock.go`). Collectors run in dedicated goroutines per container, streaming `models.Metrics` and `models.Log` structures over channels. Supports cgroups v2 `io.stat` fallback and real-time throughput rate calculations.
-- **`Manager` (`pkg/connector/manager/`):** Provides an interface for performing lifecycle actions on a container, such as `Start()`, `Stop()`, `Pause()`, `Unpause()`, `Restart()`, `Kill()`, `UpdateResources()`, `Download()`, `Upload()`, and `Exec()`.
+- **`Manager` (`pkg/connector/manager/`):** Provides an interface for performing lifecycle actions on a container, such as `Start()`, `Stop()`, `Pause()`, `Unpause()`, `Restart()`, `Kill()`, `UpdateResources()`, `Download()`, `Upload()`, and `Exec()`. File operations power interactive `$EDITOR` in-container file editing via `editor.go` (`EditContainerFile`) and in-container file deletion.
 
 #### d. Configuration Subsystem (`pkg/config/`)
 - **`pkg/config/main.go` & `pkg/config/file.go`:** Manages thread-safe runtime parameters (`filterStr`, `sortField`), boolean switches (`allContainers`, `sortReversed`, `rateMode`), column ordering, and TOML configuration file persistence (`~/.config/ctop/config`).
@@ -121,6 +121,10 @@ Each container's lifecycle and data streams are handled by dedicated components.
 - **`pkg/update`:** Self-update engine providing GitHub release discovery, OS/architecture asset matching, and atomic in-place binary upgrades (`ctop update`).
 - **`pkg/keys`:** Abstract keyboard bindings mapping keys to logical actions (`up`, `down`, `pgup`, `pgdown`, `exit`, `help`, `enter`).
 - **`pkg/sanitize`:** ANSI and OSC escape code stripping regex for log output.
+- **`pkg/serviceprobe`:** In-engine container HTTP/HTTPS service discovery and bounded reachability prober with redirect limits and TLS 1.2+ support.
+- **`pkg/htmlrender`:** Pure-Go zero-dependency HTML AST parser, DOM walker, Unicode box-drawing table formatter, and ANSI terminal renderer.
+- **`pkg/audit`:** Thread-safe daily-rotated NDJSON compliance audit logger recording HTTP/SSE access, container lifecycle, and authentication events.
+- **`pkg/service`:** Background telemetry daemon management and systemd unit generator (`ctop service <action>`).
 - **`pkg/exit`:** POSIX-compliant application exit codes.
 
 #### g. Terminal User Interface (`internal/*`)
@@ -172,8 +176,7 @@ sequenceDiagram
     CLI->>Conn: Initialize connector (Docker / Context / MultiHost / runC / Mock)
     CLI->>TUI: Initialize termbox & bind resize/keyboard event loop
     
-    rect rgb(30, 40, 60)
-        Note over Conn,TUI: Real-Time Event Loop & Telemetry Streaming
+    loop Real-Time Event Loop & Telemetry Streaming
         Conn->>TUI: Stream metrics & container lifecycle events
         TUI->>TUI: Render compact rows & inspector views
     end
@@ -194,6 +197,8 @@ ctop/
 ├── grid.go                       # Core layout engine, termbox event handler, and terminal resize listener
 ├── cursor.go                     # GridCursor model: container selection, pagination, scrolling, and active index tracking
 ├── menus.go                      # Interactive modal menu handlers (Help, Filter, Sort, Columns, Container actions, Shell execution)
+├── editor.go                     # Interactive in-container file editor using host $EDITOR and temporary file cache
+├── keys.go                       # TermUI event-to-logical action translation bridge
 ├── debug.go                      # Diagnostic event logger and runtime state dumper
 ├── web_bridge.go                 # Telemetry bridge between GridCursor and embedded web server
 ├── colors.go                     # Inverted color map calculations for light/dark terminal backgrounds
@@ -296,7 +301,7 @@ ctop/
 │   │   │   └── util.go           # Compact row width and coordinate alignment helpers
 │   │   └── single/               # 12-Tab detailed single-container inspector view
 │   │       ├── main.go           # Single view controller, tab navigation, scroll bounds clamping, key delegation
-│   │       ├── tabbar.go         # Tab selection bar with tab indices [1..9, 0, L, F]
+│   │       ├── tabbar.go         # Tab selection bar with tab indices [1..9, 0, F, W]
 │   │       ├── cpu.go            # CPU utilization gauge and historical sparkline chart
 │   │       ├── mem.go            # Memory usage gauge, RSS/Cache/Swap breakdown, and historical sparkline chart
 │   │       ├── net.go            # Network Rx/Tx volume gauges and transfer rate sparklines

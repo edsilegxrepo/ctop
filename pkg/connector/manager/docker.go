@@ -962,6 +962,62 @@ func (dc *Docker) Upload(srcHostPath, dstContainerPath string) error {
 	})
 }
 
+func (dc *Docker) DeleteFile(filePath string) error {
+	if dc.client == nil {
+		return fmt.Errorf("docker client is nil")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path is required")
+	}
+	clean := path.Clean(filePath)
+	if !strings.HasPrefix(clean, "/") || strings.Contains(clean, "..") {
+		return fmt.Errorf("security violation: path must be an absolute container path without relative components: %q", filePath)
+	}
+
+	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("rm -f -- %q", clean)}
+	execCmd, err := dc.client.CreateExec(api.CreateExecOptions{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          cmd,
+		Container:    dc.id,
+	})
+	if err != nil {
+		// Fallback without /bin/sh
+		execCmd, err = dc.client.CreateExec(api.CreateExecOptions{
+			AttachStdout: true,
+			AttachStderr: true,
+			Cmd:          []string{"rm", "-f", clean},
+			Container:    dc.id,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	var stderr bytes.Buffer
+	err = dc.client.StartExec(execCmd.ID, api.StartExecOptions{
+		ErrorStream: &stderr,
+		RawTerminal: false,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Invalidate dir cache for this container so directory listings are fresh
+	dirCacheLock.Lock()
+	for k := range dirCache {
+		if strings.HasPrefix(k, dc.id+":") {
+			delete(dirCache, k)
+		}
+	}
+	dirCacheLock.Unlock()
+
+	if stderr.Len() > 0 {
+		return fmt.Errorf("%s", strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 func (dc *Docker) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
 	if dc.client == nil {
 		return fmt.Errorf("docker client is nil")

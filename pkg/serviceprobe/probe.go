@@ -76,14 +76,14 @@ func ProbeHTTP(ctx context.Context, targetURL string, timeout time.Duration) *HT
 		return result
 	}
 
-	req.Header.Set("User-Agent", "ctop/0.9.2 (embedded-inspector; pure-go)")
+	req.Header.Set("User-Agent", "ctop/0.9 (embedded-inspector; pure-go)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/json,text/plain,*/*")
 
 	// Custom transport allowing internal self-signed TLS certs
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // #nosec G402 -- InsecureSkipVerify is required for internal container diagnostics against self-signed certs
-		},
+		// #nosec G402 -- In-engine service probe requires InsecureSkipVerify to probe local/in-container endpoints with self-signed TLS certificates
+		// nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- In-engine probe requires InsecureSkipVerify for self-signed container endpoints
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
 		DisableKeepAlives:     true,
 		ResponseHeaderTimeout: timeout,
 	}

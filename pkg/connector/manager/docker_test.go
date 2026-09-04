@@ -396,6 +396,9 @@ func TestMockAndRuncExtendedCoverage(t *testing.T) {
 	if err := mockMgr.Upload(tempDst, "/tmp"); err != nil {
 		t.Errorf("unexpected mock Upload err: %v", err)
 	}
+	if err := mockMgr.DeleteFile("/tmp/mock_file"); err != nil {
+		t.Errorf("unexpected mock DeleteFile err: %v", err)
+	}
 	if err := mockMgr.UpdateResources(1024, 2.0, "unless-stopped"); err != nil {
 		t.Errorf("unexpected mock UpdateResources err: %v", err)
 	}
@@ -464,6 +467,9 @@ func TestMockAndRuncExtendedCoverage(t *testing.T) {
 	if err := runcMgr.Upload(tempDst, "/tmp"); err != ErrActionNotImpl {
 		t.Errorf("expected ErrActionNotImpl, got %v", err)
 	}
+	if err := runcMgr.DeleteFile("/tmp/file"); err != ErrActionNotImpl {
+		t.Errorf("expected ErrActionNotImpl for DeleteFile, got %v", err)
+	}
 	if err := runcMgr.UpdateResources(512, 1.0, "no"); err != ErrActionNotImpl {
 		t.Errorf("expected ErrActionNotImpl, got %v", err)
 	}
@@ -510,6 +516,9 @@ func TestDockerManagerNilClientErrors(t *testing.T) {
 	}
 	if err := dm.Upload(tempDst, "/tmp"); err == nil {
 		t.Error("expected error with nil client on Upload")
+	}
+	if err := dm.DeleteFile("/tmp/file"); err == nil {
+		t.Error("expected error with nil client on DeleteFile")
 	}
 	if err := dm.UpdateResources(512, 1.0, "no"); err == nil {
 		t.Error("expected error with nil client on UpdateResources")
@@ -667,5 +676,16 @@ func TestDockerManagerStrictAbsolutePathRejection(t *testing.T) {
 	}
 	if _, err := dm.SearchFiles("/", "", 10); err == nil {
 		t.Error("expected error for empty search pattern")
+	}
+
+	// 6. DeleteFile path validation and security rejection
+	if err := dm.DeleteFile("relative/path.txt"); err == nil {
+		t.Error("expected error for relative DeleteFile path")
+	}
+	if err := dm.DeleteFile("/app/../etc/passwd"); err == nil {
+		t.Error("expected error for traversal DeleteFile path")
+	}
+	if err := dm.DeleteFile(""); err == nil {
+		t.Error("expected error for empty DeleteFile path")
 	}
 }

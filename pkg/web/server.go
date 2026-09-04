@@ -356,6 +356,7 @@ type DiffProvider interface {
 }
 
 // FileProvider defines optional provider methods for in-container directory navigation, searching, and file reading.
+// SAFETY GUARANTEE: File explorer mutating operations (upload, edit, delete) are strictly TUI-only and must never be exposed via Web/REST API.
 type FileProvider interface {
 	ReadContainerDir(id, path string) ([]FileEntry, error)
 	ReadContainerFile(id, path string, maxBytes int64) (string, error)
@@ -1012,6 +1013,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 	isSecure := (r.TLS != nil) || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 	// #nosec G124 -- Cookie enforces HttpOnly and SameSite=Strict; Secure attribute is dynamic based on incoming TLS / reverse-proxy scheme
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Cookie Secure attribute is dynamic based on incoming TLS or reverse proxy scheme
 	cookie := &http.Cookie{
 		Name:     "ctop_session",
 		Value:    sessID,
@@ -1048,6 +1050,7 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 
 	isSecure := (r.TLS != nil) || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 	// #nosec G124 -- Cookie enforces HttpOnly and SameSite=Strict; Secure attribute is dynamic based on incoming TLS / reverse-proxy scheme
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Cookie Secure attribute is dynamic based on incoming TLS or reverse proxy scheme
 	http.SetCookie(w, &http.Cookie{
 		Name:     "ctop_session",
 		Value:    "",
@@ -1255,6 +1258,11 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 // handleContainers returns the list of current container telemetry snapshots.
 func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, `{"error":"Method Not Allowed - read-only API"}`, http.StatusMethodNotAllowed)
+		return
+	}
 	var snapshots []ContainerSnapshot
 	if s.provider != nil {
 		snapshots = s.provider.GetContainerSnapshots()
@@ -1270,6 +1278,11 @@ func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
 
 // handleContainerDetail returns details or top processes for a specific container by ID or Name.
 func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, `{"error":"Method Not Allowed - read-only API"}`, http.StatusMethodNotAllowed)
+		return
+	}
 	path := r.URL.Path
 	if s.urlPrefix != "" {
 		path = strings.TrimPrefix(path, s.urlPrefix)
@@ -1333,6 +1346,9 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 		id = strings.TrimSuffix(path, "/endpoints")
 		id = strings.TrimSuffix(id, "/web-endpoints")
 		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/upload") || strings.HasSuffix(path, "/edit") || strings.HasSuffix(path, "/delete") {
+		http.Error(w, `{"error":"File explorer upload, edit, and delete operations are strictly TUI-only and not exposed via API/Web"}`, http.StatusMethodNotAllowed)
+		return
 	}
 
 	if s.provider == nil {
@@ -1662,6 +1678,7 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.WriteHeader(http.StatusBadGateway)
 			// #nosec G705 -- Content is escaped using html.EscapeString and served with restrictive CSP
+			// nosemgrep: go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter -- Content is escaped using html.EscapeString and served with restrictive CSP
 			_, _ = fmt.Fprintf(w, "<html><body style='font-family:sans-serif;padding:2rem;background:#18181b;color:#f43f5e;'><h3>Service Preview Unavailable</h3><p>%s</p><p>Target: <code>%s</code></p></body></html>", html.EscapeString(probeRes.Error), html.EscapeString(targetURL))
 			return
 		}
@@ -1675,6 +1692,7 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(probeRes.StatusCode)
 		// #nosec G705 -- Raw body is served inside isolated sandbox iframe with restrictive Content-Security-Policy
+		// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- Raw body is served inside isolated sandbox iframe with restrictive Content-Security-Policy
 		_, _ = w.Write([]byte(probeRes.Body))
 		return
 	}

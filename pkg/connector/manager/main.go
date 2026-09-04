@@ -34,5 +34,6 @@ type Manager interface {
 	SearchFiles(basePath, pattern string, maxResults int) ([]models.FileInfo, error)
 	Download(srcPath, dstPath string) (int64, error)
 	Upload(srcHostPath, dstContainerPath string) error
+	DeleteFile(path string) error
 	UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error
 }

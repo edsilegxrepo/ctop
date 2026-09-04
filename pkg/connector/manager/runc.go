@@ -68,6 +68,10 @@ func (rc *Runc) Upload(srcHostPath, dstContainerPath string) error {
 	return ErrActionNotImpl
 }
 
+func (rc *Runc) DeleteFile(path string) error {
+	return ErrActionNotImpl
+}
+
 func (rc *Runc) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
 	return ErrActionNotImpl
 }

@@ -97,6 +97,10 @@ func (m *Mock) Upload(srcHostPath, dstContainerPath string) error {
 	return nil
 }
 
+func (m *Mock) DeleteFile(path string) error {
+	return nil
+}
+
 func (m *Mock) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
 	return nil
 }

@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/models"
 	"github.com/edsilegx/ctop/pkg/sanitize"
 )
@@ -343,7 +344,7 @@ func FormatTextReport(r *ContainerReport) string {
 // SaveReport exports the container report to the specified directory in JSON, Text, or both formats.
 func SaveReport(report *ContainerReport, destDir, format string) ([]string, error) {
 	if destDir == "" {
-		destDir = "."
+		destDir = config.GetDownloadDir()
 	}
 	_ = os.MkdirAll(filepath.Clean(destDir), 0o750)
 

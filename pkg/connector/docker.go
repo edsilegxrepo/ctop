@@ -2,7 +2,9 @@
 package connector
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,22 +81,47 @@ func getGlobalTLSConfig() TLSConfig {
 	return globalTLSConfig
 }
 
+// enforceMinTLSVersion ensures tls.VersionTLS12 is the minimum TLS version across Docker client TLS configurations.
+func enforceMinTLSVersion(client *api.Client) {
+	if client == nil {
+		return
+	}
+	if client.TLSConfig != nil && client.TLSConfig.MinVersion < tls.VersionTLS12 {
+		client.TLSConfig.MinVersion = tls.VersionTLS12
+	}
+	if client.HTTPClient != nil {
+		if tr, ok := client.HTTPClient.Transport.(*http.Transport); ok && tr != nil && tr.TLSClientConfig != nil {
+			if tr.TLSClientConfig.MinVersion < tls.VersionTLS12 {
+				tr.TLSClientConfig.MinVersion = tls.VersionTLS12
+			}
+		}
+	}
+}
+
 // newDockerClient initializes a docker API client with TLS/mTLS certificate support or env fallback.
 func newDockerClient(endpoint string) (*api.Client, error) {
+	var (
+		client *api.Client
+		err    error
+	)
 	cfg := getGlobalTLSConfig()
 	if cfg.Cert != "" || cfg.Key != "" || cfg.CA != "" {
-		return api.NewTLSClient(endpoint, cfg.Cert, cfg.Key, cfg.CA)
-	}
-	if certPath := os.Getenv("DOCKER_CERT_PATH"); certPath != "" {
+		client, err = api.NewTLSClient(endpoint, cfg.Cert, cfg.Key, cfg.CA)
+	} else if certPath := os.Getenv("DOCKER_CERT_PATH"); certPath != "" {
 		ca := filepath.Join(certPath, "ca.pem")
 		cert := filepath.Join(certPath, "cert.pem")
 		key := filepath.Join(certPath, "key.pem")
-		return api.NewTLSClient(endpoint, cert, key, ca)
+		client, err = api.NewTLSClient(endpoint, cert, key, ca)
+	} else if cfg.Verify || os.Getenv("DOCKER_TLS_VERIFY") == "1" || strings.HasPrefix(endpoint, "https://") {
+		client, err = api.NewClientFromEnv()
+	} else {
+		client, err = api.NewClient(endpoint)
 	}
-	if cfg.Verify || os.Getenv("DOCKER_TLS_VERIFY") == "1" || strings.HasPrefix(endpoint, "https://") {
-		return api.NewClientFromEnv()
+	if err != nil {
+		return nil, err
 	}
-	return api.NewClient(endpoint)
+	enforceMinTLSVersion(client)
+	return client, nil
 }
 
 func NewDocker() (Connector, error) {
@@ -106,12 +133,7 @@ func NewDocker() (Connector, error) {
 	if endpoint := ResolveDockerEndpoint(); endpoint != "" {
 		client, err = newDockerClient(endpoint)
 	} else {
-		cfg := getGlobalTLSConfig()
-		if cfg.Cert != "" || cfg.Key != "" || cfg.CA != "" {
-			client, err = api.NewTLSClient(os.Getenv("DOCKER_HOST"), cfg.Cert, cfg.Key, cfg.CA)
-		} else {
-			client, err = api.NewClientFromEnv()
-		}
+		client, err = newDockerClient(os.Getenv("DOCKER_HOST"))
 	}
 	if err != nil {
 		return nil, err

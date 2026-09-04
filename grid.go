@@ -136,8 +136,9 @@ func SingleViewWithTab(initialTab int) MenuFn {
 		return nil
 	}
 
-	ui.Clear()
+	theme.SafeClear()
 	ex := single.NewSingle()
+	ex.Explorer.SetDownloadDir(config.GetDownloadDir())
 
 	refreshExplorerDir := func(p string) {
 		ents, err := c.ReadDir(p)
@@ -199,6 +200,7 @@ func SingleViewWithTab(initialTab int) MenuFn {
 	switchTab := func(tab int) {
 		switch tab {
 		case single.TabLogs:
+			ex.Logs.SetWrap(config.GetSwitchVal("logWrap"))
 			startLogStream()
 		case single.TabNetwork:
 			lastProbeTime = time.Now()
@@ -329,20 +331,116 @@ func SingleViewWithTab(initialTab int) MenuFn {
 				}
 
 				if ex.ActiveTab == single.TabFiles {
+					if ex.Explorer.IsEditing() {
+						done, applied, mode, val := ex.Explorer.EditKeyPress(e.ID)
+						if done {
+							if applied {
+								switch mode {
+								case single.EditModeTargetDir:
+									ex.Explorer.SetStatus(fmt.Sprintf("✔  Host download directory set to: %s", config.GetDownloadDir()), false)
+								case single.EditModeFilter:
+									if val != "" {
+										ex.Explorer.SetStatus(fmt.Sprintf("✔  Filter applied: %q (%d items)", val, len(ex.Explorer.TotalItems())), false)
+									} else {
+										ex.Explorer.SetStatus("✔  Filter cleared", false)
+									}
+								case single.EditModeDeepSearch:
+									query := strings.TrimSpace(val)
+									if query != "" {
+										ex.Explorer.SetStatus(fmt.Sprintf("🔍  Searching for %q across container...", query), false)
+										ui.Render(ex)
+										results, err := c.SearchFiles(ex.Explorer.CurrentDir, query, 100)
+										if err != nil {
+											ex.Explorer.SetStatus(fmt.Sprintf("❌  Search error: %v", err), true)
+										} else {
+											ex.Explorer.Set(ex.Explorer.CurrentDir, results)
+											ex.Explorer.SetDeepSearch(query)
+											ex.Explorer.SetStatus(fmt.Sprintf("✔  Found %d items matching %q", len(results), query), false)
+										}
+									} else {
+										ex.Explorer.ClearFilterAndSearch()
+										refreshExplorerDir(ex.Explorer.CurrentDir)
+										ex.Explorer.SetStatus("✔  Search cleared", false)
+									}
+								case single.EditModeConfirmDelete:
+									if err := c.DeleteFile(val); err != nil {
+										ex.Explorer.SetStatus(fmt.Sprintf("❌  Delete failed: %v", err), true)
+									} else {
+										ex.Explorer.SetStatus(fmt.Sprintf("✔  Deleted %s", path.Base(val)), false)
+										refreshExplorerDir(ex.Explorer.CurrentDir)
+									}
+								case single.EditModeConfirmEdit:
+									modified, err := EditContainerFile(c, val)
+									if err != nil {
+										ex.Explorer.SetStatus(fmt.Sprintf("❌  Edit failed: %v", err), true)
+									} else if modified {
+										ex.Explorer.SetStatus(fmt.Sprintf("✔  Updated %s", path.Base(val)), false)
+										refreshExplorerDir(ex.Explorer.CurrentDir)
+									} else {
+										ex.Explorer.SetStatus("ℹ  File unchanged", false)
+									}
+								case single.EditModeUpload:
+									srcHost := strings.TrimSpace(val)
+									if srcHost != "" {
+										err := c.Upload(srcHost, ex.Explorer.CurrentDir)
+										if err != nil {
+											ex.Explorer.SetStatus(fmt.Sprintf("❌  Upload failed: %v", err), true)
+										} else {
+											ex.Explorer.SetStatus(fmt.Sprintf("✔  Uploaded %s -> %s", srcHost, ex.Explorer.CurrentDir), false)
+											refreshExplorerDir(ex.Explorer.CurrentDir)
+										}
+									} else {
+										ex.Explorer.SetStatus("ℹ  Upload cancelled (empty path)", false)
+									}
+								}
+							} else {
+								switch mode {
+								case single.EditModeConfirmDelete:
+									ex.Explorer.SetStatus("ℹ  Delete cancelled", false)
+								case single.EditModeConfirmEdit:
+									ex.Explorer.SetStatus("ℹ  Edit cancelled", false)
+								case single.EditModeUpload:
+									ex.Explorer.SetStatus("ℹ  Upload cancelled", false)
+								}
+							}
+							ui.Clear()
+						}
+						ui.Render(ex)
+						continue
+					}
+
 					if ex.Explorer.Previewing {
 						if e.ID == "<Escape>" || e.ID == "<Enter>" || e.ID == "q" || e.ID == "Q" {
 							ex.Explorer.ClearPreview()
 							ui.Clear()
 							ui.Render(ex)
+						} else if IsKeyMatch("up", e.ID) || e.ID == "<Up>" || e.ID == "k" {
+							ex.Explorer.PreviewUp()
+							ui.Render(ex)
+						} else if IsKeyMatch("down", e.ID) || e.ID == "<Down>" || e.ID == "j" {
+							ex.Explorer.PreviewDown()
+							ui.Render(ex)
+						} else if IsKeyMatch("home", e.ID) || e.ID == "<Home>" || e.ID == "g" {
+							ex.Explorer.PreviewHome()
+							ui.Render(ex)
+						} else if IsKeyMatch("end", e.ID) || e.ID == "<End>" || e.ID == "G" {
+							ex.Explorer.PreviewEnd()
+							ui.Render(ex)
+						} else if IsKeyMatch("pgup", e.ID) || e.ID == "<PageUp>" {
+							ex.Explorer.PreviewPgUp(0)
+							ui.Render(ex)
+						} else if IsKeyMatch("pgdown", e.ID) || e.ID == "<PageDown>" {
+							ex.Explorer.PreviewPgDown(0)
+							ui.Render(ex)
 						}
 						continue
 					}
 
-					if IsKeyMatch("up", e.ID) || e.ID == "k" {
+					if IsKeyMatch("up", e.ID) || e.ID == "<Up>" || e.ID == "k" {
 						ex.Explorer.Up()
 						ui.Render(ex)
 						continue
-					} else if IsKeyMatch("down", e.ID) || e.ID == "j" {
+					} else if IsKeyMatch("down", e.ID) || e.ID == "<Down>" || e.ID == "j" {
 						ex.Explorer.Down()
 						ui.Render(ex)
 						continue
@@ -365,6 +463,7 @@ func SingleViewWithTab(initialTab int) MenuFn {
 					} else if e.ID == "<Enter>" {
 						if item, ok := ex.Explorer.Selected(); ok {
 							if item.IsDir {
+								ex.Explorer.ClearFilterAndSearch()
 								refreshExplorerDir(item.Path)
 							} else {
 								content, err := c.ReadFile(item.Path, 128*1024)
@@ -384,37 +483,28 @@ func SingleViewWithTab(initialTab int) MenuFn {
 							if parent == "" {
 								parent = "/"
 							}
+							ex.Explorer.ClearFilterAndSearch()
 							refreshExplorerDir(parent)
 						}
 						continue
-					} else if e.ID == "/" || e.ID == "f" {
-						input := widgets.NewInput()
-						input.Title = "Filter Files (*, ? wildcard supported, Enter: Apply, Esc: Clear)"
-						input.Data = ex.Explorer.Filter
-						w, h := theme.TermDimensions()
-						input.SetRect(0, h-3, w, h)
-						ui.Render(ex, input)
-
-						for {
-							fe := <-uiEvents
-							if fe.Type == ui.KeyboardEvent {
-								if fe.ID == "<Escape>" {
-									ex.Explorer.SetFilter("")
-									ui.Clear()
-									ui.Render(ex)
-									break
-								} else if fe.ID == "<Enter>" {
-									ex.Explorer.SetFilter(input.Data)
-									ui.Clear()
-									ui.Render(ex)
-									break
-								} else {
-									input.KeyPress(fe.ID)
-									ex.Explorer.SetFilter(input.Data)
-									ui.Render(ex, input)
-								}
-							}
+					} else if e.ID == "/" {
+						ex.Explorer.StartEditFilter()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "f" || e.ID == "F" || e.ID == "<C-f>" {
+						ex.Explorer.StartEditDeepSearch()
+						ui.Render(ex)
+						continue
+					} else if e.ID == "c" || e.ID == "C" {
+						if ex.Explorer.Filter != "" || ex.Explorer.IsDeepSearch {
+							ex.Explorer.ClearFilterAndSearch()
+							refreshExplorerDir(ex.Explorer.CurrentDir)
+							ex.Explorer.SetStatus("✔  Filter/search cleared", false)
+						} else {
+							ex.Explorer.SetStatus("ℹ  No filter or search active", false)
 						}
+						ui.Clear()
+						ui.Render(ex)
 						continue
 					} else if e.ID == "v" || e.ID == "<Space>" {
 						if item, ok := ex.Explorer.Selected(); ok && !item.IsDir {
@@ -436,101 +526,49 @@ func SingleViewWithTab(initialTab int) MenuFn {
 									destName = "root"
 								}
 							}
-							activeDlDir := config.GetVal("downloadDir")
-							if activeDlDir == "" {
-								activeDlDir = "."
-							}
-							targetPath := filepath.Join(activeDlDir, destName)
+							targetPath := filepath.Join(config.GetDownloadDir(), destName)
 							bytesDownloaded, err := c.Download(item.Path, targetPath)
 							if err != nil {
-								ex.Explorer.SetStatus(fmt.Sprintf("❌ Download failed: %v", err), true)
+								ex.Explorer.SetStatus(fmt.Sprintf("❌  Download failed: %v", err), true)
 							} else {
-								ex.Explorer.SetStatus(fmt.Sprintf("✔ Downloaded %s -> %s (%s)", item.Path, targetPath, cwidgets.ByteFormat64(bytesDownloaded)), false)
+								ex.Explorer.SetStatus(fmt.Sprintf("✔  Downloaded %s -> %s (%s)", item.Path, targetPath, cwidgets.ByteFormat64(bytesDownloaded)), false)
 							}
 							ui.Clear()
 							ui.Render(ex)
 						}
 						continue
 					} else if e.ID == "D" {
-						inp := widgets.NewInput()
-						inp.Title = "Set Host Download Target Directory (Press Enter to apply, Esc to cancel)"
-						curDl := config.GetVal("downloadDir")
-						if curDl == "" {
-							curDl = "."
-						}
-						inp.Data = curDl
-						ui.Clear()
-						ui.Render(inp)
-						for {
-							ie := <-uiEvents
-							if ie.Type == ui.ResizeEvent {
-								theme.SyncTerm()
-								inp.Align()
-								ui.Clear()
-								ui.Render(inp)
-								continue
-							}
-							if ie.Type == ui.KeyboardEvent {
-								if ie.ID == "<Escape>" {
-									break
-								} else if ie.ID == "<Enter>" {
-									newDir := strings.TrimSpace(inp.Data)
-									if newDir == "" {
-										newDir = "."
-									}
-									config.Update("downloadDir", newDir)
-									ex.Explorer.SetDownloadDir(newDir)
-									ex.Explorer.SetStatus(fmt.Sprintf("✔ Host download directory set to: %s", newDir), false)
-									break
-								} else {
-									inp.KeyPress(ie.ID)
-									ui.Render(inp)
-								}
-							}
-						}
-						ui.Clear()
+						ex.Explorer.StartEditTargetDir()
 						ui.Render(ex)
 						continue
 					} else if e.ID == "u" || e.ID == "U" {
-						inp := widgets.NewInput()
-						inp.Title = fmt.Sprintf("Upload Host File/Dir to %s (Enter path, Esc to cancel)", ex.Explorer.CurrentDir)
-						inp.Data = ""
-						ui.Clear()
-						ui.Render(inp)
-						for {
-							ie := <-uiEvents
-							if ie.Type == ui.ResizeEvent {
-								theme.SyncTerm()
-								inp.Align()
-								ui.Clear()
-								ui.Render(inp)
-								continue
-							}
-							if ie.Type == ui.KeyboardEvent {
-								if ie.ID == "<Escape>" {
-									break
-								} else if ie.ID == "<Enter>" {
-									srcHost := strings.TrimSpace(inp.Data)
-									if srcHost != "" {
-										err := c.Upload(srcHost, ex.Explorer.CurrentDir)
-										if err != nil {
-											ex.Explorer.SetStatus(fmt.Sprintf("❌ Upload failed: %v", err), true)
-										} else {
-											ex.Explorer.SetStatus(fmt.Sprintf("✔ Uploaded %s -> %s", srcHost, ex.Explorer.CurrentDir), false)
-											refreshExplorerDir(ex.Explorer.CurrentDir)
-										}
-									}
-									break
-								} else {
-									inp.KeyPress(ie.ID)
-									ui.Render(inp)
-								}
-							}
-						}
-						ui.Clear()
+						ex.Explorer.StartEditUpload()
 						ui.Render(ex)
 						continue
+					} else if e.ID == "e" || e.ID == "E" {
+						if item, ok := ex.Explorer.Selected(); ok {
+							if item.IsDir || item.Name == ".." {
+								ex.Explorer.SetStatus("❌  Only files can be edited", true)
+							} else {
+								ex.Explorer.StartConfirmEdit(item)
+							}
+							ui.Clear()
+							ui.Render(ex)
+						}
+						continue
+					} else if e.ID == "x" || e.ID == "X" || e.ID == "<Delete>" {
+						if item, ok := ex.Explorer.Selected(); ok {
+							if item.IsDir || item.Name == ".." {
+								ex.Explorer.SetStatus("❌  Only files can be deleted", true)
+							} else {
+								ex.Explorer.StartConfirmDelete(item)
+							}
+							ui.Clear()
+							ui.Render(ex)
+						}
+						continue
 					} else if e.ID == "r" || e.ID == "R" {
+						ex.Explorer.ClearFilterAndSearch()
 						refreshExplorerDir(ex.Explorer.CurrentDir)
 						continue
 					}
@@ -541,26 +579,23 @@ func SingleViewWithTab(initialTab int) MenuFn {
 						ex.Logs.ToggleTime()
 						ui.Render(ex)
 						continue
+					} else if e.ID == "w" || e.ID == "W" {
+						config.Toggle("logWrap")
+						ex.Logs.SetWrap(config.GetSwitchVal("logWrap"))
+						ui.Render(ex)
+						continue
 					} else if e.ID == "s" || e.ID == "S" {
-						dlDir := config.GetVal("downloadDir")
-						if dlDir == "" {
-							dlDir = "."
-						}
-						if savedFile, err := ex.Logs.SaveLogs(dlDir); err != nil {
-							ex.Logs.StatusMsg = fmt.Sprintf("❌ Save err: %v", err)
+						if savedFile, err := ex.Logs.SaveLogs(config.GetDownloadDir()); err != nil {
+							ex.Logs.SetStatus(fmt.Sprintf("❌  Save err: %v", err))
 						} else {
-							ex.Logs.StatusMsg = fmt.Sprintf("✔ Saved to %s", filepath.Base(savedFile))
+							ex.Logs.SetStatus(fmt.Sprintf("✔  Saved to %s", savedFile))
 						}
 						ui.Render(ex)
 						continue
 					} else if e.ID == "D" {
 						dirInput := widgets.NewInput()
 						dirInput.Title = "Set Export / Download Target Directory (Press Enter to apply, Esc to cancel)"
-						curDl := config.GetVal("downloadDir")
-						if curDl == "" {
-							curDl = "."
-						}
-						dirInput.Data = curDl
+						dirInput.Data = config.GetDownloadDir()
 						tw, th := theme.TermDimensions()
 						dirInput.SetRect(0, th-3, tw, th)
 						ui.Render(ex, dirInput)
@@ -572,12 +607,8 @@ func SingleViewWithTab(initialTab int) MenuFn {
 									ui.Render(ex)
 									break
 								} else if de.ID == "<Enter>" {
-									newDir := strings.TrimSpace(dirInput.Data)
-									if newDir == "" {
-										newDir = "."
-									}
-									config.Update("downloadDir", newDir)
-									ex.Logs.StatusMsg = fmt.Sprintf("✔ Target dir: %s", newDir)
+									config.SetDownloadDir(dirInput.Data)
+									ex.Logs.SetStatus(fmt.Sprintf("✔  Target dir: %s", config.GetDownloadDir()))
 									ui.Clear()
 									ui.Render(ex)
 									break
@@ -708,14 +739,10 @@ func SingleViewWithTab(initialTab int) MenuFn {
 					ui.Render(ex)
 				} else if (e.ID == "X" || e.ID == "x") && ex.ActiveTab != single.TabFiles {
 					report := diag.BuildReport(c.Id, c.Meta, &c.Metrics, c.HostID, c.GenerateRunCmd(), c.GenerateCompose())
-					exportDir := config.GetVal("downloadDir")
-					if exportDir == "" {
-						exportDir = "."
-					}
-					savedPaths, err := diag.SaveReport(report, exportDir, "both")
+					savedPaths, err := diag.SaveReport(report, config.GetDownloadDir(), "both")
 					if err != nil {
 						if ex.ActiveTab == single.TabLogs {
-							ex.Logs.StatusMsg = fmt.Sprintf("❌ Export err: %v", err)
+							ex.Logs.StatusMsg = fmt.Sprintf("❌  Export err: %v", err)
 						} else {
 							log.StatusErr(err)
 						}
@@ -724,7 +751,7 @@ func SingleViewWithTab(initialTab int) MenuFn {
 						for _, p := range savedPaths {
 							basenames = append(basenames, filepath.Base(p))
 						}
-						msg := fmt.Sprintf("✔ Exported: %s", strings.Join(basenames, ", "))
+						msg := fmt.Sprintf("✔  Exported: %s", strings.Join(basenames, ", "))
 						if ex.ActiveTab == single.TabLogs {
 							ex.Logs.StatusMsg = msg
 						} else {
@@ -880,7 +907,7 @@ func Display() bool {
 						menu = ContainerMenu
 						goto RunMenu
 					case "<Left>", "l":
-						menu = LogMenu
+						menu = SingleViewLogs
 						goto RunMenu
 					case "<Right>", "o":
 						menu = SingleView
@@ -941,8 +968,8 @@ func Display() bool {
 					case "s":
 						menu = SortMenu
 						goto RunMenu
-					case "c":
-						menu = ColumnsMenu
+					case "c", "C":
+						menu = ConfigMenu
 						goto RunMenu
 					case "S":
 						path, err := config.Write()

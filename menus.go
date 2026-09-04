@@ -10,7 +10,6 @@
 //   - MenuFn: Recursive closure signature returning the next modal window or nil upon dismissal.
 //   - HelpMenu / FilterMenu / SortMenu / ColumnsMenu: Configuration & layout modal dialogs.
 //   - ContainerMenu / SignalMenu / ResourceMenu / FileExplorerMenu: Lifecycle & container administration modals.
-//   - LogMenu: High-throughput log viewer supporting regex filtering, timestamps, and disk export.
 //   - ExecShell: Interactive pseudoterminal launcher dropping user into in-container bash/sh.
 //
 // Functionality:
@@ -26,13 +25,11 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/edsilegx/ctop/internal/cwidgets"
 	"github.com/edsilegx/ctop/internal/cwidgets/single"
@@ -55,7 +52,6 @@ var helpDialog = []menu.Item{
 	{Val: "── CONTAINER ACTIONS ──", Label: "── CONTAINER ACTIONS ──"},
 	{Val: "<enter> - open container action menu", Label: "<enter> - open container action menu"},
 	{Val: "[e]     - exec shell inside container", Label: "[e]     - exec shell inside container"},
-	{Val: "[l]     - view container logs ([t] timestamp, [/] filter, [s] save)", Label: "[l]     - view container logs ([t] timestamp, [/] filter, [s] save)"},
 	{Val: "[U]     - live resource hot-tuning (CPU, Memory, Restart)", Label: "[U]     - live resource hot-tuning (CPU, Memory, Restart)"},
 	{Val: "[w]     - open published web port in browser", Label: "[w]     - open published web port in browser"},
 
@@ -76,7 +72,7 @@ var helpDialog = []menu.Item{
 	{Val: "[g]     - toggle Compose stack grouping", Label: "[g]     - toggle Compose stack grouping"},
 
 	{Val: "── VIEW & CONFIGURATION ──", Label: "── VIEW & CONFIGURATION ──"},
-	{Val: "[c]     - configure column layout & visibility", Label: "[c]     - configure column layout & visibility"},
+	{Val: "[c]     - configure column layout & default download dir", Label: "[c]     - configure column layout & default download dir"},
 	{Val: "[m]     - toggle rate (/s) vs. cumulative total metrics", Label: "[m]     - toggle rate (/s) vs. cumulative total metrics"},
 	{Val: "[H]     - toggle top ctop header bar", Label: "[H]     - toggle top ctop header bar"},
 	{Val: "[S]     - save current configuration to file", Label: "[S]     - save current configuration to file"},
@@ -173,6 +169,11 @@ func SortMenu() MenuFn {
 	}
 }
 
+// ConfigMenu opens the runtime configuration menu (columns layout and default download directory).
+func ConfigMenu() MenuFn {
+	return ColumnsMenu()
+}
+
 func ColumnsMenu() MenuFn {
 	const (
 		enabledStr  = "[X]"
@@ -184,8 +185,8 @@ func ColumnsMenu() MenuFn {
 	m := menu.NewMenu()
 	m.Selectable = true
 	m.SortItems = false
-	m.Title = "Columns"
-	m.SubText = "Re-order: <Page Up> / <Page Down>"
+	m.Title = "Configuration & Columns"
+	m.SubText = "Re-order: <Page Up> / <Page Down> | [D] Download Dir"
 
 	rebuild := func() {
 		var maxLen int
@@ -206,25 +207,69 @@ func ColumnsMenu() MenuFn {
 			}
 			m.AddItems(menu.Item{Val: col.Name, Label: txt})
 		}
+
+		m.AddItems(menu.NewSeparator())
+		m.AddItems(menu.Item{
+			Val:   "downloadDir",
+			Label: fmt.Sprintf("[D] Download Directory: %s", config.GetDownloadDir()),
+		})
+
 		ui.Clear()
 		ui.Render(m)
 	}
 
+	setDownloadDirPrompt := func() {
+		inp := widgets.NewInput()
+		inp.Title = "Set Default Host Download Directory (Press Enter to apply, Esc to cancel)"
+		inp.Data = config.GetDownloadDir()
+		tw, th := theme.TermDimensions()
+		inp.SetRect(0, th-3, tw, th)
+		ui.Render(inp)
+		for {
+			ie := <-uiEvents
+			if ie.Type == ui.KeyboardEvent {
+				if ie.ID == "<Escape>" {
+					break
+				} else if ie.ID == "<Enter>" {
+					config.SetDownloadDir(inp.Data)
+					break
+				} else {
+					inp.KeyPress(ie.ID)
+					ui.Render(inp)
+				}
+			}
+		}
+		rebuild()
+	}
+
 	upFn := func() {
-		config.ColumnLeft(m.SelectedValue())
+		val := m.SelectedValue()
+		if val != "" && val != "downloadDir" {
+			config.ColumnLeft(val)
+		}
 		m.Up()
 		rebuild()
 	}
 
 	downFn := func() {
-		config.ColumnRight(m.SelectedValue())
+		val := m.SelectedValue()
+		if val != "" && val != "downloadDir" {
+			config.ColumnRight(val)
+		}
 		m.Down()
 		rebuild()
 	}
 
 	toggleFn := func() {
-		config.ColumnToggle(m.SelectedValue())
-		rebuild()
+		val := m.SelectedValue()
+		if val == "downloadDir" {
+			setDownloadDirPrompt()
+			return
+		}
+		if val != "" {
+			config.ColumnToggle(val)
+			rebuild()
+		}
 	}
 
 	rebuild()
@@ -256,6 +301,8 @@ func ColumnsMenu() MenuFn {
 					}
 				}
 				return nil
+			} else if e.ID == "d" || e.ID == "D" {
+				setDownloadDirPrompt()
 			} else if e.ID == "<Enter>" || e.ID == "x" || e.ID == "<Space>" {
 				toggleFn()
 			}
@@ -662,10 +709,7 @@ func ExportReportMenu(c *container.Container) MenuFn {
 		}
 		ui.Clear()
 
-		exportDir := config.GetVal("downloadDir")
-		if exportDir == "" {
-			exportDir = "."
-		}
+		exportDir := config.GetDownloadDir()
 
 		buildMenu := func() *menu.Menu {
 			m := menu.NewMenu()
@@ -686,6 +730,34 @@ func ExportReportMenu(c *container.Container) MenuFn {
 		m := buildMenu()
 		ui.Render(m)
 
+		changeDirPrompt := func() {
+			inp := widgets.NewInput()
+			inp.Title = "Enter Destination Export Directory (Press Enter to apply, Esc to cancel)"
+			inp.Data = exportDir
+			tw, th := theme.TermDimensions()
+			inp.SetRect(0, th-3, tw, th)
+			ui.Render(inp)
+			for {
+				ie := <-uiEvents
+				if ie.Type == ui.KeyboardEvent {
+					if ie.ID == "<Escape>" {
+						break
+					} else if ie.ID == "<Enter>" {
+						config.SetDownloadDir(inp.Data)
+						exportDir = config.GetDownloadDir()
+						break
+					} else {
+						inp.KeyPress(ie.ID)
+						ui.Render(inp)
+					}
+				}
+			}
+			m = buildMenu()
+			m.SetCursor("dir")
+			ui.Clear()
+			ui.Render(m)
+		}
+
 		for {
 			e := <-uiEvents
 			switch e.Type {
@@ -702,35 +774,8 @@ func ExportReportMenu(c *container.Container) MenuFn {
 				} else if IsKeyMatch("exit", e.ID) || e.ID == "c" || e.ID == "q" {
 					return nil
 				} else if e.ID == "D" || e.ID == "d" {
-					inp := widgets.NewInput()
-					inp.Title = "Enter Destination Export Directory (Press Enter to apply, Esc to cancel)"
-					inp.Data = exportDir
-					tw, th := theme.TermDimensions()
-					inp.SetRect(0, th-3, tw, th)
-					ui.Render(inp)
-					for {
-						ie := <-uiEvents
-						if ie.Type == ui.KeyboardEvent {
-							if ie.ID == "<Escape>" {
-								break
-							} else if ie.ID == "<Enter>" {
-								newDir := strings.TrimSpace(inp.Data)
-								if newDir == "" {
-									newDir = "."
-								}
-								config.Update("downloadDir", newDir)
-								exportDir = newDir
-								break
-							} else {
-								inp.KeyPress(ie.ID)
-								ui.Render(inp)
-							}
-						}
-					}
-					m = buildMenu()
-					ui.Clear()
-					ui.Render(m)
-				} else if e.ID == "<Enter>" || e.ID == "1" || e.ID == "2" || e.ID == "3" {
+					changeDirPrompt()
+				} else if e.ID == "<Enter>" || e.ID == "<Space>" || e.ID == "1" || e.ID == "2" || e.ID == "3" {
 					val := m.SelectedValue()
 					switch e.ID {
 					case "1":
@@ -745,6 +790,7 @@ func ExportReportMenu(c *container.Container) MenuFn {
 						return nil
 					}
 					if val == "dir" {
+						changeDirPrompt()
 						continue
 					}
 
@@ -759,7 +805,7 @@ func ExportReportMenu(c *container.Container) MenuFn {
 					for _, p := range savedPaths {
 						basenames = append(basenames, filepath.Base(p))
 					}
-					log.Statusf("✔ Exported report: %s (in %s)", strings.Join(basenames, ", "), exportDir)
+					log.Statusf("✔  Exported report: %s (in %s)", strings.Join(basenames, ", "), exportDir)
 					return nil
 				}
 			}
@@ -779,10 +825,7 @@ func FileExplorerMenu() MenuFn {
 	entries, _ := c.ReadDir(currentPath)
 	exp.Set(currentPath, entries)
 
-	dlDir := config.GetVal("downloadDir")
-	if dlDir == "" {
-		dlDir = "."
-	}
+	dlDir := config.GetDownloadDir()
 	exp.SetDownloadDir(dlDir)
 
 	tw, th := theme.TermDimensions()
@@ -814,24 +857,133 @@ func FileExplorerMenu() MenuFn {
 			ui.Clear()
 			ui.Render(exp)
 		case ui.KeyboardEvent:
+			if exp.IsEditing() {
+				done, applied, mode, val := exp.EditKeyPress(e.ID)
+				if done {
+					if applied {
+						switch mode {
+						case single.EditModeTargetDir:
+							exp.SetStatus(fmt.Sprintf("✔  Host download directory set to: %s", config.GetDownloadDir()), false)
+						case single.EditModeFilter:
+							if val != "" {
+								exp.SetStatus(fmt.Sprintf("✔  Filter applied: %q (%d items)", val, len(exp.TotalItems())), false)
+							} else {
+								exp.SetStatus("✔  Filter cleared", false)
+							}
+						case single.EditModeDeepSearch:
+							query := strings.TrimSpace(val)
+							if query != "" {
+								exp.SetStatus(fmt.Sprintf("🔍  Searching for %q across container...", query), false)
+								ui.Render(exp)
+								results, err := c.SearchFiles(currentPath, query, 100)
+								if err != nil {
+									exp.SetStatus(fmt.Sprintf("❌  Search error: %v", err), true)
+								} else {
+									exp.Set(currentPath, results)
+									exp.SetDeepSearch(query)
+									exp.SetStatus(fmt.Sprintf("✔  Found %d items matching %q", len(results), query), false)
+								}
+							} else {
+								exp.ClearFilterAndSearch()
+								refreshDir(currentPath)
+								exp.SetStatus("✔  Search cleared", false)
+							}
+						case single.EditModeConfirmDelete:
+							if err := c.DeleteFile(val); err != nil {
+								exp.SetStatus(fmt.Sprintf("❌  Delete failed: %v", err), true)
+							} else {
+								exp.SetStatus(fmt.Sprintf("✔  Deleted %s", path.Base(val)), false)
+								refreshDir(currentPath)
+							}
+						case single.EditModeConfirmEdit:
+							modified, err := EditContainerFile(c, val)
+							if err != nil {
+								exp.SetStatus(fmt.Sprintf("❌  Edit failed: %v", err), true)
+							} else if modified {
+								exp.SetStatus(fmt.Sprintf("✔  Updated %s", path.Base(val)), false)
+								refreshDir(currentPath)
+							} else {
+								exp.SetStatus("ℹ  File unchanged", false)
+							}
+						case single.EditModeUpload:
+							srcHost := strings.TrimSpace(val)
+							if srcHost != "" {
+								err := c.Upload(srcHost, currentPath)
+								if err != nil {
+									exp.SetStatus(fmt.Sprintf("❌  Upload failed: %v", err), true)
+								} else {
+									exp.SetStatus(fmt.Sprintf("✔  Uploaded %s -> %s", srcHost, currentPath), false)
+									refreshDir(currentPath)
+								}
+							} else {
+								exp.SetStatus("ℹ  Upload cancelled (empty path)", false)
+							}
+						}
+					} else {
+						switch mode {
+						case single.EditModeConfirmDelete:
+							exp.SetStatus("ℹ  Delete cancelled", false)
+						case single.EditModeConfirmEdit:
+							exp.SetStatus("ℹ  Edit cancelled", false)
+						case single.EditModeUpload:
+							exp.SetStatus("ℹ  Upload cancelled", false)
+						}
+					}
+					ui.Clear()
+				}
+				ui.Render(exp)
+				continue
+			}
+
 			if exp.Previewing {
 				if e.ID == "<Escape>" || e.ID == "<Enter>" || e.ID == "q" || e.ID == "Q" {
 					exp.ClearPreview()
 					ui.Clear()
 					ui.Render(exp)
+				} else if IsKeyMatch("up", e.ID) || e.ID == "<Up>" || e.ID == "k" {
+					exp.PreviewUp()
+					ui.Render(exp)
+				} else if IsKeyMatch("down", e.ID) || e.ID == "<Down>" || e.ID == "j" {
+					exp.PreviewDown()
+					ui.Render(exp)
+				} else if IsKeyMatch("home", e.ID) || e.ID == "<Home>" || e.ID == "g" {
+					exp.PreviewHome()
+					ui.Render(exp)
+				} else if IsKeyMatch("end", e.ID) || e.ID == "<End>" || e.ID == "G" {
+					exp.PreviewEnd()
+					ui.Render(exp)
+				} else if IsKeyMatch("pgup", e.ID) || e.ID == "<PageUp>" {
+					exp.PreviewPgUp(0)
+					ui.Render(exp)
+				} else if IsKeyMatch("pgdown", e.ID) || e.ID == "<PageDown>" {
+					exp.PreviewPgDown(0)
+					ui.Render(exp)
 				}
 				continue
 			}
 
-			if IsKeyMatch("up", e.ID) {
+			if IsKeyMatch("up", e.ID) || e.ID == "<Up>" || e.ID == "k" {
 				exp.Up()
 				ui.Render(exp)
-			} else if IsKeyMatch("down", e.ID) {
+			} else if IsKeyMatch("down", e.ID) || e.ID == "<Down>" || e.ID == "j" {
 				exp.Down()
+				ui.Render(exp)
+			} else if IsKeyMatch("pgup", e.ID) || e.ID == "<PageUp>" || e.ID == "<C-u>" {
+				exp.PgUp(15)
+				ui.Render(exp)
+			} else if IsKeyMatch("pgdown", e.ID) || e.ID == "<PageDown>" || e.ID == "<C-d>" {
+				exp.PgDown(15)
+				ui.Render(exp)
+			} else if IsKeyMatch("home", e.ID) || e.ID == "<Home>" || e.ID == "g" {
+				exp.Home()
+				ui.Render(exp)
+			} else if IsKeyMatch("end", e.ID) || e.ID == "<End>" || e.ID == "G" {
+				exp.End()
 				ui.Render(exp)
 			} else if e.ID == "<Enter>" || e.ID == "<Right>" {
 				if item, ok := exp.Selected(); ok {
 					if item.IsDir {
+						exp.ClearFilterAndSearch()
 						refreshDir(item.Path)
 					} else {
 						content, err := c.ReadFile(item.Path, 128*1024)
@@ -849,6 +1001,7 @@ func FileExplorerMenu() MenuFn {
 					if parent == "" {
 						parent = "/"
 					}
+					exp.ClearFilterAndSearch()
 					refreshDir(parent)
 				}
 			} else if e.ID == "v" || e.ID == "<Space>" {
@@ -870,139 +1023,61 @@ func FileExplorerMenu() MenuFn {
 							destName = "root"
 						}
 					}
-					activeDlDir := config.GetVal("downloadDir")
-					if activeDlDir == "" {
-						activeDlDir = "."
-					}
-					targetPath := filepath.Join(activeDlDir, destName)
+					targetPath := filepath.Join(config.GetDownloadDir(), destName)
 					bytesDownloaded, err := c.Download(item.Path, targetPath)
 					if err != nil {
-						exp.SetStatus(fmt.Sprintf("❌ Download failed: %v", err), true)
+						exp.SetStatus(fmt.Sprintf("❌  Download failed: %v", err), true)
 					} else {
-						exp.SetStatus(fmt.Sprintf("✔ Downloaded %s -> %s (%s)", item.Path, targetPath, cwidgets.ByteFormat64(bytesDownloaded)), false)
+						exp.SetStatus(fmt.Sprintf("✔  Downloaded %s -> %s (%s)", item.Path, targetPath, cwidgets.ByteFormat64(bytesDownloaded)), false)
 					}
 					ui.Clear()
 					ui.Render(exp)
 				}
 			} else if e.ID == "D" {
-				inp := widgets.NewInput()
-				inp.Title = "Set Host Download Target Directory (Press Enter to apply, Esc to cancel)"
-				curDl := config.GetVal("downloadDir")
-				if curDl == "" {
-					curDl = "."
-				}
-				inp.Data = curDl
-				ui.Clear()
-				ui.Render(inp)
-				for {
-					ie := <-uiEvents
-					if ie.Type == ui.KeyboardEvent {
-						if ie.ID == "<Escape>" {
-							break
-						} else if ie.ID == "<Enter>" {
-							newDir := strings.TrimSpace(inp.Data)
-							if newDir == "" {
-								newDir = "."
-							}
-							config.Update("downloadDir", newDir)
-							exp.SetDownloadDir(newDir)
-							exp.SetStatus(fmt.Sprintf("✔ Host download directory set to: %s", newDir), false)
-							break
-						} else {
-							inp.KeyPress(ie.ID)
-							ui.Render(inp)
-						}
-					}
-				}
+				exp.StartEditTargetDir()
+				ui.Render(exp)
 			} else if e.ID == "u" || e.ID == "U" {
-				inp := widgets.NewInput()
-				inp.Title = fmt.Sprintf("Upload Host File/Dir to %s (Enter path, Esc to cancel)", currentPath)
-				inp.Data = ""
-				ui.Clear()
-				ui.Render(inp)
-				for {
-					ie := <-uiEvents
-					if ie.Type == ui.KeyboardEvent {
-						if ie.ID == "<Escape>" {
-							break
-						} else if ie.ID == "<Enter>" {
-							srcHost := strings.TrimSpace(inp.Data)
-							if srcHost != "" {
-								err := c.Upload(srcHost, currentPath)
-								if err != nil {
-									exp.SetStatus(fmt.Sprintf("❌ Upload failed: %v", err), true)
-								} else {
-									exp.SetStatus(fmt.Sprintf("✔ Uploaded %s -> %s", srcHost, currentPath), false)
-									refreshDir(currentPath)
-								}
-							}
-							break
-						} else {
-							inp.KeyPress(ie.ID)
-							ui.Render(inp)
-						}
-					}
-				}
-				ui.Clear()
+				exp.StartEditUpload()
 				ui.Render(exp)
 			} else if e.ID == "r" || e.ID == "R" {
+				exp.ClearFilterAndSearch()
 				refreshDir(currentPath)
-			} else if e.ID == "/" {
-				inp := widgets.NewInput()
-				inp.Title = "Filter Current Directory (Type name or wildcard, Esc to clear)"
-				inp.Data = exp.Filter
-				ui.Clear()
-				ui.Render(inp)
-				for {
-					ie := <-uiEvents
-					if ie.Type == ui.KeyboardEvent {
-						if ie.ID == "<Escape>" {
-							break
-						} else if ie.ID == "<Enter>" {
-							exp.SetFilter(inp.Data)
-							break
-						} else {
-							inp.KeyPress(ie.ID)
-							ui.Render(inp)
-						}
-					}
+			} else if e.ID == "c" || e.ID == "C" {
+				if exp.Filter != "" || exp.IsDeepSearch {
+					exp.ClearFilterAndSearch()
+					refreshDir(currentPath)
+					exp.SetStatus("✔  Filter/search cleared", false)
+				} else {
+					exp.SetStatus("ℹ  No filter or search active", false)
 				}
 				ui.Clear()
+				ui.Render(exp)
+			} else if e.ID == "/" {
+				exp.StartEditFilter()
 				ui.Render(exp)
 			} else if e.ID == "f" || e.ID == "F" || e.ID == "<C-f>" {
-				inp := widgets.NewInput()
-				inp.Title = fmt.Sprintf("Deep Search in %s (e.g. *.conf, log, ssl - Esc to cancel)", currentPath)
-				inp.Data = ""
-				ui.Clear()
-				ui.Render(inp)
-				for {
-					ie := <-uiEvents
-					if ie.Type == ui.KeyboardEvent {
-						if ie.ID == "<Escape>" {
-							break
-						} else if ie.ID == "<Enter>" {
-							query := strings.TrimSpace(inp.Data)
-							if query != "" {
-								exp.SetStatus(fmt.Sprintf("🔍 Searching for %q across container...", query), false)
-								ui.Clear()
-								ui.Render(exp)
-								results, err := c.SearchFiles(currentPath, query, 100)
-								if err != nil {
-									exp.SetStatus(fmt.Sprintf("❌ Search error: %v", err), true)
-								} else {
-									exp.Set(currentPath, results)
-									exp.SetStatus(fmt.Sprintf("✔ Found %d items matching %q", len(results), query), false)
-								}
-							}
-							break
-						} else {
-							inp.KeyPress(ie.ID)
-							ui.Render(inp)
-						}
-					}
-				}
-				ui.Clear()
+				exp.StartEditDeepSearch()
 				ui.Render(exp)
+			} else if e.ID == "e" || e.ID == "E" {
+				if item, ok := exp.Selected(); ok {
+					if item.IsDir || item.Name == ".." {
+						exp.SetStatus("❌  Only files can be edited", true)
+					} else {
+						exp.StartConfirmEdit(item)
+					}
+					ui.Clear()
+					ui.Render(exp)
+				}
+			} else if e.ID == "x" || e.ID == "X" || e.ID == "<Delete>" {
+				if item, ok := exp.Selected(); ok {
+					if item.IsDir || item.Name == ".." {
+						exp.SetStatus("❌  Only files can be deleted", true)
+					} else {
+						exp.StartConfirmDelete(item)
+					}
+					ui.Clear()
+					ui.Render(exp)
+				}
 			} else if e.ID == "q" || e.ID == "Q" || e.ID == "<Escape>" {
 				return nil
 			}
@@ -1071,193 +1146,6 @@ func SignalMenu() MenuFn {
 					}
 				}
 				return nil
-			}
-		}
-	}
-}
-
-func LogMenu() MenuFn {
-	c := cursor.Selected()
-	if c == nil {
-		return nil
-	}
-
-	ui.Clear()
-	logs, quit := logReader(c)
-	m := widgets.NewTextView(logs)
-	defer m.Close()
-	var exportStatus string
-
-	updateTitle := func() {
-		filterInfo := ""
-		if m.Filter() != "" {
-			filterInfo = fmt.Sprintf(" [filter: %s]", m.Filter())
-		}
-		statusNote := ""
-		if exportStatus != "" {
-			statusNote = fmt.Sprintf(" [%s]", exportStatus)
-		}
-		m.Title = fmt.Sprintf("Logs [%s]%s%s (t: time, /: filter, s: save, D: dir, q: close)", c.GetMeta("name"), filterInfo, statusNote)
-	}
-	updateTitle()
-
-	input := widgets.NewInput()
-	input.Title = "Filter Logs"
-	filtering := false
-
-	renderAll := func() {
-		if filtering {
-			ui.Render(m, input)
-		} else {
-			ui.Render(m)
-		}
-	}
-	renderAll()
-
-	// Main UI thread tick loop for log updates
-	logTicker := time.NewTicker(250 * time.Millisecond)
-	defer logTicker.Stop()
-
-	// Inactivity timer to resume background refresh after typing pause
-	inactivityTimer := time.NewTimer(0)
-	if !inactivityTimer.Stop() {
-		select {
-		case <-inactivityTimer.C:
-		default:
-		}
-	}
-
-	resetInactivity := func() {
-		m.Pause()
-		inactivityTimer.Reset(1200 * time.Millisecond)
-	}
-
-	for {
-		select {
-		case <-logTicker.C:
-			if !filtering && !m.IsPaused() {
-				m.RecomputeTextOut()
-				renderAll()
-			}
-		case e := <-uiEvents:
-			switch e.Type {
-			case ui.ResizeEvent:
-				m.Resize()
-				if filtering {
-					w, h := theme.TermDimensions()
-					input.SetRect(0, h-3, w, h)
-				}
-				renderAll()
-			case ui.KeyboardEvent:
-				if filtering {
-					resetInactivity()
-					switch e.ID {
-					case "<Escape>":
-						filtering = false
-						inactivityTimer.Stop()
-						m.SetFilter("")
-						updateTitle()
-						m.Resume()
-						ui.Clear()
-						renderAll()
-					case "<Enter>":
-						filtering = false
-						inactivityTimer.Stop()
-						m.SetFilter(input.Data)
-						updateTitle()
-						m.Resume()
-						ui.Clear()
-						renderAll()
-					default:
-						input.KeyPress(e.ID)
-						m.SetFilter(input.Data)
-						updateTitle()
-						renderAll()
-					}
-				} else {
-					switch e.ID {
-					case "t", "T":
-						m.Toggle()
-						renderAll()
-					case "s", "S":
-						exportDir := config.GetVal("downloadDir")
-						if exportDir == "" {
-							exportDir = "."
-						}
-						_ = os.MkdirAll(filepath.Clean(exportDir), 0o750)
-						exportFile := filepath.Join(exportDir, fmt.Sprintf("ctop_logs_%s_%s.log", c.GetMeta("name"), time.Now().Format("20060102_150405")))
-						lines := m.Lines()
-						if err := os.WriteFile(exportFile, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
-							exportStatus = fmt.Sprintf("❌ Save err: %v", err)
-						} else {
-							exportStatus = fmt.Sprintf("✔ Saved to %s (%d lines)", exportFile, len(lines))
-						}
-						updateTitle()
-						renderAll()
-					case "D":
-						dirInput := widgets.NewInput()
-						dirInput.Title = "Set Export / Download Target Directory (Press Enter to apply, Esc to cancel)"
-						curDl := config.GetVal("downloadDir")
-						if curDl == "" {
-							curDl = "."
-						}
-						dirInput.Data = curDl
-						w, h := theme.TermDimensions()
-						dirInput.SetRect(0, h-3, w, h)
-						ui.Render(m, dirInput)
-						for {
-							de := <-uiEvents
-							if de.Type == ui.KeyboardEvent {
-								if de.ID == "<Escape>" {
-									ui.Clear()
-									renderAll()
-									break
-								} else if de.ID == "<Enter>" {
-									newDir := strings.TrimSpace(dirInput.Data)
-									if newDir == "" {
-										newDir = "."
-									}
-									config.Update("downloadDir", newDir)
-									exportStatus = fmt.Sprintf("✔ Target dir: %s", newDir)
-									updateTitle()
-									ui.Clear()
-									renderAll()
-									break
-								} else {
-									dirInput.KeyPress(de.ID)
-									ui.Render(m, dirInput)
-								}
-							}
-						}
-					case "/", "f", "F":
-						filtering = true
-						resetInactivity()
-						input.Data = m.Filter()
-						w, h := theme.TermDimensions()
-						input.SetRect(0, h-3, w, h)
-						m.RecomputeTextOut()
-						renderAll()
-					case "q", "Q", "<Escape>", "<C-c>":
-						select {
-						case quit <- true:
-						default:
-						}
-						inactivityTimer.Stop()
-						return nil
-					default:
-						select {
-						case quit <- true:
-						default:
-						}
-						inactivityTimer.Stop()
-						return nil
-					}
-				}
-			}
-		case <-inactivityTimer.C:
-			if filtering {
-				m.Resume()
-				renderAll()
 			}
 		}
 	}
@@ -1351,54 +1239,6 @@ func Confirm(txt string, fn func()) MenuFn {
 			}
 		}
 	}
-}
-
-type toggleLog struct {
-	timestamp time.Time
-	message   string
-}
-
-func (t *toggleLog) Toggle(on bool) string {
-	if on {
-		return fmt.Sprintf("%s  %s", t.timestamp.Local().Format("2006-01-02 15:04:05.000"), t.message)
-	}
-	return t.message
-}
-
-func logReader(container *container.Container) (logs chan widgets.ToggleText, quit chan bool) {
-	logCollector := container.Logs()
-	if logCollector == nil {
-		logs = make(chan widgets.ToggleText)
-		quit = make(chan bool, 1)
-		close(logs)
-		return logs, quit
-	}
-	stream := logCollector.Stream()
-	logs = make(chan widgets.ToggleText, 100)
-	quit = make(chan bool, 1)
-
-	go func() {
-		defer func() {
-			logCollector.Stop()
-			close(logs)
-		}()
-		for {
-			select {
-			case log, ok := <-stream:
-				if !ok {
-					return
-				}
-				select {
-				case logs <- &toggleLog{timestamp: log.Timestamp, message: log.Message}:
-				case <-quit:
-					return
-				}
-			case <-quit:
-				return
-			}
-		}
-	}()
-	return logs, quit
 }
 
 func confirmTxt(a, n string) string { return fmt.Sprintf("%s container %s?", a, n) }

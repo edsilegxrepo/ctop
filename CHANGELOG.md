@@ -4,6 +4,24 @@ All notable changes to `ctop` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.4] - 2026-09-03
+
+### Added
+- **In-Container File Editing (`editor.go`)**: Integrated interactive `$EDITOR` / `$VISUAL` editing (`[e]`/`[E]`) in File Explorer and Container Action Menu, with temporary host file caching, timestamp/size change detection, and confirmation prompt before upload.
+- **Enhanced File Explorer Navigation**: Added full keyboard navigation support for `<Home>`, `<End>`, `<PageUp>`, and `<PageDown>` (15-item jumps) in container directory listings.
+- **In-Container File Deletion**: Added interactive file deletion (`[x]`/`[X]`/`<Delete>`) with inline `[y/N]` confirmation safety guard.
+
+### Changed
+- **Unified Inline Input Header Bar**: Refactored host upload input (`[u]`) to follow the same seamless inline header bar pattern as search (`[f]`) and filter (`[/]`), eliminating separate centered modal popups.
+- **Icon Typography Spacing**: Added `ensureIconSpacing` across file explorer banners and table listings to ensure consistent padding between Unicode / Nerd Font glyphs and text labels.
+
+### Fixed & Hardened
+- **Win32 Console Handle Safety**: Replaced direct `ui.Clear()` invocations with `theme.SafeClear()` in `grid.go` to prevent `panic: The handle is invalid` when running without attached terminal buffers.
+- **Subprocess Security Hardening**: Sanitized editor command resolution with `filepath.Clean` and `exec.LookPath` validation prior to terminal restoration and child process execution (`#nosec G204,G702`).
+- **Test Coverage Expansion**: Added 1,000+ lines of unit tests across `single_test.go`, `editor_test.go`, `grid_test.go`, and `server_test.go`, fully documented in `TESTING.md`.
+
+---
+
 ## [v0.9.3] - 2026-09-01
 
 ### Added
@@ -12,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **In-Terminal Web Service Inspector (Tab 9 / WebView)**: Embedded interactive HTTP/HTTPS prober in TUI (`[9]` / `W`) and Web Dashboard Tab 9 supporting Rendered ANSI HTML, sorted HTTP headers, raw body viewing, dynamic port cycling (`n`/`p`), and custom subpath probing (`g`).
 - **Pure-Go HTML AST Parser & Terminal Renderer (`pkg/htmlrender`)**: Zero-dependency HTML tokenizer and DOM walker with Unicode box-drawing table formatting, runewidth-aware word-wrapping, and strict anti-XSS tag stripping (`<script>`, `<style>`, `<svg>`).
 - **Automated Service Discovery & Bounded HTTP Prober (`pkg/serviceprobe`)**: Automated endpoint resolution from port mappings, internal bridge IPs, and ENV declarations with 2MB response ceilings, 3-redirect limits, and Slowloris timeout protection.
-- **Thread-Safe Daily-Rotated NDJSON Audit Logging (`pkg/audit`)**: Added `--audit-log <path>` flag generating immutable access and compliance audit trails with automatic midnight file rotation and zero-secret leakage.
+- **Thread-Safe Daily-Rotated NDJSON Audit Logging (`pkg/audit`)**: Added `--audit-log <path>` flag generating access and compliance audit trails with automatic midnight file rotation and zero-secret leakage.
 - **CLI Service Subcommand Dispatcher (`pkg/service`)**: Integrated `ctop service <action>` (`install`, `uninstall`, `status`, `generate`) for managing background systemd telemetry daemons.
 - **Automated Reverse Proxy E2E Test Suite (`tests/nginx/`)**: Added 16-scenario automated NGINX integration test harness validating SSL termination, subpath prefixes, live SSE feeds, token auth, session cookies, and daily audit rotation.
 

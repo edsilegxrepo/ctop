@@ -70,6 +70,10 @@ func (m *mockCursorManager) Upload(srcPath, dstPath string) error {
 	return nil
 }
 
+func (m *mockCursorManager) DeleteFile(path string) error {
+	return nil
+}
+
 func (m *mockCursorManager) UpdateResources(memoryMB int64, cpus float64, restartPolicy string) error {
 	return nil
 }

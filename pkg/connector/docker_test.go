@@ -5,6 +5,7 @@ package connector
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -70,6 +71,10 @@ func (d *dummyManager) Download(srcPath, dstPath string) (int64, error) {
 }
 
 func (d *dummyManager) Upload(srcPath, dstPath string) error {
+	return nil
+}
+
+func (d *dummyManager) DeleteFile(path string) error {
 	return nil
 }
 
@@ -697,5 +702,8 @@ func TestGlobalTLSConfig(t *testing.T) {
 	}
 	if client == nil {
 		t.Fatal("expected non-nil client")
+	}
+	if client.TLSConfig == nil || client.TLSConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("expected MinVersion tls.VersionTLS12, got %+v", client.TLSConfig)
 	}
 }

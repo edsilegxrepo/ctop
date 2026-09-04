@@ -10,8 +10,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -70,6 +72,19 @@ func TestConfigSwitches(t *testing.T) {
 	UpdateSwitch("sortReversed", false)
 	if GetSwitchVal("sortReversed") {
 		t.Errorf("expected sortReversed=false")
+	}
+
+	// Test logWrap defaults to false (truncate by default)
+	if GetSwitchVal("logWrap") != false {
+		t.Errorf("expected logWrap to default to false, got true")
+	}
+	Toggle("logWrap")
+	if !GetSwitchVal("logWrap") {
+		t.Errorf("expected logWrap to toggle to true")
+	}
+	Toggle("logWrap")
+	if GetSwitchVal("logWrap") {
+		t.Errorf("expected logWrap to toggle back to false")
 	}
 }
 
@@ -230,4 +245,67 @@ func TestColumnToggleAndShift(t *testing.T) {
 		}
 	}()
 	popColumn("non-existent-col-xyz")
+}
+
+func TestDefaultDownloadDir(t *testing.T) {
+	t.Setenv("CTOP_DOWNLOAD_DIR", "")
+	Init()
+
+	if DefaultDownloadDir != "/tmp" {
+		t.Fatalf("expected DefaultDownloadDir constant to be '/tmp', got '%s'", DefaultDownloadDir)
+	}
+
+	if val := GetDownloadDir(); val != "/tmp" {
+		t.Fatalf("expected GetDownloadDir() to return '/tmp' by default, got '%s'", val)
+	}
+
+	// When explicitly set to empty or whitespace, should fall back to DefaultDownloadDir
+	Update("downloadDir", "")
+	if val := GetDownloadDir(); val != "/tmp" {
+		t.Fatalf("expected GetDownloadDir() on empty string to fall back to '/tmp', got '%s'", val)
+	}
+
+	SetDownloadDir("   ")
+	if val := GetDownloadDir(); val != "/tmp" {
+		t.Fatalf("expected SetDownloadDir('   ') to fall back to '/tmp', got '%s'", val)
+	}
+
+	// Custom valid directory
+	SetDownloadDir("/var/custom-ctop")
+	if val := GetDownloadDir(); val != "/var/custom-ctop" {
+		t.Fatalf("expected GetDownloadDir() to return '/var/custom-ctop', got '%s'", val)
+	}
+}
+
+func TestConfigUpdate_ConcurrentRegistration(t *testing.T) {
+	Init()
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			key := fmt.Sprintf("dynamicParam_%d", idx%5)
+			Update(key, fmt.Sprintf("val_%d", idx))
+		}(i)
+	}
+	wg.Wait()
+
+	// Verify each key was set and exists uniquely
+	for i := 0; i < 5; i++ {
+		key := fmt.Sprintf("dynamicParam_%d", i)
+		count := 0
+		lock.RLock()
+		for _, p := range GlobalParams {
+			if p.Key == key {
+				count++
+			}
+		}
+		lock.RUnlock()
+		if count != 1 {
+			t.Fatalf("expected key %s to appear exactly once in GlobalParams, appeared %d times", key, count)
+		}
+		if val := GetVal(key); val == "" {
+			t.Fatalf("expected non-empty value for key %s", key)
+		}
+	}
 }

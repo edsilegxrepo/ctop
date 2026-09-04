@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/edsilegx/ctop/internal/theme"
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/sanitize"
 	ui "github.com/gizak/termui/v3"
 	"github.com/mattn/go-runewidth"
@@ -23,6 +24,7 @@ type TextView struct {
 	closed      chan struct{}
 	closeOnce   sync.Once
 	toggleState bool
+	wrap        bool
 	filterStr   string
 	paused      bool
 	Text        []ToggleText // all the text
@@ -41,6 +43,7 @@ func NewTextView(lines <-chan ToggleText) *TextView {
 		TextOut:     []string{},
 		TextStyle:   theme.Style2("menu.text.fg", "menu.text.bg"),
 		padding:     Padding{4, 2},
+		wrap:        config.GetSwitchVal("logWrap"),
 	}
 
 	t.BorderStyle = theme.Style("menu.border.fg")
@@ -71,6 +74,30 @@ func (t *TextView) Toggle() {
 	t.toggleState = !t.toggleState
 	t.recomputeTextOut()
 	t.mu.Unlock()
+}
+
+// ToggleWrap toggles wrapping vs. truncating of lines
+func (t *TextView) ToggleWrap() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.wrap = !t.wrap
+	t.recomputeTextOut()
+	return t.wrap
+}
+
+// SetWrap sets wrapping vs. truncating of lines
+func (t *TextView) SetWrap(wrap bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.wrap = wrap
+	t.recomputeTextOut()
+}
+
+// IsWrap returns whether line wrapping is enabled
+func (t *TextView) IsWrap() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.wrap
 }
 
 // Pause pauses automatic background redraws
@@ -140,7 +167,12 @@ func (t *TextView) recomputeTextOut() {
 		if t.filterStr != "" && !strings.Contains(strings.ToLower(raw), strings.ToLower(t.filterStr)) {
 			continue
 		}
-		lines := splitLine(raw, maxWidth)
+		var lines []string
+		if t.wrap {
+			lines = splitLine(raw, maxWidth)
+		} else {
+			lines = []string{truncateToWidth(raw, maxWidth)}
+		}
 		for j := len(lines) - 1; j >= 0; j-- {
 			t.TextOut = append([]string{lines[j]}, t.TextOut...)
 			if len(t.TextOut) >= height {
@@ -223,18 +255,32 @@ func (t *TextView) readInputLoop() {
 	}()
 }
 
+func truncateToWidth(line string, maxWidth int) string {
+	if line == "" || maxWidth <= 0 {
+		return ""
+	}
+	runes := []rune(line)
+	if len(runes) <= maxWidth {
+		return line
+	}
+	return string(runes[:maxWidth])
+}
+
 func splitLine(line string, lineSize int) []string {
 	if line == "" || lineSize <= 0 {
 		return []string{}
 	}
-
-	var lines []string
-	for {
-		if len(line) <= lineSize {
-			lines = append(lines, line)
-			return lines
-		}
-		lines = append(lines, line[:lineSize])
-		line = line[lineSize:]
+	runes := []rune(line)
+	if len(runes) <= lineSize {
+		return []string{line}
 	}
+	var lines []string
+	for len(runes) > lineSize {
+		lines = append(lines, string(runes[:lineSize]))
+		runes = runes[lineSize:]
+	}
+	if len(runes) > 0 {
+		lines = append(lines, string(runes))
+	}
+	return lines
 }

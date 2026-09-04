@@ -1698,3 +1698,73 @@ func TestWebServer_SSEBroadcasterSlowSubscriberNonBlocking(t *testing.T) {
 		b.Unsubscribe(ch)
 	}
 }
+
+func TestWebServer_MutatingMethodsRejected_ReadOnlyOnly(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{
+			{ID: "c1", Name: "app-server", State: "running"},
+		},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.3", mockProv, nil)
+
+	mutatingMethods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch}
+	endpoints := []string{
+		"/api/v1/containers",
+		"/api/v1/containers/c1",
+		"/api/v1/containers/c1/files",
+		"/api/v1/containers/c1/file",
+		"/api/v1/containers/c1/search",
+		"/api/v1/containers/c1/upload",
+		"/api/v1/containers/c1/delete",
+		"/api/v1/containers/c1/edit",
+	}
+
+	for _, method := range mutatingMethods {
+		for _, endpoint := range endpoints {
+			req := httptest.NewRequest(method, endpoint, nil)
+			w := httptest.NewRecorder()
+			s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+			if w.Code != http.StatusMethodNotAllowed && w.Code != http.StatusNotFound {
+				t.Fatalf("expected 405 MethodNotAllowed or 404 NotFound for %s %s, got %d", method, endpoint, w.Code)
+			}
+		}
+	}
+}
+
+func TestWebServer_FileExplorerMutations_StrictlyTUIOnly(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{
+			{ID: "c1", Name: "app-server", State: "running"},
+		},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.3", mockProv, nil)
+
+	forbiddenEndpoints := []string{
+		"/api/v1/containers/c1/upload",
+		"/api/v1/containers/c1/edit",
+		"/api/v1/containers/c1/delete",
+	}
+
+	methods := []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete}
+	for _, m := range methods {
+		for _, ep := range forbiddenEndpoints {
+			req := httptest.NewRequest(m, ep, nil)
+			w := httptest.NewRecorder()
+			s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("expected 405 MethodNotAllowed for %s %s, got %d", m, ep, w.Code)
+			}
+			if m == http.MethodGet {
+				if !strings.Contains(w.Body.String(), "strictly TUI-only") {
+					t.Fatalf("expected body to indicate strictly TUI-only, got: %s", w.Body.String())
+				}
+			} else {
+				if !strings.Contains(w.Body.String(), "read-only") {
+					t.Fatalf("expected body to indicate read-only API, got: %s", w.Body.String())
+				}
+			}
+		}
+	}
+}

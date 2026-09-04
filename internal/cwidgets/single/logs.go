@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edsilegx/ctop/internal/theme"
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/jsonfmt"
 	"github.com/edsilegx/ctop/pkg/models"
 	"github.com/edsilegx/ctop/pkg/sanitize"
@@ -33,6 +34,8 @@ type Logs struct {
 	ShowTime      bool
 	Filter        string
 	StatusMsg     string
+	StatusTime    time.Time
+	Wrap          bool
 	mu            sync.RWMutex
 }
 
@@ -44,8 +47,9 @@ func NewLogs() *Logs {
 		Offset:   0,
 		AutoTail: true,
 		ShowTime: true,
+		Wrap:     config.GetSwitchVal("logWrap"),
 	}
-	l.Title = "LOGS [Auto-Tail | t: time | /: filter | s: save | ▲▼: scroll]"
+	l.Title = "LOGS [Auto-Tail | t: time | w: wrap | /: filter | s: save | D: target | ▲▼: scroll]"
 	l.BorderStyle = theme.Style("border.fg")
 	l.TitleStyle = theme.Style("label.fg")
 	l.SetRect(0, 0, colWidth[0], 6)
@@ -57,6 +61,36 @@ func (w *Logs) SetContainerName(name string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.ContainerName = name
+}
+
+// SetStatus sets an ephemeral status message that auto-clears after 2-3 seconds.
+func (w *Logs) SetStatus(msg string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.StatusMsg = msg
+	w.StatusTime = time.Now()
+}
+
+// SetWrap sets wrapping vs. truncating of lines.
+func (w *Logs) SetWrap(wrap bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.Wrap = wrap
+}
+
+// ToggleWrap toggles wrapping vs. truncating of lines.
+func (w *Logs) ToggleWrap() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.Wrap = !w.Wrap
+	return w.Wrap
+}
+
+// IsWrap returns whether wrapping is enabled.
+func (w *Logs) IsWrap() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.Wrap
 }
 
 // Add appends a new log message to the buffer.
@@ -157,7 +191,7 @@ func (w *Logs) SaveLogs(destDir string) (string, error) {
 	defer w.mu.RUnlock()
 
 	if destDir == "" {
-		destDir = "."
+		destDir = config.GetDownloadDir()
 	}
 	_ = os.MkdirAll(filepath.Clean(destDir), 0o750)
 
@@ -200,6 +234,11 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 		return
 	}
 
+	lineWidth := visibleW - 4
+	if lineWidth <= 0 {
+		lineWidth = 1
+	}
+
 	// Filter and format matching lines
 	var renderedLines []string
 	filterLower := strings.ToLower(w.Filter)
@@ -212,7 +251,12 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 		if filterLower != "" && !strings.Contains(strings.ToLower(line), filterLower) {
 			continue
 		}
-		renderedLines = append(renderedLines, line)
+		if w.Wrap {
+			chunks := splitLogLine(line, lineWidth)
+			renderedLines = append(renderedLines, chunks...)
+		} else {
+			renderedLines = append(renderedLines, line)
+		}
 	}
 
 	maxOffset := len(renderedLines) - visibleH
@@ -232,24 +276,41 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 	if w.Filter != "" {
 		filterInfo = fmt.Sprintf(" [/filter: %s]", w.Filter)
 	}
-	statusInfo := ""
-	if w.StatusMsg != "" {
-		statusInfo = fmt.Sprintf(" [%s]", w.StatusMsg)
-	}
 
 	cTag := ""
 	if w.ContainerName != "" {
 		cTag = fmt.Sprintf(" [%s]", w.ContainerName)
 	}
 
-	if w.AutoTail {
-		w.Title = fmt.Sprintf("LOGS%s%s%s [🔴 Auto-Tail | t: time | /: filter | s: save | ▲▼: scroll]", cTag, filterInfo, statusInfo)
+	wrapTag := "w: wrap"
+	if w.Wrap {
+		wrapTag = "w: wrap(on)"
+	}
+
+	// Ephemeral status message replaces the keybinding help banner for ~2.5s
+	statusActive := false
+	if w.StatusMsg != "" {
+		if w.StatusTime.IsZero() {
+			w.StatusTime = time.Now()
+			statusActive = true
+		} else if time.Since(w.StatusTime) > 2500*time.Millisecond {
+			w.StatusMsg = ""
+			w.StatusTime = time.Time{}
+		} else {
+			statusActive = true
+		}
+	}
+
+	if statusActive {
+		w.Title = fmt.Sprintf("LOGS%s%s [%s]", cTag, filterInfo, w.StatusMsg)
+	} else if w.AutoTail {
+		w.Title = fmt.Sprintf("LOGS%s%s [🔴 Auto-Tail | t: time | %s | /: filter | s: save | D: target | ▲▼: scroll]", cTag, filterInfo, wrapTag)
 	} else {
 		endLine := w.Offset + visibleH
 		if endLine > len(renderedLines) {
 			endLine = len(renderedLines)
 		}
-		w.Title = fmt.Sprintf("LOGS%s%s%s [⏸ PAUSED %d-%d/%d | G: resume tail | t: time | s: save]", cTag, filterInfo, statusInfo, w.Offset+1, endLine, len(renderedLines))
+		w.Title = fmt.Sprintf("LOGS%s%s [⏸ PAUSED %d-%d/%d | G: resume tail | t: time | %s | s: save | D: target]", cTag, filterInfo, w.Offset+1, endLine, len(renderedLines), wrapTag)
 	}
 
 	w.Block.Draw(buf)
@@ -294,4 +355,23 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 		}
 		y++
 	}
+}
+
+func splitLogLine(line string, lineSize int) []string {
+	if line == "" || lineSize <= 0 {
+		return []string{}
+	}
+	runes := []rune(line)
+	if len(runes) <= lineSize {
+		return []string{line}
+	}
+	var res []string
+	for len(runes) > lineSize {
+		res = append(res, string(runes[:lineSize]))
+		runes = runes[lineSize:]
+	}
+	if len(runes) > 0 {
+		res = append(res, string(runes))
+	}
+	return res
 }

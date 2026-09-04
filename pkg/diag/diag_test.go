@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edsilegx/ctop/pkg/config"
 	"github.com/edsilegx/ctop/pkg/models"
 )
 
@@ -118,5 +119,19 @@ func TestBuildReportAndExport(t *testing.T) {
 	saved, err := SaveReport(report, tmpDir, "both")
 	if err != nil || len(saved) != 2 {
 		t.Fatalf("expected 2 files saved, got %v (err: %v)", saved, err)
+	}
+
+	// 4. SaveReport with empty destDir (falls back to config.GetDownloadDir())
+	config.Init()
+	customDir := t.TempDir()
+	config.SetDownloadDir(customDir)
+	savedDefault, err := SaveReport(report, "", "both")
+	if err != nil || len(savedDefault) != 2 {
+		t.Fatalf("expected 2 files saved using default download dir, got %v (err: %v)", savedDefault, err)
+	}
+	for _, p := range savedDefault {
+		if !strings.HasPrefix(p, customDir) {
+			t.Fatalf("expected saved file path %s to start with %s", p, customDir)
+		}
 	}
 }

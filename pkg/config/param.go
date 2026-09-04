@@ -1,5 +1,10 @@
 package config
 
+import "strings"
+
+// DefaultDownloadDir defines the default host directory for file explorer downloads, report exports, and log saves.
+const DefaultDownloadDir = "/tmp"
+
 // defaults
 var defaultParams = []*Param{
 	{
@@ -19,7 +24,7 @@ var defaultParams = []*Param{
 	},
 	{
 		Key:   "downloadDir",
-		Val:   ".",
+		Val:   DefaultDownloadDir,
 		Label: "Default Host Download Directory",
 	},
 	{
@@ -65,6 +70,29 @@ func Update(k, v string) {
 
 	lock.Lock()
 	defer lock.Unlock()
-	p.Val = v
-	// log.Errorf("ignoring update for non-existant parameter: %s", k)
+	for _, existing := range GlobalParams {
+		if existing.Key == k {
+			existing.Val = v
+			return
+		}
+	}
+	GlobalParams = append(GlobalParams, &Param{Key: k, Val: v})
+}
+
+// GetDownloadDir returns the active download directory or DefaultDownloadDir if unset or blank.
+func GetDownloadDir() string {
+	dir := strings.TrimSpace(GetVal("downloadDir"))
+	if dir == "" {
+		return DefaultDownloadDir
+	}
+	return dir
+}
+
+// SetDownloadDir sets the active download directory, falling back to DefaultDownloadDir if blank.
+func SetDownloadDir(dir string) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		dir = DefaultDownloadDir
+	}
+	Update("downloadDir", dir)
 }

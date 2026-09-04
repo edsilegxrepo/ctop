@@ -164,6 +164,19 @@ func TestTextViewControls(t *testing.T) {
 		t.Fatalf("expected filter 'line 1', got '%s'", filter)
 	}
 
+	// Wrap controls (defaults to false = truncate)
+	if tv.IsWrap() {
+		t.Fatal("expected IsWrap() to default to false (truncated)")
+	}
+	tv.ToggleWrap()
+	if !tv.IsWrap() {
+		t.Fatal("expected IsWrap() to toggle to true")
+	}
+	tv.SetWrap(false)
+	if tv.IsWrap() {
+		t.Fatal("expected IsWrap() to be false after SetWrap(false)")
+	}
+
 	// Toggle
 	tv.Toggle()
 	tv.Resize()
