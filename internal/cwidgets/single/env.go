@@ -62,7 +62,7 @@ func (w *Env) rebuild() {
 
 			displayVal := value
 			if w.Masked && sanitize.IsSensitiveKey(key) && len(value) > 0 {
-				displayVal = "•••••••••••• [masked]"
+				displayVal = sanitize.MaskValue
 			}
 			w.Rows = append(w.Rows, mkInfoRows(key, displayVal)...)
 		}

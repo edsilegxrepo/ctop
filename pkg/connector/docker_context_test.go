@@ -42,3 +42,23 @@ func TestDockerContextResolution(t *testing.T) {
 		t.Fatalf("expected unix:///tmp/colima.sock, got %s", ep)
 	}
 }
+
+func TestDockerContextRootlessResolution(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DOCKER_CONTEXT", "")
+
+	tmpDir := t.TempDir()
+	mockSock := filepath.Join(tmpDir, "docker.sock")
+	if err := os.WriteFile(mockSock, []byte{}, 0o600); err != nil {
+		t.Fatalf("failed to create mock socket: %v", err)
+	}
+
+	t.Setenv("XDG_RUNTIME_DIR", tmpDir)
+	ep := resolveDefaultSocket()
+	// On Linux, if /var/run/docker.sock does not exist, it resolves to XDG_RUNTIME_DIR
+	if _, err := os.Stat("/var/run/docker.sock"); os.IsNotExist(err) {
+		if ep != "unix://"+mockSock {
+			t.Fatalf("expected unix://%s, got %s", mockSock, ep)
+		}
+	}
+}

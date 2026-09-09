@@ -148,6 +148,14 @@ func (c *renderContext) walk(n *html.Node) {
 	}
 }
 
+// isDisallowedURLScheme checks if a URL uses an executable or dangerous pseudo-scheme (e.g., javascript, vbscript, data).
+func isDisallowedURLScheme(rawURL string) bool {
+	lower := strings.ToLower(strings.TrimSpace(rawURL))
+	return strings.HasPrefix(lower, "javascript:") ||
+		strings.HasPrefix(lower, "vbscript:") ||
+		strings.HasPrefix(lower, "data:")
+}
+
 func (c *renderContext) handleElementOpen(n *html.Node) {
 	switch n.Data {
 	case "title":
@@ -218,7 +226,7 @@ func (c *renderContext) handleElementOpen(n *html.Node) {
 		for _, attr := range n.Attr {
 			if attr.Key == "href" && strings.TrimSpace(attr.Val) != "" {
 				href := strings.TrimSpace(attr.Val)
-				if !strings.HasPrefix(href, "javascript:") {
+				if !isDisallowedURLScheme(href) {
 					if _, exists := c.links[href]; !exists {
 						c.links[href] = len(c.doc.Links) + 1
 						c.doc.Links = append(c.doc.Links, href)

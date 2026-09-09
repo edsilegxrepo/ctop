@@ -25,7 +25,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -50,6 +52,40 @@ type HTTPProbeResult struct {
 // MaxProbeResponseBodyLimit limits read response size to 2 MB.
 const MaxProbeResponseBodyLimit = 2 * 1024 * 1024
 
+// isDisallowedProbeTarget checks if a target hostname is a prohibited cloud metadata or link-local address.
+func isDisallowedProbeTarget(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "" {
+		return true
+	}
+	if host == "metadata.google.internal" || host == "metadata" || strings.HasSuffix(host, ".metadata.google.internal") {
+		return true
+	}
+	h, _, err := net.SplitHostPort(host)
+	if err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip4 := ip.To4(); ip4 != nil {
+			if ip4[0] == 169 && ip4[1] == 254 {
+				return true
+			}
+			if ip.IsUnspecified() {
+				return true
+			}
+		} else {
+			if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+				return true
+			}
+			if ip.String() == "fd00:ec2::254" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ProbeHTTP executes a fast, bounded HTTP request to the target URL.
 func ProbeHTTP(ctx context.Context, targetURL string, timeout time.Duration) *HTTPProbeResult {
 	if timeout <= 0 {
@@ -67,9 +103,25 @@ func ProbeHTTP(ctx context.Context, targetURL string, timeout time.Duration) *HT
 		result.TargetURL = targetURL
 	}
 
+	parsedURL, parseErr := url.Parse(targetURL)
+	if parseErr != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		result.Error = fmt.Sprintf("invalid or unsupported request URL: %v", parseErr)
+		return result
+	}
+	if parsedURL.Hostname() == "" {
+		result.Error = "invalid request URL: missing host"
+		return result
+	}
+	if isDisallowedProbeTarget(parsedURL.Hostname()) {
+		result.Error = fmt.Sprintf("request blocked by SSRF security policy: %s", parsedURL.Hostname())
+		return result
+	}
+
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// #nosec G107 -- Bounded internal probe client for container endpoint inspection; target is validated and constrained to HTTP/HTTPS
+	// codeql[go/request-forgery] In-engine container inspector queries validated container endpoints
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		result.Error = fmt.Sprintf("invalid request URL: %v", err)
@@ -82,8 +134,9 @@ func ProbeHTTP(ctx context.Context, targetURL string, timeout time.Duration) *HT
 	// Custom transport allowing internal self-signed TLS certs
 	tr := &http.Transport{
 		// #nosec G402 -- In-engine service probe requires InsecureSkipVerify to probe local/in-container endpoints with self-signed TLS certificates
+		// CodeQL [go/disabled-certificate-check] Required for inspecting containers with self-signed TLS certs
 		// nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- In-engine probe requires InsecureSkipVerify for self-signed container endpoints
-		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, // nosemgrep
 		DisableKeepAlives:     true,
 		ResponseHeaderTimeout: timeout,
 	}
@@ -95,11 +148,16 @@ func ProbeHTTP(ctx context.Context, targetURL string, timeout time.Duration) *HT
 			if len(via) >= 3 {
 				return http.ErrUseLastResponse
 			}
+			if req.URL != nil && isDisallowedProbeTarget(req.URL.Hostname()) {
+				return fmt.Errorf("redirect blocked by SSRF security policy to host: %s", req.URL.Hostname())
+			}
 			return nil
 		},
 	}
 
 	start := time.Now()
+	// #nosec G107 -- Bounded internal probe client for container endpoint inspection; target is validated and constrained to HTTP/HTTPS
+	// codeql[go/request-forgery] In-engine container inspector purposefully queries validated container endpoints
 	resp, err := client.Do(req)
 	result.Duration = time.Since(start)
 	result.DurationMS = float64(result.Duration.Microseconds()) / 1000.0

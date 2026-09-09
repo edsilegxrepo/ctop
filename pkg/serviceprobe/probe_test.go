@@ -211,3 +211,34 @@ func TestProbeHTTP_OversizedBodyLimit(t *testing.T) {
 		t.Errorf("expected body length <= 2MB, got %d bytes", len(res.Body))
 	}
 }
+
+func TestProbeHTTP_SSRFProtection(t *testing.T) {
+	ctx := context.Background()
+
+	// Prohibited cloud metadata IP
+	resIP := ProbeHTTP(ctx, "http://169.254.169.254/latest/meta-data/", 1*time.Second)
+	if resIP.Error == "" || !strings.Contains(resIP.Error, "SSRF security policy") {
+		t.Errorf("expected SSRF block error for 169.254.169.254, got: %+v", resIP)
+	}
+
+	// Prohibited Google Cloud metadata host
+	resHost := ProbeHTTP(ctx, "http://metadata.google.internal/computeMetadata/v1/", 1*time.Second)
+	if resHost.Error == "" || !strings.Contains(resHost.Error, "SSRF security policy") {
+		t.Errorf("expected SSRF block error for metadata.google.internal, got: %+v", resHost)
+	}
+}
+
+func TestProbeHTTP_SSRFRedirectProtection(t *testing.T) {
+	// Server attempting to redirect client to cloud metadata IP
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer ts.Close()
+
+	ctx := context.Background()
+	res := ProbeHTTP(ctx, ts.URL, 2*time.Second)
+
+	if res.Error == "" || !strings.Contains(res.Error, "SSRF security policy") {
+		t.Errorf("expected redirect to metadata to be blocked by SSRF policy, got error: %q", res.Error)
+	}
+}

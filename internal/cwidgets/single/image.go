@@ -190,7 +190,7 @@ func (w *Image) buildRows() []imageRow {
 				v = parts[1]
 			}
 			if sanitize.IsSensitiveKey(k) && len(v) > 0 {
-				v = "•••••••••••• [masked]"
+				v = sanitize.MaskValue
 			}
 			rows = append(rows, imageRow{key: k, val: v})
 		}

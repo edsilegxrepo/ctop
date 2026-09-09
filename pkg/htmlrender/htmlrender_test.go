@@ -197,3 +197,29 @@ func TestRenderScriptAndDangerousTagsStripped(t *testing.T) {
 		t.Errorf("expected safe text in output:\n%s", content)
 	}
 }
+
+func TestRenderDangerousURLSchemesFiltered(t *testing.T) {
+	raw := `
+	<div>
+		<a href="javascript:alert('xss')">JS Link</a>
+		<a href="JavaScript:alert('bypass')">Mixed Case JS Link</a>
+		<a href="JAVASCRIPT:alert('caps')">Caps JS Link</a>
+		<a href="vbscript:msgbox('alert')">VBS Link</a>
+		<a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">Data Link</a>
+		<a href="https://secure.example.com/status">Legitimate Link</a>
+		<a href="/relative/path">Relative Link</a>
+	</div>`
+
+	doc := RenderHTML(raw, RenderOptions{MaxWidth: 80, ShowFootnotes: true})
+
+	// Only the legitimate and relative links should be collected into doc.Links
+	if len(doc.Links) != 2 {
+		t.Fatalf("expected exactly 2 links, but got %d: %v", len(doc.Links), doc.Links)
+	}
+	if doc.Links[0] != "https://secure.example.com/status" {
+		t.Errorf("expected link 0 to be https://secure.example.com/status, got %s", doc.Links[0])
+	}
+	if doc.Links[1] != "/relative/path" {
+		t.Errorf("expected link 1 to be /relative/path, got %s", doc.Links[1])
+	}
+}

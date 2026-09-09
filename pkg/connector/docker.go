@@ -106,13 +106,19 @@ func newDockerClient(endpoint string) (*api.Client, error) {
 	)
 	cfg := getGlobalTLSConfig()
 	if cfg.Cert != "" || cfg.Key != "" || cfg.CA != "" {
+		if endpoint == "" {
+			endpoint = "tcp://127.0.0.1:2376"
+		}
 		client, err = api.NewTLSClient(endpoint, cfg.Cert, cfg.Key, cfg.CA)
 	} else if certPath := os.Getenv("DOCKER_CERT_PATH"); certPath != "" {
+		if endpoint == "" {
+			endpoint = "tcp://127.0.0.1:2376"
+		}
 		ca := filepath.Join(certPath, "ca.pem")
 		cert := filepath.Join(certPath, "cert.pem")
 		key := filepath.Join(certPath, "key.pem")
 		client, err = api.NewTLSClient(endpoint, cert, key, ca)
-	} else if cfg.Verify || os.Getenv("DOCKER_TLS_VERIFY") == "1" || strings.HasPrefix(endpoint, "https://") {
+	} else if endpoint == "" || cfg.Verify || os.Getenv("DOCKER_TLS_VERIFY") == "1" || strings.HasPrefix(endpoint, "https://") {
 		client, err = api.NewClientFromEnv()
 	} else {
 		client, err = api.NewClient(endpoint)

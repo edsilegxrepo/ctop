@@ -184,6 +184,7 @@ ctop --headless --web :9443 \
 - **`GET /api/v1/metrics`**: Aggregated cluster and host resource telemetry JSON.
 - **`GET /api/v1/containers`**: List of active container snapshots.
 - **`GET /api/v1/containers/{id}`**: Single container telemetry details.
+- **`GET /api/v1/containers/{id}/logs`**: Container log streaming (`?stream=true`), full history download (`?download=true&tail=all`), and snapshot JSON.
 - **`GET /api/v1/containers/{id}/top`**: In-container running process table.
 - **`GET /api/v1/containers/{id}/diff`**: Writable layer filesystem change set.
 - **`GET /api/v1/containers/{id}/files`**: In-container directory listings (`?path=/...`).
@@ -264,6 +265,7 @@ ctop --host local --host tcp://10.0.0.12:2375 --host ssh://ubuntu@production.inf
 - **Colima**: Automatically resolves `unix://$HOME/.colima/default/docker.sock`.
 - **Rancher Desktop**: Automatically resolves Rancher's isolated socket metadata.
 - **Docker Desktop**: Resolves named desktop and cloud contexts.
+- **Rootless Docker Auto-Discovery**: Automatically resolves rootless daemon sockets on Linux via `$XDG_RUNTIME_DIR/docker.sock` or `/run/user/<uid>/docker.sock` when `/var/run/docker.sock` is absent.
 
 ### Structured Multi-Field Filtering Syntax
 
@@ -315,30 +317,86 @@ ctop --web 0.0.0.0:9090 --headless
 ctop --web :9090 --url-prefix /probe
 ```
 
-#### 2. Web Dashboard Features
+#### 2. Running as a Systemd Background Service (Headless Mode)
+
+`ctop` can run as an autonomous, headless background monitoring daemon managed by `systemd`. In headless mode (`--headless`), the terminal UI is disabled, and `ctop` streams real-time telemetry over HTTP/SSE while trapping system signals for clean shutdown.
+
+```bash
+# 1. Automatically install systemd service unit to /etc/systemd/system/ctop.service
+sudo ctop service install
+
+# 2. Reload systemd and start the background service immediately
+sudo systemctl daemon-reload
+sudo systemctl enable --now ctop
+
+# 3. Check service status and active telemetry stream
+sudo systemctl status ctop
+journalctl -u ctop -f
+
+# 4. View service configuration or generate unit template
+ctop service status
+ctop service generate
+
+# 5. Stop and uninstall systemd service
+sudo systemctl disable --now ctop
+sudo ctop service uninstall
+```
+
+*Generated Systemd Service Unit (`/etc/systemd/system/ctop.service`):*
+```ini
+[Unit]
+Description=ctop - Container Top & Monitoring Telemetry Daemon
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ctop --headless --web :9090 --web-auth-token
+Restart=always
+RestartSec=5s
+LimitNOFILE=65536
+Environment=CTOP_DOWNLOAD_DIR=/var/log/ctop
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> [!NOTE]
+> **Non-Interactive Security Guard**: When running under systemd without an interactive terminal, `ctop` automatically silences token printing on `stdout`. The 64-character bearer token is securely written to `~/.config/ctop/token` (`0400` permissions) for client scripts and monitoring tools to read.
+
+> [!IMPORTANT]
+> **Network Security Invariant (`--web-auth-token` REQUIRES TLS for Remote Access)**:
+> - **Without TLS (Localhost Only)**: If started with plain HTTP (e.g. `--web :9090` without TLS certificates), `ctop` strictly permits connections **exclusively from `localhost` / `127.0.0.1`**. Any remote network request over unencrypted HTTP will be rejected with `403 Forbidden` (`TLS encryption required`).
+> - **Remote Network Access**: To access the dashboard across a network or public interface, **TLS encryption is mandatory**:
+>   1. **Native HTTPS**: Add `--web-tls-cert /path/to/cert.pem --web-tls-key /path/to/key.pem` to `ExecStart` (e.g. `--web :9443`).
+>   2. **Upstream Reverse Proxy**: Put NGINX, Caddy, or Traefik in front with TLS termination, forwarding to `127.0.0.1:9090` with `X-Forwarded-Proto: https`.
+>   3. **SSH Port Forwarding**: Forward local port via `ssh -L 9090:127.0.0.1:9090 user@server`, then connect through `http://localhost:9090`.
+
+#### 3. Web Dashboard Features
 - **Cluster Summary Cards**: Total, running, paused, and stopped containers, aggregated CPU %, total memory usage/limit, and network & disk I/O throughput rates.
 - **HTML5 Canvas 2D Sparklines**: Real-time streaming graphs for Cluster CPU utilization, Memory allocation, and Network throughput (Rx/Tx).
 - **Interactive Container Drill-Down Modal**: Click any container row to open a full glassmorphic inspector:
   - **4 Real-Time Sparkline Charts**: CPU %, Memory allocation, Network throughput (Rx/Tx), and Disk I/O rate (Read/Write).
   - **Running Telemetry History**: Fixed-width rolling 5-sample live history table.
-  - **6 Inspection Tabs**:
+  - **7 Inspection Tabs**:
     - `[o] Overview & Metrics`: Live charts, 5-sample running history table, and runtime specs (Created, Uptime, Command, Entrypoint, User, IPs, Ports).
+    - `[l] Logs`: Real-time streaming log viewer with ANSI syntax coloring, Auto-Tail, timestamps, line wrapping, quick log-level filtering (`[ALL]`, `[ERROR]`, `[WARN]`, `[INFO]`), dual-mode export (`Active Buffer` & `Full History from Docker Engine`), and 6,000 DOM line buffer capacity.
     - `[v] Volumes & Mounts`: Destination, Source, Type (`volume`/`bind`), Mode (`rw`/`ro`), and Driver.
     - `[n] Networking & Ports`: Network interfaces (IP, Gateway, MAC, CIDR prefix) and Port Forwarding cards.
     - `[E] Process & Env`: Searchable environment variable key-value table with one-click copy buttons.
     - `[P] In-Container Top`: Live process table queried from `/api/v1/containers/{id}/top`.
     - `[w] Web & Probes`: Zero-dependency embedded web prober, sandboxed IFrame preview, live response headers, and raw payload viewer.
-  - **Keyboard Navigation**: Press `Esc` to close modal, or `o`, `v`, `n`, `e`, `i`, `p`, `d`, `f`, `w` to switch inspection tabs.
+  - **Keyboard Navigation**: Press `Esc` to close modal, or `o`, `l`, `v`, `n`, `e`, `i`, `p`, `d`, `f`, `w` to switch inspection tabs.
 
-#### 3. Telemetry Export & Interactive Reports
+#### 4. Telemetry Export & Interactive Reports
 - **Cluster & Container JSON Export (`📥 Export JSON`)**: Downloads pretty-formatted (2-space indented) JSON containing complete system metrics, container metadata, and running telemetry samples.
 - **Interactive Plain-Text Report Viewer (`📋 View Report`)**: Opens a dedicated report viewer popup displaying the complete structured ASCII-aligned telemetry report, with one-click actions to copy directly to clipboard (`📋 Copy to Clipboard`) or download as a `.txt` file (`📥 Download .txt`).
 
-#### 4. Automatic Secret & Credential Sanitization
+#### 5. Automatic Secret & Credential Sanitization
 To prevent accidental credential disclosure on shared monitoring dashboards:
 - All environment variables and container labels matching sensitive patterns (`PASS`, `SECRET`, `KEY`, `TOKEN`, `AUTH`, `CERT`, `CRED`, `PRIVATE`, `DATABASE_URL`, `DB_URL`, `DSN`, `AWS_`, `ACCESS_KEY`, `SESSION_TOKEN`, `APIKEY`) are **strictly filtered out and excluded** from the web server payloads and browser dashboard.
 
-#### 5. REST & SSE API Reference (Read-Only)
+#### 6. REST & SSE API Reference (Read-Only)
 
 All endpoints strictly enforce `GET`/`HEAD` read-only access (mutating requests return `405 Method Not Allowed`, with the exception of authenticated session login/logout `POST` handlers):
 
@@ -352,6 +410,7 @@ All endpoints strictly enforce `GET`/`HEAD` read-only access (mutating requests 
 | `/api/v1/metrics` | `GET` | Yes (Remote) | Aggregated cluster-wide CPU, memory, network, and disk I/O metrics. |
 | `/api/v1/containers` | `GET` | Yes (Remote) | Array of all container metadata and telemetry snapshots. |
 | `/api/v1/containers/{id}` | `GET` | Yes (Remote) | Detailed telemetry and inspect metadata for a specific container. |
+| `/api/v1/containers/{id}/logs` | `GET` | Yes (Remote) | Container log streaming (SSE `?stream=true`), full history download (`?download=true&tail=all`), or snapshot JSON. |
 | `/api/v1/containers/{id}/top` | `GET` | Yes (Remote) | In-container running process table. |
 | `/api/v1/containers/{id}/diff` | `GET` | Yes (Remote) | Writable layer filesystem change set. |
 | `/api/v1/containers/{id}/files` | `GET` | Yes (Remote) | In-container directory listings (`?path=/...`). |
@@ -361,7 +420,7 @@ All endpoints strictly enforce `GET`/`HEAD` read-only access (mutating requests 
 | `/api/v1/export` | `GET` | Yes (Remote) | Pretty JSON download of cluster telemetry (supports `?container=<id>`). |
 | `/api/v1/stream` | `GET` | Yes (Remote) | High-throughput Server-Sent Events (SSE) live telemetry feed. |
 
-#### 6. Zero-Leak Security Guard & TLS Testing Guide
+#### 7. Zero-Leak Security Guard & TLS Testing Guide
 
 For full technical specifications and threat models, see [docs/SECGUARD.md](docs/SECGUARD.md).
 
@@ -663,6 +722,6 @@ If a container is configured with a Docker health check, a health badge appears 
 - **[docs/SECGUARD.md](docs/SECGUARD.md)**: Zero-Leak Web Authentication, TLS Enforcement & Security Guard Specification.
 - **[docs/DESIGN.md](docs/DESIGN.md)**: Headless engine architecture, REST/WebSocket streaming API, and modular package decoupling specification.
 - **[docs/MODERNIZATION.md](docs/MODERNIZATION.md)**: Go modernization roadmap, dependency upgrades (`termui` v3, `runc` v1.3), and static analysis remediation record.
-- **[TESTING.md](TESTING.md)**: Complete test strategy, categorized test catalog (14 groups), 10 identified defect resolutions, and coverage verification report.
+- **[TESTING.md](TESTING.md)**: Complete test strategy, categorized test catalog (14 groups, 279 test suites), 24 identified defect resolutions, and coverage verification report.
 - **[CHANGELOG.md](CHANGELOG.md)**: Chronological record of all version releases, feature additions, defect fixes, and security remediations.
 - **[SECURITY.md](SECURITY.md)**: Security vulnerability disclosure policy and reporting protocols.

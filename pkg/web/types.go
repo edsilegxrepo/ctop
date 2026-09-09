@@ -52,6 +52,12 @@ type EndpointProbe struct {
 	Timestamp  string  `json:"timestamp"`
 }
 
+// LogEntry represents an individual container log line with timestamp and formatted message.
+type LogEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message"`
+}
+
 // ContainerSnapshot represents a point-in-time telemetry snapshot for a single container.
 type ContainerSnapshot struct {
 	ID               string            `json:"id"`
@@ -103,6 +109,20 @@ type ContainerSnapshot struct {
 	User             string            `json:"user,omitempty"`
 	RestartPol       string            `json:"restart_policy,omitempty"`
 	MemLimitStr      string            `json:"mem_limit_str,omitempty"`
+	CPULimit         string            `json:"cpu_limit,omitempty"`
+	PidsLimit        string            `json:"pids_limit,omitempty"`
+	Privileged       string            `json:"privileged,omitempty"`
+	ReadonlyRootfs   string            `json:"readonly_rootfs,omitempty"`
+	CapAdd           string            `json:"cap_add,omitempty"`
+	CapDrop          string            `json:"cap_drop,omitempty"`
+	SecurityOpt      string            `json:"security_opt,omitempty"`
+	ExitCode         string            `json:"exit_code,omitempty"`
+	OOMKilled        string            `json:"oom_killed,omitempty"`
+	HealthStatus     string            `json:"health_status,omitempty"`
+	HealthTest       string            `json:"health_test,omitempty"`
+	HealthInterval   string            `json:"health_interval,omitempty"`
+	HealthTimeout    string            `json:"health_timeout,omitempty"`
+	HealthRetries    string            `json:"health_retries,omitempty"`
 	Env              []string          `json:"env,omitempty"`
 	Labels           map[string]string `json:"labels,omitempty"`
 	Mounts           []MountInfo       `json:"mounts,omitempty"`

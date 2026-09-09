@@ -27,6 +27,7 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,7 @@ import (
 
 	"github.com/edsilegx/ctop/pkg/audit"
 	"github.com/edsilegx/ctop/pkg/prober"
+	"github.com/edsilegx/ctop/pkg/sanitize"
 	"github.com/edsilegx/ctop/pkg/serviceprobe"
 )
 
@@ -361,6 +363,11 @@ type FileProvider interface {
 	ReadContainerDir(id, path string) ([]FileEntry, error)
 	ReadContainerFile(id, path string, maxBytes int64) (string, error)
 	SearchContainerFiles(id, basePath, pattern string, maxResults int) ([]FileEntry, error)
+}
+
+// LogsProvider defines an optional provider method to stream container logs.
+type LogsProvider interface {
+	StreamContainerLogs(ctx context.Context, id string) (<-chan LogEntry, func(), error)
 }
 
 // Server provides the embedded real-time HTTP server, REST telemetry APIs, and SSE stream.
@@ -1256,6 +1263,22 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(sys)
 }
 
+// SanitizeSnapshot returns a sanitized copy of a container snapshot, masking all secrets in commands, envs, and labels.
+func SanitizeSnapshot(snap ContainerSnapshot) ContainerSnapshot {
+	clean := snap
+	clean.Env = sanitize.MaskEnvList(clean.Env)
+	clean.ImageEnv = sanitize.MaskEnvList(clean.ImageEnv)
+	clean.Labels = sanitize.MaskLabels(clean.Labels)
+	clean.ImageLabels = sanitize.MaskLabels(clean.ImageLabels)
+	if clean.GeneratedRunCmd != "" {
+		clean.GeneratedRunCmd = sanitize.SanitizeCommandString(clean.GeneratedRunCmd)
+	}
+	if clean.GeneratedCompose != "" {
+		clean.GeneratedCompose = sanitize.SanitizeCommandString(clean.GeneratedCompose)
+	}
+	return clean
+}
+
 // handleContainers returns the list of current container telemetry snapshots.
 func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -1265,7 +1288,9 @@ func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
 	}
 	var snapshots []ContainerSnapshot
 	if s.provider != nil {
-		snapshots = s.provider.GetContainerSnapshots()
+		for _, c := range s.provider.GetContainerSnapshots() {
+			snapshots = append(snapshots, SanitizeSnapshot(c))
+		}
 	}
 	if snapshots == nil {
 		snapshots = []ContainerSnapshot{}
@@ -1307,6 +1332,7 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 	isProbes := false
 	isProxy := false
 	isEndpoints := false
+	isLogs := false
 	id := path
 
 	if strings.HasSuffix(path, "/top") {
@@ -1317,6 +1343,15 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 		isDiff = true
 		id = strings.TrimSuffix(path, "/diff")
 		id = strings.TrimSuffix(id, "/changes")
+		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/logs/stream") {
+		isLogs = true
+		id = strings.TrimSuffix(path, "/logs/stream")
+		id = strings.TrimSpace(id)
+	} else if strings.HasSuffix(path, "/logs") || strings.HasSuffix(path, "/log") {
+		isLogs = true
+		id = strings.TrimSuffix(path, "/logs")
+		id = strings.TrimSuffix(id, "/log")
 		id = strings.TrimSpace(id)
 	} else if strings.HasSuffix(path, "/files") {
 		isFiles = true
@@ -1366,6 +1401,195 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		http.Error(w, fmt.Sprintf(`{"error":"Container %q not found"}`, id), http.StatusNotFound)
+		return
+	}
+
+	if isLogs {
+		logsProv, ok := s.provider.(LogsProvider)
+		if !ok {
+			http.Error(w, `{"error":"Logs streaming not supported by provider"}`, http.StatusNotImplemented)
+			return
+		}
+
+		isStream := r.URL.Query().Get("stream") == "true" ||
+			strings.HasSuffix(path, "/logs/stream") ||
+			strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+
+		isDownload := r.URL.Query().Get("download") == "true"
+
+		if isStream {
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, `{"error":"Streaming unsupported"}`, http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.Header().Set("X-Accel-Buffering", "no")
+
+			streamCh, stopFunc, err := logsProv.StreamContainerLogs(r.Context(), id)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"Failed to stream container logs: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			defer stopFunc()
+
+			// Send initial comment to establish SSE stream
+			_, _ = w.Write([]byte(": ctop log stream connected\n\n")) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- SSE comment
+			flusher.Flush()
+
+			keepalive := time.NewTicker(15 * time.Second)
+			defer keepalive.Stop()
+
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-keepalive.C:
+					_, _ = w.Write([]byte(": keepalive\n\n")) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- SSE comment
+					flusher.Flush()
+				case entry, ok := <-streamCh:
+					if !ok {
+						_, _ = w.Write([]byte("event: end\ndata: {}\n\n")) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- SSE end event
+						flusher.Flush()
+						return
+					}
+					data, err := json.Marshal(entry)
+					if err == nil {
+						_, _ = w.Write([]byte("data: " + string(data) + "\n\n")) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- SSE data frame
+						flusher.Flush()
+					}
+				}
+			}
+		}
+
+		// Snapshot / Download mode: read logs with appropriate timeout
+		limit := 100
+		isTailAll := false
+		if tailStr := r.URL.Query().Get("tail"); tailStr != "" {
+			if strings.EqualFold(tailStr, "all") {
+				isTailAll = true
+				limit = 1000000
+			} else if tailInt, err := strconv.Atoi(tailStr); err == nil && tailInt > 0 {
+				limit = tailInt
+			}
+		}
+
+		timeout := 600 * time.Millisecond
+		if isDownload {
+			if isTailAll {
+				timeout = 30 * time.Second
+			} else {
+				timeout = 5 * time.Second
+			}
+		}
+
+		snapCtx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+
+		streamCh, stopFunc, err := logsProv.StreamContainerLogs(snapCtx, id)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"Failed to read container logs: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		defer stopFunc()
+
+		if isDownload {
+			name := r.URL.Query().Get("name")
+			if name == "" && s.provider != nil {
+				for _, c := range s.provider.GetContainerSnapshots() {
+					if c.ID == id {
+						name = c.Name
+						break
+					}
+				}
+			}
+			var prefix string
+			if name != "" {
+				name = strings.TrimPrefix(name, "/")
+				cleanName := strings.Map(func(r rune) rune {
+					if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+						return r
+					}
+					return '_'
+				}, name)
+				prefix = fmt.Sprintf("ctop_logs_%s_%s", cleanName, id)
+			} else {
+				prefix = fmt.Sprintf("ctop_logs_%s", id)
+			}
+			filename := fmt.Sprintf("%s_%s.log", prefix, time.Now().Format("20060102_150405"))
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+			w.WriteHeader(http.StatusOK)
+
+			idleWait := 250 * time.Millisecond
+			if isTailAll {
+				idleWait = 1000 * time.Millisecond
+			}
+			idleTimer := time.NewTimer(idleWait)
+			defer idleTimer.Stop()
+
+		streamDownloadLoop:
+			for count := 0; count < limit; count++ {
+				select {
+				case <-snapCtx.Done():
+					break streamDownloadLoop
+				case <-idleTimer.C:
+					break streamDownloadLoop
+				case entry, ok := <-streamCh:
+					if !ok {
+						break streamDownloadLoop
+					}
+					var line string
+					if !entry.Timestamp.IsZero() {
+						line = fmt.Sprintf("[%s] %s\n", entry.Timestamp.Format("2006-01-02 15:04:05"), entry.Message)
+					} else {
+						line = entry.Message + "\n"
+					}
+					_, _ = w.Write([]byte(line)) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- log download
+					if !idleTimer.Stop() {
+						select {
+						case <-idleTimer.C:
+						default:
+						}
+					}
+					idleTimer.Reset(idleWait)
+				}
+			}
+			return
+		}
+
+		var entries []LogEntry
+		timer := time.NewTimer(400 * time.Millisecond)
+		defer timer.Stop()
+
+	collectLogsLoop:
+		for {
+			select {
+			case <-snapCtx.Done():
+				break collectLogsLoop
+			case <-timer.C:
+				break collectLogsLoop
+			case entry, ok := <-streamCh:
+				if !ok {
+					break collectLogsLoop
+				}
+				entries = append(entries, entry)
+				if len(entries) >= limit {
+					break collectLogsLoop
+				}
+			}
+		}
+
+		if entries == nil {
+			entries = []LogEntry{}
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(entries)
 		return
 	}
 
@@ -1630,15 +1854,12 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(subpath, "/") {
 			subpath = "/" + subpath
 		}
-		if strings.Contains(subpath, "@") || strings.Contains(subpath, "\\") {
+		if strings.ContainsAny(subpath, "@\\\r\n") {
 			http.Error(w, `{"error":"Invalid characters in subpath parameter"}`, http.StatusBadRequest)
 			return
 		}
 
-		targetHost := "127.0.0.1"
-		proto := "http"
-
-		// Match host and protocol from discovered endpoints
+		// Match host and protocol strictly from discovered endpoints to prevent SSRF
 		var matchedEP *serviceprobe.Endpoint
 		for i := range endpoints {
 			if endpoints[i].Port == targetPort || endpoints[i].HostPort == targetPort {
@@ -1647,20 +1868,25 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if matchedEP != nil {
-			targetHost = matchedEP.HostIP
-			targetPort = matchedEP.HostPort
-			proto = matchedEP.Protocol
-		} else if len(endpoints) > 0 {
+		if matchedEP == nil {
 			http.Error(w, fmt.Sprintf(`{"error":"Port %d is not exposed or mapped by container %q"}`, targetPort, id), http.StatusBadRequest)
 			return
 		}
 
-		targetURL := fmt.Sprintf("%s://%s:%d%s", proto, targetHost, targetPort, subpath)
+		baseURL, err := url.Parse(matchedEP.URL)
+		if err != nil || baseURL == nil {
+			baseURL = &url.URL{
+				Scheme: matchedEP.Protocol,
+				Host:   net.JoinHostPort(matchedEP.HostIP, strconv.Itoa(matchedEP.HostPort)),
+			}
+		}
+		baseURL.Path = "/" + strings.TrimPrefix(filepath.Clean(filepath.ToSlash(subpath)), "/")
+		targetURL := baseURL.String()
 
 		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 		defer cancel()
 
+		// codeql[go/request-forgery] Target URL is derived strictly from validated container endpoints and safe subpath
 		probeRes := serviceprobe.ProbeHTTP(ctx, targetURL, 3*time.Second)
 
 		format := strings.ToLower(r.URL.Query().Get("format"))
@@ -1702,7 +1928,7 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 		if c.ID == id || strings.HasPrefix(c.ID, id) || strings.EqualFold(c.Name, id) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(c)
+			_ = json.NewEncoder(w).Encode(SanitizeSnapshot(c))
 			return
 		}
 	}
@@ -1727,7 +1953,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusOK)
 					enc := json.NewEncoder(w)
 					enc.SetIndent("", "  ")
-					_ = enc.Encode(c)
+					_ = enc.Encode(SanitizeSnapshot(c))
 					return
 				}
 			}
@@ -1739,7 +1965,9 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	sys := s.aggregateMetrics()
 	var snapshots []ContainerSnapshot
 	if s.provider != nil {
-		snapshots = s.provider.GetContainerSnapshots()
+		for _, c := range s.provider.GetContainerSnapshots() {
+			snapshots = append(snapshots, SanitizeSnapshot(c))
+		}
 	}
 	if snapshots == nil {
 		snapshots = []ContainerSnapshot{}
@@ -1837,7 +2065,9 @@ func (s *Server) createSnapshotEvent(evType string) TelemetryEvent {
 	sys := s.aggregateMetrics()
 	var snapshots []ContainerSnapshot
 	if s.provider != nil {
-		snapshots = s.provider.GetContainerSnapshots()
+		for _, c := range s.provider.GetContainerSnapshots() {
+			snapshots = append(snapshots, SanitizeSnapshot(c))
+		}
 	}
 	return TelemetryEvent{
 		Type:       evType,

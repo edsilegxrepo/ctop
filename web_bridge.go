@@ -88,6 +88,20 @@ func (p *superContainerProvider) GetContainerSnapshots() []web.ContainerSnapshot
 			User:             c.Meta.Get("user"),
 			RestartPol:       c.Meta.Get("restartPolicy"),
 			MemLimitStr:      c.Meta.Get("memLimit"),
+			CPULimit:         c.Meta.Get("cpuLimit"),
+			PidsLimit:        c.Meta.Get("pidsLimit"),
+			Privileged:       c.Meta.Get("privileged"),
+			ReadonlyRootfs:   c.Meta.Get("readonlyRootfs"),
+			CapAdd:           c.Meta.Get("capAdd"),
+			CapDrop:          c.Meta.Get("capDrop"),
+			SecurityOpt:      c.Meta.Get("securityOpt"),
+			ExitCode:         c.Meta.Get("exitCode"),
+			OOMKilled:        c.Meta.Get("oomKilled"),
+			HealthStatus:     c.Meta.Get("healthStatus"),
+			HealthTest:       c.Meta.Get("healthTest"),
+			HealthInterval:   c.Meta.Get("healthInterval"),
+			HealthTimeout:    c.Meta.Get("healthTimeout"),
+			HealthRetries:    c.Meta.Get("healthRetries"),
 			ImageID:          c.Meta.Get("imageId"),
 			ImageArch:        c.Meta.Get("imageArch"),
 			ImageSize:        c.Meta.Get("imageSize"),
@@ -112,7 +126,7 @@ func (p *superContainerProvider) GetContainerSnapshots() []web.ContainerSnapshot
 			Timestamp:        time.Now().UTC(),
 		}
 		c.RUnlock()
-		list = append(list, snap)
+		list = append(list, web.SanitizeSnapshot(snap))
 	}
 	return list
 }
@@ -250,6 +264,49 @@ func (p *superContainerProvider) SearchContainerFiles(id, basePath, pattern stri
 		}
 	}
 	return nil, fmt.Errorf("container not found")
+}
+
+func (p *superContainerProvider) StreamContainerLogs(ctx context.Context, id string) (<-chan web.LogEntry, func(), error) {
+	if p.cSuper == nil {
+		return nil, nil, fmt.Errorf("connector unavailable")
+	}
+	cSource, err := p.cSuper.Get()
+	if err != nil || cSource == nil {
+		return nil, nil, fmt.Errorf("connector unavailable")
+	}
+	for _, c := range cSource.All() {
+		if c.Id == id || strings.HasPrefix(c.Id, id) || strings.EqualFold(c.Meta.Get("name"), id) {
+			lc := c.Logs()
+			if lc == nil {
+				return nil, nil, fmt.Errorf("logs not supported for container %s", id)
+			}
+			rawCh := lc.Stream()
+			outCh := make(chan web.LogEntry, 100)
+			stopFunc := func() {
+				lc.Stop()
+			}
+			go func() {
+				defer close(outCh)
+				defer lc.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case entry, ok := <-rawCh:
+						if !ok {
+							return
+						}
+						outCh <- web.LogEntry{
+							Timestamp: entry.Timestamp,
+							Message:   entry.Message,
+						}
+					}
+				}
+			}()
+			return outCh, stopFunc, nil
+		}
+	}
+	return nil, nil, fmt.Errorf("container not found")
 }
 
 func parseMounts(raw string) []web.MountInfo {

@@ -3,10 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ctop &mdash; Container Metrics Dashboard</title>
+  <title>ctop - Container Metrics Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  </noscript>
   <style>
     :root {
       --bg: #0b0f19;
@@ -26,8 +29,8 @@
       --red-dim: rgba(239, 68, 68, 0.15);
       --blue: #3b82f6;
       --purple: #8b5cf6;
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -447,6 +450,12 @@
       overflow: hidden;
       box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(6, 182, 212, 0.15);
     }
+    #containerModal .modal-card {
+      width: 1440px;
+      max-width: 96vw;
+      height: 92vh;
+      max-height: calc(100vh - 2.5rem);
+    }
 
     .modal-header {
       padding: 1.25rem 1.75rem;
@@ -564,29 +573,34 @@
     /* Terminal-style Inspection Tabs */
     .modal-tabs {
       display: flex;
-      gap: 0.35rem;
+      gap: 0.3rem;
       background: #090d16;
-      padding: 0.5rem 1.25rem;
+      padding: 0.4rem 1.25rem;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       font-family: var(--font-mono);
       font-size: 0.82rem;
       overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .modal-tabs::-webkit-scrollbar {
+      display: none;
     }
     .modal-tab {
       background: transparent;
       border: 1px solid transparent;
       color: #94a3b8;
-      padding: 0.4rem 0.85rem;
+      padding: 0.35rem 0.65rem;
       border-radius: 6px;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
       font-family: inherit;
-      font-size: inherit;
+      font-size: 0.8rem;
       transition: all 0.15s;
       white-space: nowrap;
       user-select: none;
+      flex-shrink: 0;
     }
     .modal-tab span.key {
       color: var(--cyan);
@@ -607,18 +621,21 @@
     }
 
     .modal-body {
-      padding: 1.5rem;
+      padding: 1.25rem 1.5rem;
       overflow-y: auto;
       flex: 1;
+      min-height: 0;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 1.25rem;
     }
 
     .tab-pane {
       display: none;
       flex-direction: column;
       gap: 1.25rem;
+      flex: 1;
+      min-height: 0;
     }
     .tab-pane.active {
       display: flex;
@@ -745,6 +762,138 @@
       word-break: break-all;
     }
 
+    /* Compact Process & Runtime Pane */
+    .proc-compact-card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 0.55rem 0.85rem 0.45rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    .proc-compact-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0 0;
+    }
+    @media (max-width: 1024px) {
+      .proc-compact-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem 0;
+      }
+    }
+    @media (max-width: 600px) {
+      .proc-compact-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem 0;
+      }
+    }
+    .proc-col {
+      display: flex;
+      flex-direction: column;
+      gap: 0.12rem;
+      padding: 0 1rem;
+      border-right: 1px solid rgba(255, 255, 255, 0.09);
+    }
+    .proc-col:first-child {
+      padding-left: 0.2rem;
+    }
+    .proc-col:nth-of-type(4) {
+      border-right: none;
+      padding-right: 0.2rem;
+    }
+    @media (max-width: 1024px) {
+      .proc-col:nth-of-type(2) {
+        border-right: none;
+      }
+      .proc-col:nth-of-type(3) {
+        padding-left: 0.2rem;
+      }
+    }
+    @media (max-width: 600px) {
+      .proc-col {
+        border-right: none;
+        padding: 0;
+      }
+    }
+    .proc-compact-grid.two-cols {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .proc-compact-grid.two-cols .proc-col:first-child {
+      padding-left: 0.2rem;
+      border-right: 1px solid rgba(255, 255, 255, 0.09);
+    }
+    .proc-compact-grid.two-cols .proc-col:nth-of-type(2) {
+      border-right: none;
+      padding-right: 0.2rem;
+    }
+    .proc-compact-grid.two-cols .proc-val {
+      max-width: none;
+    }
+    @media (max-width: 768px) {
+      .proc-compact-grid.two-cols {
+        grid-template-columns: 1fr;
+        gap: 0.75rem 0;
+      }
+      .proc-compact-grid.two-cols .proc-col:first-child {
+        border-right: none;
+        padding-right: 0;
+      }
+    }
+    .proc-col-title {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--cyan);
+      margin-bottom: 0.2rem;
+      padding-bottom: 0.15rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .proc-item {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.14rem 0;
+      font-size: 0.76rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.025);
+    }
+    .proc-item:last-child {
+      border-bottom: none;
+    }
+    .proc-key {
+      color: var(--text-muted);
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .proc-val {
+      color: #f1f5f9;
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+      max-width: 240px;
+    }
+    .proc-full-row {
+      grid-column: 1 / -1;
+      margin-top: 0.25rem;
+      padding-top: 0.25rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      border-bottom: none;
+    }
+    .proc-full-row .proc-val {
+      max-width: none;
+    }
+
     /* Copy Button */
     .copy-btn {
       background: transparent;
@@ -823,6 +972,9 @@
       font-size: 0.7rem;
       color: #94a3b8;
       text-align: left;
+      position: sticky;
+      top: 0;
+      z-index: 2;
     }
     .top-table td {
       padding: 0.5rem 0.85rem;
@@ -841,11 +993,19 @@
       align-items: center;
     }
     .env-table-wrap {
-      max-height: 380px;
-      overflow-y: auto;
       border: 1px solid var(--card-border);
       border-radius: 8px;
       background: rgba(0, 0, 0, 0.25);
+      overflow-y: auto;
+      overflow-x: auto;
+    }
+
+    /* Fill Table Wrap: Stretches list containers to fill all available vertical space */
+    .fill-table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: auto;
     }
 
     footer {
@@ -907,6 +1067,358 @@
       border-color: #ef4444;
       color: #fff;
     }
+
+    /* Container Row Quick Action Buttons */
+    .cont-name-cell {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .row-quick-btn {
+      background: rgba(6, 182, 212, 0.08);
+      border: 1px solid rgba(6, 182, 212, 0.28);
+      color: #38bdf8;
+      font-size: 0.72rem;
+      font-family: var(--font-mono);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      line-height: 1.2;
+      opacity: 0;
+      transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    }
+    tbody tr:hover .row-quick-btn {
+      opacity: 1;
+    }
+    .row-quick-btn:hover {
+      background: rgba(6, 182, 212, 0.22);
+      border-color: var(--cyan);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+    .row-quick-btn.logs-btn {
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+
+    /* Logs Tab Toolbar & Controls */
+    .logs-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 0.6rem 0.85rem;
+      flex-wrap: wrap;
+    }
+    .logs-toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .log-line-counter {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .logs-filter-box {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 0.2rem 0.5rem;
+      flex: 1 1 240px;
+      max-width: 420px;
+    }
+    .logs-filter-box input {
+      background: transparent;
+      border: none;
+      color: #f1f5f9;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      width: 100%;
+      outline: none;
+    }
+    .logs-filter-icon {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .filter-match-badge {
+      font-size: 0.72rem;
+      font-family: var(--font-mono);
+      color: #000;
+      background: #fbbf24;
+      font-weight: 700;
+      padding: 0.1rem 0.45rem;
+      border-radius: 9999px;
+      white-space: nowrap;
+    }
+    .log-level-pills {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 2px 4px;
+    }
+    .level-pill {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .level-pill:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .level-pill.active {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    .level-pill.pill-error.active {
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.2);
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+    .level-pill.pill-warn.active {
+      color: #fde047;
+      background: rgba(245, 158, 11, 0.2);
+      border-color: rgba(245, 158, 11, 0.4);
+    }
+    .level-pill.pill-info.active {
+      color: #7dd3fc;
+      background: rgba(6, 182, 212, 0.2);
+      border-color: rgba(6, 182, 212, 0.4);
+    }
+    .logs-dropdown {
+      position: relative;
+      display: inline-block;
+    }
+    .logs-dropdown-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      min-width: 250px;
+      z-index: 100;
+      padding: 0.35rem 0;
+      white-space: nowrap;
+    }
+    .logs-dropdown.open .logs-dropdown-menu {
+      display: block;
+    }
+    .logs-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 1rem;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      background: transparent;
+      border: none;
+      width: 100%;
+      text-align: left;
+      white-space: nowrap;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .logs-dropdown-item:hover {
+      background: rgba(6, 182, 212, 0.15);
+      color: #fff;
+    }
+    .icon-ctrl-btn {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      padding: 0.15rem 0.35rem;
+      font-size: 0.75rem;
+      border-radius: 3px;
+      transition: all 0.15s ease;
+    }
+    .icon-ctrl-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .logs-toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    /* Terminal Log Viewer Window */
+    .log-viewer-container {
+      background: #070b14;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      flex: 1;
+      min-height: 380px;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding: 0.75rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: #e2e8f0;
+      position: relative;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6);
+    }
+    .log-viewer-content {
+      min-width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .log-placeholder {
+      text-align: center;
+      color: var(--cyan);
+      padding: 3rem 1rem;
+      font-size: 0.88rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .log-line {
+      display: flex;
+      align-items: flex-start;
+      padding: 1px 4px;
+      border-radius: 3px;
+      white-space: pre;
+      word-break: normal;
+    }
+    .log-line:hover {
+      background: rgba(255, 255, 255, 0.035);
+    }
+    .log-line.filtered-out {
+      display: none !important;
+    }
+    .log-line.search-current {
+      background: rgba(6, 182, 212, 0.18) !important;
+      outline: 1px solid var(--cyan);
+    }
+    .log-ts {
+      color: #64748b;
+      margin-right: 0.75rem;
+      user-select: none;
+      font-size: 0.76rem;
+      flex-shrink: 0;
+    }
+    .log-viewer-container.hide-time .log-ts {
+      display: none !important;
+    }
+    .log-msg {
+      flex: 1;
+      white-space: pre;
+      word-break: normal;
+    }
+    .log-viewer-container.wrap-lines .log-line {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .log-viewer-container.wrap-lines .log-msg {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Syntax Highlighting */
+    .log-level-error {
+      color: #f87171;
+      font-weight: 700;
+      background: rgba(239, 68, 68, 0.15);
+      padding: 0 4px;
+      border-radius: 3px;
+    }
+    .log-level-warn {
+      color: #fbbf24;
+      font-weight: 700;
+      background: rgba(245, 158, 11, 0.15);
+      padding: 0 4px;
+      border-radius: 3px;
+    }
+    .log-level-info {
+      color: #38bdf8;
+      font-weight: 700;
+      background: rgba(6, 182, 212, 0.15);
+      padding: 0 4px;
+      border-radius: 3px;
+    }
+    .log-level-debug {
+      color: #a78bfa;
+      font-weight: 600;
+    }
+    .log-level-success {
+      color: #4ade80;
+      font-weight: 700;
+    }
+    .log-json-key {
+      color: #38bdf8;
+    }
+    .log-json-str {
+      color: #34d399;
+    }
+    .log-json-num {
+      color: #fbbf24;
+    }
+    .log-json-bool {
+      color: #c084fc;
+    }
+    .log-search-match {
+      color: #000;
+      background: #fbbf24;
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+    .log-search-match.active-match {
+      background: #38bdf8;
+      box-shadow: 0 0 6px #38bdf8;
+    }
+
+    /* ANSI Colors */
+    .ansi-black { color: #475569; }
+    .ansi-red { color: #f87171; }
+    .ansi-green { color: #4ade80; }
+    .ansi-yellow { color: #fbbf24; }
+    .ansi-blue { color: #60a5fa; }
+    .ansi-magenta { color: #e879f9; }
+    .ansi-cyan { color: #22d3ee; }
+    .ansi-white { color: #f8fafc; }
+    .ansi-bright-black { color: #94a3b8; }
+    .ansi-bright-red { color: #ef4444; font-weight: bold; }
+    .ansi-bright-green { color: #22c55e; font-weight: bold; }
+    .ansi-bright-yellow { color: #f59e0b; font-weight: bold; }
+    .ansi-bright-blue { color: #3b82f6; font-weight: bold; }
+    .ansi-bright-magenta { color: #d946ef; font-weight: bold; }
+    .ansi-bright-cyan { color: #06b6d4; font-weight: bold; }
+    .ansi-bright-white { color: #ffffff; font-weight: bold; }
+    .ansi-bold { font-weight: 700; }
   </style>
 </head>
 <body>
@@ -1052,6 +1564,10 @@
                 <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[o]</span>
                 <span>&#x1F4CA; Overview &amp; Metrics</span>
               </div>
+              <div class="tab-menu-item" data-tab="tab-logs" onclick="selectTabFromMenu('tab-logs')">
+                <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[l]</span>
+                <span>&#x1F4DC; Container Logs</span>
+              </div>
               <div class="tab-menu-item" data-tab="tab-volumes" onclick="selectTabFromMenu('tab-volumes')">
                 <span style="color:var(--cyan); font-family:var(--font-mono); font-weight:700;">[v]</span>
                 <span>&#x1F4BE; Volumes &amp; Mounts</span>
@@ -1098,32 +1614,35 @@
 
       <!-- Navigation Tabs (Aligned with TUI) -->
       <div class="modal-tabs">
-        <button class="modal-tab active" data-tab="tab-overview">
-          <span class="key">[o]</span> overview &amp; metrics
+        <button class="modal-tab active" data-tab="tab-overview" title="[o] Overview &amp; Metrics">
+          <span class="key">[o]</span> overview
         </button>
-        <button class="modal-tab" data-tab="tab-volumes">
-          <span class="key">[v]</span> volumes &amp; mounts
+        <button class="modal-tab" data-tab="tab-logs" title="[l] Container Logs">
+          <span class="key">[l]</span> logs
         </button>
-        <button class="modal-tab" data-tab="tab-networking">
-          <span class="key">[n]</span> networking &amp; ports
+        <button class="modal-tab" data-tab="tab-volumes" title="[v] Volumes &amp; Mounts">
+          <span class="key">[v]</span> volumes
         </button>
-        <button class="modal-tab" data-tab="tab-env">
-          <span class="key">[E]</span> process &amp; env
+        <button class="modal-tab" data-tab="tab-networking" title="[n] Networking &amp; Ports">
+          <span class="key">[n]</span> networking
         </button>
-        <button class="modal-tab" data-tab="tab-image">
-          <span class="key">[i]</span> image details
+        <button class="modal-tab" data-tab="tab-env" title="[E] Process &amp; Env">
+          <span class="key">[E]</span> env
         </button>
-        <button class="modal-tab" data-tab="tab-top">
-          <span class="key">[P]</span> in-container top
+        <button class="modal-tab" data-tab="tab-image" title="[i] Image Details">
+          <span class="key">[i]</span> image
         </button>
-        <button class="modal-tab" data-tab="tab-diff">
-          <span class="key">[D]</span> filesystem diff
+        <button class="modal-tab" data-tab="tab-top" title="[P] In-Container Top">
+          <span class="key">[P]</span> top
         </button>
-        <button class="modal-tab" data-tab="tab-files">
-          <span class="key">[F]</span> file explorer
+        <button class="modal-tab" data-tab="tab-diff" title="[D] Filesystem Diff">
+          <span class="key">[D]</span> diff
         </button>
-        <button class="modal-tab" data-tab="tab-web">
-          <span class="key">[w]</span> web &amp; probes
+        <button class="modal-tab" data-tab="tab-files" title="[F] File Explorer">
+          <span class="key">[F]</span> files
+        </button>
+        <button class="modal-tab" data-tab="tab-web" title="[w] Web &amp; Probes">
+          <span class="key">[w]</span> web
         </button>
       </div>
 
@@ -1202,10 +1721,84 @@
           </div>
         </div>
 
+        <!-- Tab: [l] Logs -->
+        <div id="tab-logs" class="tab-pane">
+          <div class="logs-toolbar">
+            <div class="logs-toolbar-left">
+              <span id="logStreamStatusPill" class="status-pill running">
+                <span class="status-dot"></span>
+                <span id="logStreamStatusText">CONNECTING</span>
+              </span>
+              <span class="log-line-counter" id="logLineCounter">0 lines</span>
+            </div>
+
+            <div class="logs-filter-box">
+              <span class="logs-filter-icon">&#x1F50D;</span>
+              <input type="text" id="logFilterInput" placeholder="Filter logs (regex or text, press / to focus)..." oninput="handleLogFilterInput()" />
+              <span id="logFilterMatchBadge" class="filter-match-badge" style="display:none;">0 matches</span>
+              <button class="icon-ctrl-btn" id="logSearchPrevBtn" onclick="navigateLogSearch(-1)" title="Previous match (Shift+Enter)">&#x25B2;</button>
+              <button class="icon-ctrl-btn" id="logSearchNextBtn" onclick="navigateLogSearch(1)" title="Next match (Enter)">&#x25BC;</button>
+              <button class="icon-ctrl-btn" onclick="clearLogFilter()" title="Clear filter">&times;</button>
+            </div>
+
+            <!-- Quick Log Level Filter Pills -->
+            <div class="log-level-pills" id="logLevelPills">
+              <button class="level-pill active" data-level="ALL" onclick="setLogLevelFilter('ALL')">ALL</button>
+              <button class="level-pill pill-error" data-level="ERROR" onclick="setLogLevelFilter('ERROR')">ERROR</button>
+              <button class="level-pill pill-warn" data-level="WARN" onclick="setLogLevelFilter('WARN')">WARN</button>
+              <button class="level-pill pill-info" data-level="INFO" onclick="setLogLevelFilter('INFO')">INFO</button>
+            </div>
+
+            <div class="logs-toolbar-right">
+              <button id="logAutoTailBtn" class="toggle-btn active" onclick="toggleLogAutoTail()" title="Toggle Auto-Tail: follow log stream (Shortcut: a)">
+                &#x26A1; Auto-Tail: ON
+              </button>
+              <button id="logTimeBtn" class="toggle-btn active" onclick="toggleLogTime()" title="Toggle Timestamps (Shortcut: t)">
+                &#x23F0; Time: ON
+              </button>
+              <button id="logWrapBtn" class="toggle-btn" onclick="toggleLogWrap()" title="Toggle Line Wrapping (Shortcut: w)">
+                &#x21A9;&#xFE0F; Wrap: OFF
+              </button>
+              <button class="toggle-btn" onclick="scrollLogsToTop()" title="Scroll to top of logs">&#x23EB; Top</button>
+              <button class="toggle-btn" onclick="scrollLogsToBottom()" title="Scroll to latest logs">&#x23EC; Bottom</button>
+              <div class="logs-dropdown" id="logSaveDropdown">
+                <button id="logSaveBtn" class="toggle-btn btn-export" onclick="toggleLogSaveDropdown(event)" title="Save or export logs (Shortcut: s)">
+                  &#x1F4BE; Save As &#x25BE;
+                </button>
+                <div class="logs-dropdown-menu" id="logSaveDropdownMenu">
+                  <button class="logs-dropdown-item" onclick="downloadContainerLogs('buffer')">
+                    &#x1F4C4; Active Buffer (.log)
+                  </button>
+                  <button class="logs-dropdown-item" onclick="downloadContainerLogs('ndjson')">
+                    &#x1F4E6; Active Buffer (.ndjson)
+                  </button>
+                  <button class="logs-dropdown-item" onclick="downloadContainerLogs('full')">
+                    &#x2601;&#xFE0F; Full History (Docker Engine)
+                  </button>
+                </div>
+              </div>
+              <button class="toggle-btn" onclick="copyContainerLogs()" title="Copy logs to clipboard">
+                &#x1F4CB; Copy
+              </button>
+              <button class="toggle-btn" onclick="clearLogViewer()" title="Clear log viewer buffer">
+                &#x1F5D1;&#xFE0F; Clear
+              </button>
+            </div>
+          </div>
+
+          <div id="logViewerContainer" class="log-viewer-container" onscroll="handleLogScroll()">
+            <div id="logViewerContent" class="log-viewer-content">
+              <div class="log-placeholder" id="logLoadingPlaceholder">
+                <span class="spinner">&#x23F3;</span> Connecting to live container log stream...
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Tab 2: [v] Volumes & Mounts -->
         <div id="tab-volumes" class="tab-pane">
           <div class="section-title">Mounted Storage &amp; Bindings</div>
-          <div class="top-table-wrap">
+          <div class="top-table-wrap fill-table-wrap">
             <table class="top-table">
               <thead>
                 <tr>
@@ -1264,7 +1857,7 @@
               </button>
             </div>
           </div>
-          <div class="top-table-wrap">
+          <div class="top-table-wrap fill-table-wrap">
             <table class="top-table">
               <thead>
                 <tr>
@@ -1284,11 +1877,70 @@
 
         <!-- Tab 4: [E] Process & Env -->
         <div id="tab-env" class="tab-pane">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+            <div class="section-title" style="margin-bottom:0; font-size:0.8rem; letter-spacing:0.04em;">Process &amp; Runtime Configuration</div>
+            <button id="procToggleBtn" class="toggle-btn" style="padding:0.15rem 0.55rem; font-size:0.72rem;" onclick="toggleProcPane()">
+              &#x25B2; Collapse
+            </button>
+          </div>
+
+          <div id="procPane" class="proc-compact-card">
+            <div class="proc-compact-grid">
+              <!-- Column 1: Execution -->
+              <div class="proc-col">
+                <div class="proc-col-title">Execution</div>
+                <div class="proc-item"><span class="proc-key">Entrypoint</span><span class="proc-val" id="procEntrypoint">--</span></div>
+                <div class="proc-item"><span class="proc-key">Working Dir</span><span class="proc-val" id="procWorkdir">--</span></div>
+                <div class="proc-item"><span class="proc-key">User / UID</span><span class="proc-val" id="procUser">--</span></div>
+                <div class="proc-item"><span class="proc-key">Restart Policy</span><span class="proc-val" id="procRestart">--</span></div>
+                <div class="proc-item"><span class="proc-key">Exit Code</span><span class="proc-val" id="procExitCode">--</span></div>
+              </div>
+
+              <!-- Column 2: Resources -->
+              <div class="proc-col">
+                <div class="proc-col-title">Resources &amp; Limits</div>
+                <div class="proc-item"><span class="proc-key">CPU Alloc</span><span class="proc-val" id="procCPULimit">--</span></div>
+                <div class="proc-item"><span class="proc-key">Memory Limit</span><span class="proc-val" id="procMemLimit">--</span></div>
+                <div class="proc-item"><span class="proc-key">PIDs Limit</span><span class="proc-val" id="procPidsLimit">--</span></div>
+                <div class="proc-item"><span class="proc-key">OOM Killed</span><span class="proc-val" id="procOOMKilled">--</span></div>
+              </div>
+
+              <!-- Column 3: Security & Isolation -->
+              <div class="proc-col">
+                <div class="proc-col-title">Security &amp; Isolation</div>
+                <div class="proc-item"><span class="proc-key">Privileged</span><span class="proc-val" id="procPrivileged">--</span></div>
+                <div class="proc-item"><span class="proc-key">Readonly Rootfs</span><span class="proc-val" id="procReadonly">--</span></div>
+                <div class="proc-item"><span class="proc-key">Cap Add</span><span class="proc-val" id="procCapAdd">--</span></div>
+                <div class="proc-item"><span class="proc-key">Cap Drop</span><span class="proc-val" id="procCapDrop">--</span></div>
+                <div class="proc-item"><span class="proc-key">Security Opts</span><span class="proc-val" id="procSecurityOpt">--</span></div>
+              </div>
+
+              <!-- Column 4: Health Check -->
+              <div class="proc-col">
+                <div class="proc-col-title">Health Check</div>
+                <div class="proc-item"><span class="proc-key">Status</span><span class="proc-val" id="procHealthStatus">--</span></div>
+                <div class="proc-item"><span class="proc-key">Interval</span><span class="proc-val" id="procHealthInterval">--</span></div>
+                <div class="proc-item"><span class="proc-key">Timeout</span><span class="proc-val" id="procHealthTimeout">--</span></div>
+                <div class="proc-item"><span class="proc-key">Retries</span><span class="proc-val" id="procHealthRetries">--</span></div>
+              </div>
+
+              <!-- Full-width Health Command -->
+              <div class="proc-item proc-full-row">
+                <span class="proc-key">Health Command</span>
+                <span class="proc-val" id="procHealthCmd" style="text-align:left; flex:1; margin-left:0.75rem; color:#38bdf8;">--</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.45rem;">
+            <div class="section-title" style="margin-bottom:0; font-size:0.8rem; letter-spacing:0.04em;">Environment Variables</div>
+            <div style="font-size:0.72rem; color:#94a3b8;"><span style="color:#10b981;">&#x1F512; Secrets Masked</span> &bull; Sanitized for security</div>
+          </div>
           <div class="env-search-row">
             <input type="text" id="envSearchInput" class="search-input" style="flex:1;" placeholder="Filter environment variables (sensitive secrets sanitized)..." />
             <button class="toggle-btn" onclick="copyAllEnv()">Copy All Env</button>
           </div>
-          <div class="env-table-wrap">
+          <div class="env-table-wrap fill-table-wrap">
             <table class="top-table">
               <thead>
                 <tr>
@@ -1306,33 +1958,46 @@
 
         <!-- Tab 5: [i] Image Details -->
         <div id="tab-image" class="tab-pane">
-          <div class="section-title">Base Image &amp; Build Metadata</div>
-          <div class="kv-grid">
-            <div class="kv-item"><span class="kv-key">Image Name / Tag</span><span class="kv-val" id="imgNameTag" style="color:#38bdf8;">--</span></div>
-            <div class="kv-item"><span class="kv-key">Image ID / Digest</span><span class="kv-val" id="imgID">--</span></div>
-            <div class="kv-item"><span class="kv-key">Platform / Architecture</span><span class="kv-val" id="imgPlatform">--</span></div>
-            <div class="kv-item"><span class="kv-key">Virtual Size</span><span class="kv-val" id="imgSize">--</span></div>
-            <div class="kv-item"><span class="kv-key">RootFS Layers</span><span class="kv-val" id="imgLayers">--</span></div>
-            <div class="kv-item"><span class="kv-key">Author / Maintainer</span><span class="kv-val" id="imgAuthor">--</span></div>
-            <div class="kv-item"><span class="kv-key">Created Timestamp</span><span class="kv-val" id="imgCreated">--</span></div>
-            <div class="kv-item"><span class="kv-key">Docker Engine Version</span><span class="kv-val" id="imgDockerVer">--</span></div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+            <div class="section-title" style="margin-bottom:0; font-size:0.8rem; letter-spacing:0.04em;">Base Image &amp; Execution Configuration</div>
+            <button id="imageToggleBtn" class="toggle-btn" style="padding:0.15rem 0.55rem; font-size:0.72rem;" onclick="toggleImagePane()">
+              &#x25B2; Collapse
+            </button>
           </div>
 
-          <div class="section-title">Default Execution Configuration</div>
-          <div class="kv-grid">
-            <div class="kv-item"><span class="kv-key">Default ENTRYPOINT</span><span class="kv-val" id="imgEntrypoint">--</span></div>
-            <div class="kv-item"><span class="kv-key">Default CMD</span><span class="kv-val" id="imgCmd">--</span></div>
-            <div class="kv-item"><span class="kv-key">Default Working Dir</span><span class="kv-val" id="imgWorkDir">--</span></div>
-            <div class="kv-item"><span class="kv-key">Default User</span><span class="kv-val" id="imgUser">--</span></div>
-            <div class="kv-item"><span class="kv-key">Exposed Ports</span><span class="kv-val" id="imgExposedPorts">--</span></div>
-            <div class="kv-item"><span class="kv-key">Image Volumes</span><span class="kv-val" id="imgVolumes">--</span></div>
+          <div id="imagePane" class="proc-compact-card">
+            <div class="proc-compact-grid two-cols">
+              <!-- Column 1: Base Image & Build Metadata -->
+              <div class="proc-col">
+                <div class="proc-col-title">Base Image &amp; Build Metadata</div>
+                <div class="proc-item"><span class="proc-key">Image Name / Tag</span><span class="proc-val" id="imgNameTag" style="color:#38bdf8;">--</span></div>
+                <div class="proc-item"><span class="proc-key">Image ID / Digest</span><span class="proc-val" id="imgID">--</span></div>
+                <div class="proc-item"><span class="proc-key">Platform / Arch</span><span class="proc-val" id="imgPlatform">--</span></div>
+                <div class="proc-item"><span class="proc-key">Virtual Size</span><span class="proc-val" id="imgSize">--</span></div>
+                <div class="proc-item"><span class="proc-key">RootFS Layers</span><span class="proc-val" id="imgLayers">--</span></div>
+                <div class="proc-item"><span class="proc-key">Author / Maintainer</span><span class="proc-val" id="imgAuthor">--</span></div>
+                <div class="proc-item"><span class="proc-key">Created Timestamp</span><span class="proc-val" id="imgCreated">--</span></div>
+                <div class="proc-item"><span class="proc-key">Docker Engine Version</span><span class="proc-val" id="imgDockerVer">--</span></div>
+              </div>
+
+              <!-- Column 2: Default Execution Configuration -->
+              <div class="proc-col">
+                <div class="proc-col-title">Default Execution Configuration</div>
+                <div class="proc-item"><span class="proc-key">Default ENTRYPOINT</span><span class="proc-val" id="imgEntrypoint">--</span></div>
+                <div class="proc-item"><span class="proc-key">Default CMD</span><span class="proc-val" id="imgCmd">--</span></div>
+                <div class="proc-item"><span class="proc-key">Default Working Dir</span><span class="proc-val" id="imgWorkDir">--</span></div>
+                <div class="proc-item"><span class="proc-key">Default User</span><span class="proc-val" id="imgUser">--</span></div>
+                <div class="proc-item"><span class="proc-key">Exposed Ports</span><span class="proc-val" id="imgExposedPorts">--</span></div>
+                <div class="proc-item"><span class="proc-key">Image Volumes</span><span class="proc-val" id="imgVolumes">--</span></div>
+              </div>
+            </div>
           </div>
 
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div class="section-title" style="margin-bottom:0;">OCI &amp; Image Labels</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.25rem; margin-bottom:0.45rem;">
+            <div class="section-title" style="margin-bottom:0; font-size:0.8rem; letter-spacing:0.04em;">OCI &amp; Image Labels</div>
             <input type="text" id="imgLabelsSearch" class="search-input" style="max-width:280px;" placeholder="Filter image labels..." />
           </div>
-          <div class="env-table-wrap" style="max-height:220px;">
+          <div class="env-table-wrap fill-table-wrap">
             <table class="top-table">
               <thead>
                 <tr>
@@ -1354,7 +2019,7 @@
             <div class="section-title">Running Processes in Container</div>
             <button class="toggle-btn" onclick="fetchContainerTop(selectedContainerId)">Refresh Top</button>
           </div>
-          <div class="top-table-wrap">
+          <div class="top-table-wrap fill-table-wrap">
             <table class="top-table">
               <thead id="topTableHeader">
                 <tr>
@@ -1391,7 +2056,7 @@
             <span class="status-pill exited" id="diffCountDeleted" style="font-size:0.75rem;">0 Deleted</span>
           </div>
 
-          <div class="top-table-wrap" style="max-height:420px; overflow-y:auto;">
+          <div class="top-table-wrap fill-table-wrap">
             <table class="top-table">
               <thead>
                 <tr>
@@ -1432,7 +2097,7 @@
           </div>
 
           <!-- File List Table -->
-          <div class="top-table-wrap" style="max-height:360px; overflow-y:auto;">
+          <div class="top-table-wrap fill-table-wrap">
             <table class="top-table">
               <thead>
                 <tr>
@@ -1519,13 +2184,13 @@
           </div>
 
           <!-- Mode 1: Rendered Sandboxed IFrame Preview -->
-          <div id="webPanePreview" style="display:flex; flex-direction:column; min-height:400px; height:450px; background:#000; border:1px solid var(--card-border); border-radius:8px; overflow:hidden;">
-            <iframe id="webPreviewIframe" sandbox="allow-scripts allow-forms" style="width:100%; height:100%; border:none; background:#fff;"></iframe>
+          <div id="webPanePreview" class="fill-table-wrap" style="display:flex; flex-direction:column; background:#000; border:1px solid var(--card-border); border-radius:8px; overflow:hidden;">
+            <iframe id="webPreviewIframe" sandbox="allow-scripts allow-forms" style="width:100%; height:100%; border:none; background:#fff; flex:1;"></iframe>
           </div>
 
           <!-- Mode 2: Response Headers & Diagnostics Table -->
-          <div id="webPaneHeaders" style="display:none; flex-direction:column; gap:0.5rem;">
-            <div class="top-table-wrap" style="max-height:400px; overflow-y:auto;">
+          <div id="webPaneHeaders" class="fill-table-wrap" style="display:none; flex-direction:column; gap:0.5rem;">
+            <div class="top-table-wrap fill-table-wrap">
               <table class="top-table">
                 <thead>
                   <tr>
@@ -1541,8 +2206,8 @@
           </div>
 
           <!-- Mode 3: Raw Source View -->
-          <div id="webPaneRaw" style="display:none; flex-direction:column; gap:0.5rem;">
-            <pre id="webRawContent" style="background:#090d16; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:0.85rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.78rem; max-height:420px; overflow:auto; white-space:pre-wrap; word-break:break-all;">Execute a probe to view raw response payload</pre>
+          <div id="webPaneRaw" class="fill-table-wrap" style="display:none; flex-direction:column; gap:0.5rem;">
+            <pre id="webRawContent" style="background:#090d16; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:0.85rem; color:#e2e8f0; font-family:var(--font-mono); font-size:0.78rem; flex:1; min-height:0; overflow:auto; white-space:pre-wrap; word-break:break-all; margin:0;">Execute a probe to view raw response payload</pre>
           </div>
         </div>
       </div>
@@ -1569,7 +2234,7 @@
         <div style="font-size: 0.78rem; color: #94a3b8;">
           Plain-text report preview &bull; You can copy directly, select all with <kbd>Ctrl</kbd>+<kbd>A</kbd>, or download as a <code>.txt</code> file:
         </div>
-        <textarea id="reportModalText" readonly style="width: 100%; height: 440px; background: #070b14; color: #f1f5f9; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; padding: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; resize: none; outline: none; white-space: pre;"></textarea>
+        <textarea id="reportModalText" readonly style="width: 100%; flex: 1; min-height: 440px; height: 100%; background: #070b14; color: #f1f5f9; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; padding: 0.75rem; border: 1px solid var(--card-border); border-radius: 6px; resize: none; outline: none; white-space: pre;"></textarea>
       </div>
     </div>
   </div>
@@ -1586,7 +2251,7 @@
       </div>
       <div class="modal-body" style="padding: 1.25rem 1.5rem 1.5rem 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
         <p style="font-size: 0.83rem; color: var(--text-dim); line-height: 1.5;">
-          This <code>ctop</code> daemon is protected with web authentication. Enter the 32-character bearer token from <code>~/.config/ctop/token</code> to unlock the dashboard.
+          This <code>ctop</code> daemon is protected with web authentication. Enter the 64-character bearer token from <code>~/.config/ctop/token</code> to unlock the dashboard.
         </p>
         <div style="display: flex; flex-direction: column; gap: 0.4rem;">
           <label for="authTokenInput" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">Bearer Token</label>
@@ -1631,6 +2296,7 @@
     const drillNetHistory = [];
     const drillDiskHistory = [];
     const drillSamples = []; // up to 5 running rows
+    let latestTopData = null;
 
     // File Explorer & Diff State
     let currentBrowsedPath = '/';
@@ -1665,14 +2331,120 @@
       }, 200);
     }
 
+    // Zero-Leak Secret Masking Utilities for Reports and Exports
+    const SENSITIVE_KEY_PATTERN = /(PASSW|SECRET|TOKEN|CRED|PRIVATE|DATABASE_URL|DB_URL|DSN|SIGNATURE|BEARER|AWS_|ACCESS_KEY|SESSION_TOKEN|COOKIE|SALT|HMAC|WEBHOOK|PRIVATE_KEY|API_KEY|APIKEY|AUTH_HEADER|BASIC_AUTH|_KEY|KEY_|CERT)/i;
+    const MASK_SECRET_PLACEHOLDER = '•••••••••••• [masked]';
+
+    function isSensitiveSecretKey(k) {
+      if (!k) return false;
+      return SENSITIVE_KEY_PATTERN.test(k);
+    }
+
+    function sanitizeEnvLine(line) {
+      if (!line) return line;
+      const idx = line.indexOf('=');
+      if (idx === -1) {
+        return isSensitiveSecretKey(line) ? `${line}=${MASK_SECRET_PLACEHOLDER}` : line;
+      }
+      const k = line.substring(0, idx);
+      if (isSensitiveSecretKey(k)) {
+        return `${k}=${MASK_SECRET_PLACEHOLDER}`;
+      }
+      return line;
+    }
+
+    function sanitizeLabelsObject(labels) {
+      if (!labels || typeof labels !== 'object') return labels;
+      const res = {};
+      for (const [k, v] of Object.entries(labels)) {
+        if (isSensitiveSecretKey(k)) {
+          res[k] = MASK_SECRET_PLACEHOLDER;
+        } else {
+          res[k] = v;
+        }
+      }
+      return res;
+    }
+
+    function sanitizeCommandSecrets(cmd) {
+      if (!cmd) return cmd;
+      // 1. Docker run: -e "KEY=VALUE" or -e KEY=VALUE
+      let res = cmd.replace(/(-e\s+["']?)([a-zA-Z0-9_.-]+)=([^"'\n\\]*)(["']?)/g, (match, p1, k, v, p2) => {
+        if (isSensitiveSecretKey(k)) {
+          return `${p1}${k}=${MASK_SECRET_PLACEHOLDER}${p2}`;
+        }
+        return match;
+      });
+      // 2. Docker compose list: - KEY=VALUE
+      res = res.replace(/^(\s*-\s+)([a-zA-Z0-9_.-]+)=([^\r\n]*)$/gm, (match, p1, k, v) => {
+        if (isSensitiveSecretKey(k)) {
+          return `${p1}${k}=${MASK_SECRET_PLACEHOLDER}`;
+        }
+        return match;
+      });
+      // 3. Docker compose dict: KEY: VALUE
+      res = res.replace(/^(\s*)([a-zA-Z0-9_.-]+):\s*["']?([^"'\r\n]+)["']?$/gm, (match, p1, k, v) => {
+        if (isSensitiveSecretKey(k)) {
+          return `${p1}${k}: ${MASK_SECRET_PLACEHOLDER}`;
+        }
+        return match;
+      });
+      return res;
+    }
+
+    function sanitizeContainerForExport(c) {
+      if (!c) return c;
+      const copy = Object.assign({}, c);
+      if (copy.generated_run_cmd) {
+        copy.generated_run_cmd = sanitizeCommandSecrets(copy.generated_run_cmd);
+      }
+      if (copy.generated_compose) {
+        copy.generated_compose = sanitizeCommandSecrets(copy.generated_compose);
+      }
+      if (Array.isArray(copy.env)) {
+        copy.env = copy.env.map(sanitizeEnvLine);
+      }
+      if (Array.isArray(copy.image_env)) {
+        copy.image_env = copy.image_env.map(sanitizeEnvLine);
+      }
+      if (copy.labels) {
+        copy.labels = sanitizeLabelsObject(copy.labels);
+      }
+      if (copy.image_labels) {
+        copy.image_labels = sanitizeLabelsObject(copy.image_labels);
+      }
+      return copy;
+    }
+
     // Export All Cluster & Container Data
     function exportAllTelemetry() {
       const now = new Date();
       const ts = now.toISOString().replace(/[:.]/g, '-');
+      const sys = latestSystemMetrics || {};
+      const stoppedCount = sys.stopped_containers !== undefined
+        ? sys.stopped_containers
+        : Math.max(0, (sys.total_containers || latestContainers.length) - (sys.running_containers || 0) - (sys.paused_containers || 0));
+
       const payload = {
         exported_at: now.toISOString(),
-        system: latestSystemMetrics || {},
-        containers: latestContainers || []
+        report_type: 'cluster_telemetry',
+        total_containers: (latestContainers || []).length,
+        summary: {
+          total_containers: sys.total_containers || (latestContainers || []).length,
+          running_containers: sys.running_containers || 0,
+          paused_containers: sys.paused_containers || 0,
+          stopped_containers: stoppedCount,
+          total_cpu_util_percent: sys.total_cpu_util || 0,
+          total_mem_usage_bytes: sys.total_mem_usage || 0,
+          total_mem_limit_bytes: sys.total_mem_limit || 0,
+          total_net_rx_rate_bytes_per_sec: sys.total_net_rx_rate || 0,
+          total_net_tx_rate_bytes_per_sec: sys.total_net_tx_rate || 0,
+          total_io_rate_read_bytes_per_sec: sys.total_io_rate_read || 0,
+          total_io_rate_write_bytes_per_sec: sys.total_io_rate_write || 0,
+          uptime_seconds: sys.uptime_seconds || 0
+        },
+        system: sys,
+        containers: (latestContainers || []).map(sanitizeContainerForExport)
       };
       downloadJSON(payload, `ctop-cluster-telemetry-${ts}.json`);
     }
@@ -1685,8 +2457,17 @@
       const safeName = (selectedContainerData.name || selectedContainerData.id || 'container').replace(/[^a-zA-Z0-9_-]/g, '_');
       const payload = {
         exported_at: now.toISOString(),
-        container: selectedContainerData,
-        recent_telemetry_samples: drillSamples || []
+        report_type: 'container_inspection',
+        container: sanitizeContainerForExport(selectedContainerData),
+        recent_telemetry_samples: drillSamples || [],
+        in_container_processes: (latestTopData && latestTopData.processes && latestTopData.processes.length > 0) ? latestTopData : undefined,
+        network_probes: (latestProbes && latestProbes.length > 0) ? latestProbes : undefined,
+        filesystem_diff: (latestDiffs && latestDiffs.length > 0) ? latestDiffs : undefined,
+        recent_logs: (logEntries && logEntries.length > 0) ? logEntries.map(e => ({
+          timestamp: e.timestamp || new Date().toISOString(),
+          level: e.level || 'INFO',
+          message: e.message
+        })) : undefined
       };
       downloadJSON(payload, `ctop-container-${safeName}-${ts}.json`);
     }
@@ -1773,17 +2554,63 @@
       document.getElementById('reportModal').classList.remove('open');
     }
 
+    function toggleProcPane() {
+      const pane = document.getElementById('procPane');
+      const btn = document.getElementById('procToggleBtn');
+      if (!pane || !btn) return;
+      if (pane.style.display === 'none') {
+        pane.style.display = 'block';
+        btn.innerHTML = '&#x25B2; Collapse';
+      } else {
+        pane.style.display = 'none';
+        btn.innerHTML = '&#x25BC; Expand';
+      }
+    }
+
+    function toggleImagePane() {
+      const pane = document.getElementById('imagePane');
+      const btn = document.getElementById('imageToggleBtn');
+      if (!pane || !btn) return;
+      if (pane.style.display === 'none') {
+        pane.style.display = 'block';
+        btn.innerHTML = '&#x25B2; Collapse';
+      } else {
+        pane.style.display = 'none';
+        btn.innerHTML = '&#x25BC; Expand';
+      }
+    }
+
     function copyAllEnv() {
       if (!selectedContainerData || !selectedContainerData.env) return;
-      copyText(selectedContainerData.env.join('\n'), 'Environment variables copied to clipboard');
+      copyText(selectedContainerData.env.map(sanitizeEnvLine).join('\n'), 'Environment variables copied to clipboard');
+    }
+
+    function formatUptimeSeconds(sec) {
+      if (!sec || sec <= 0) return '—';
+      const d = Math.floor(sec / 86400);
+      const h = Math.floor((sec % 86400) / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (d > 0) return `${d}d ${h}h ${m}m`;
+      if (h > 0) return `${h}h ${m}m ${s}s`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
     }
 
     // Build structured ASCII report for entire cluster
     function buildClusterReportText() {
       const now = new Date().toISOString();
       const sys = latestSystemMetrics || {};
-      const sep = '='.repeat(88);
-      const subSep = '-'.repeat(88);
+      const sep = '='.repeat(140);
+      const subSep = '-'.repeat(140);
+
+      const stoppedCount = sys.stopped_containers !== undefined
+        ? sys.stopped_containers
+        : Math.max(0, (sys.total_containers || latestContainers.length) - (sys.running_containers || 0) - (sys.paused_containers || 0));
+
+      const memPct = sys.total_mem_limit > 0
+        ? ` (${((sys.total_mem_usage / sys.total_mem_limit) * 100).toFixed(1)}%)`
+        : '';
 
       const lines = [
         sep,
@@ -1793,30 +2620,39 @@
         '',
         '--- CLUSTER SUMMARY ---',
         `Total Containers:   ${sys.total_containers || latestContainers.length}`,
-        `Running / Paused:   ${sys.running_containers || 0} running / ${sys.paused_containers || 0} paused / ${Math.max(0, (sys.total_containers || 0) - (sys.running_containers || 0) - (sys.paused_containers || 0))} stopped`,
+        `Running / Paused:   ${sys.running_containers || 0} running / ${sys.paused_containers || 0} paused / ${stoppedCount} stopped`,
         `Cluster CPU Usage:  ${(sys.total_cpu_util || 0).toFixed(1)}%`,
-        `Cluster Memory:     ${formatBytes(sys.total_mem_usage || 0)} / ${formatBytes(sys.total_mem_limit || 0)}`,
+        `Cluster Memory:     ${formatBytes(sys.total_mem_usage || 0)} / ${formatBytes(sys.total_mem_limit || 0)}${memPct}`,
         `Network Throughput: Rx: ${formatBytes(sys.total_net_rx_rate || 0, true)} | Tx: ${formatBytes(sys.total_net_tx_rate || 0, true)}`,
         `Disk I/O Rate:      Read: ${formatBytes(sys.total_io_rate_read || 0, true)} | Write: ${formatBytes(sys.total_io_rate_write || 0, true)}`,
-        '',
-        `--- CONTAINER INVENTORY (${latestContainers.length}) ---`,
-        `${padRight('STATUS', 10)} ${padRight('NAME', 24)} ${padRight('CPU %', 8)} ${padRight('MEM USAGE / LIMIT', 22)} ${padRight('NET RX / TX (/s)', 24)} ${padRight('IO READ / WRITE (/s)', 24)} ${padRight('PIDS', 6)} UPTIME`,
-        subSep
       ];
+
+      if (sys.uptime_seconds) {
+        lines.push(`Daemon Uptime:      ${formatUptimeSeconds(sys.uptime_seconds)}`);
+      }
+
+      lines.push('');
+      lines.push(`--- CONTAINER INVENTORY (${latestContainers.length}) ---`);
+      lines.push(`${padRight('STATUS', 10)} ${padRight('HEALTH', 10)} ${padRight('ID', 14)} ${padRight('NAME', 24)} ${padRight('IMAGE', 26)} ${padRight('CPU %', 8)} ${padRight('MEM USAGE / LIMIT', 22)} ${padRight('NET RX / TX (/s)', 22)} ${padRight('IO READ / WRITE (/s)', 22)} ${padRight('PIDS', 6)} ${padRight('UPTIME', 14)} PORTS`);
+      lines.push(subSep);
 
       latestContainers.forEach(c => {
         const isRunning = (c.state && c.state.toLowerCase() === 'running');
         const status = (c.state || 'unknown').toLowerCase();
+        const health = c.health ? c.health.toLowerCase() : (isRunning ? 'healthy' : '—');
+        const shortId = c.id ? c.id.substring(0, 12) : '—';
         const name = (c.name || c.id || '').substring(0, 23);
+        const image = (c.image || '—').length > 25 ? (c.image.substring(0, 23) + '..') : (c.image || '—');
         const cpu = isRunning ? `${(c.cpu_util || 0).toFixed(1)}%` : '—';
         const mem = isRunning ? `${formatBytes(c.mem_usage)} / ${formatBytes(c.mem_limit)}` : '—';
         const net = isRunning ? `${formatBytes(c.net_rx_rate, true)} / ${formatBytes(c.net_tx_rate, true)}` : '—';
         const io = isRunning ? `${formatBytes(c.io_rate_read, true)} / ${formatBytes(c.io_rate_write, true)}` : '—';
         const pids = isRunning ? String(c.pids || 0) : '—';
         const uptime = c.uptime || '—';
+        const ports = c.ports ? c.ports.replace(/\n/g, ', ') : (c.ips ? c.ips.replace(/\n/g, ', ') : '—');
 
         lines.push(
-          `${padRight(status, 10)} ${padRight(name, 24)} ${padRight(cpu, 8)} ${padRight(mem, 22)} ${padRight(net, 24)} ${padRight(io, 24)} ${padRight(pids, 6)} ${uptime}`
+          `${padRight(status, 10)} ${padRight(health, 10)} ${padRight(shortId, 14)} ${padRight(name, 24)} ${padRight(image, 26)} ${padRight(cpu, 8)} ${padRight(mem, 22)} ${padRight(net, 22)} ${padRight(io, 22)} ${padRight(pids, 6)} ${padRight(uptime, 14)} ${ports}`
         );
       });
 
@@ -1844,7 +2680,9 @@
         `CTOP CONTAINER INSPECTION REPORT: ${c.name || c.id}`,
         `Container ID:   ${c.id || '--'}`,
         `Image:          ${c.image || '--'}`,
+        `Image Digest/ID:${c.image_id || '—'}`,
         `Status:         ${(c.state || '--').toUpperCase()}`,
+        `Health:         ${(c.health ? c.health.toUpperCase() : 'NONE')}`,
         `Host:           ${c.host || 'local'}`,
         `Generated:      ${now}`,
         sep,
@@ -1857,31 +2695,50 @@
         `Working Dir:    ${c.workdir || '—'}`,
         `User:           ${c.user || '—'}`,
         `Restart Policy: ${c.restart_policy || 'no'}`,
+        `Exit Code:      ${c.exit_code || '—'}`,
+        `OOM Killed:     ${c.oom_killed || 'false'}`,
         `Memory Limit:   ${c.mem_limit_str || formatBytes(c.mem_limit)}`,
+        `CPU Limit:      ${c.cpu_limit || 'unlimited'}`,
+        `PIDs Limit:     ${c.pids_limit || 'unlimited'}`,
+        `Privileged:     ${c.privileged || 'false'}`,
+        `Readonly Rootfs:${c.readonly_rootfs || 'false'}`,
+        `Cap Add:        ${c.cap_add || 'default (none added)'}`,
+        `Cap Drop:       ${c.cap_drop || 'none (standard set)'}`,
+        `Security Opt:   ${c.security_opt || 'default'}`,
+        `Health Status:  ${c.health_status || c.health || 'none configured'}`,
+        `Health Command: ${c.health_test || '—'}`,
+        `Health Interval:${c.health_interval || '—'}`,
+        `Health Timeout: ${c.health_timeout || '—'}`,
+        `Health Retries: ${c.health_retries || '—'}`,
         `IP Addresses:   ${c.ips ? c.ips.replace(/\n/g, ', ') : '—'}`,
         `Ports:          ${c.ports ? c.ports.replace(/\n/g, ', ') : '—'}`,
+        `Web Port:       ${c.web_port || '—'}`,
         '',
         '--- BASE IMAGE & BUILD METADATA ---',
         `Image Name/Tag: ${c.image || '—'}`,
-        `Image Digest/ID: ${c.image_id || '—'}`,
-        `Platform / Arch: ${c.image_arch || '—'}`,
-        `Virtual Size:    ${c.image_size || '—'}`,
-        `RootFS Layers:   ${c.image_layers || '—'}`,
-        `Author:          ${c.image_author || '—'}`,
-        `Created:         ${c.image_created || '—'}`,
-        `Docker Engine:   ${c.image_docker_version || '—'}`,
-        `Base Target:     ${c.image_entrypoint || c.entrypoint || '—'}`,
-        `Base Exec:       ${c.image_cmd || c.command || '—'}`,
-        `Working Dir:     ${c.image_workdir || c.workdir || '—'}`,
-        `User:            ${c.image_user || c.user || '—'}`,
-        `Exposed Ports:   ${c.image_ports || c.ports || '—'}`,
-        `Image Volumes:   ${c.image_volumes || '—'}`,
+        `Image Digest/ID:${c.image_id || '—'}`,
+        `Platform / Arch:${c.image_arch || '—'}`,
+        `Virtual Size:   ${c.image_size || '—'}`,
+        `RootFS Layers:  ${c.image_layers || '—'}`,
+        `Author:         ${c.image_author || '—'}`,
+        `Created:        ${c.image_created || '—'}`,
+        `Docker Engine:  ${c.image_docker_version || '—'}`,
+        `Base Target:    ${c.image_entrypoint || c.entrypoint || '—'}`,
+        `Base Exec:      ${c.image_cmd || c.command || '—'}`,
+        `Working Dir:    ${c.image_workdir || c.workdir || '—'}`,
+        `User:           ${c.image_user || c.user || '—'}`,
+        `Exposed Ports:  ${c.image_ports || c.ports || '—'}`,
+        `Image Volumes:  ${c.image_volumes || '—'}`,
         '',
         '--- CURRENT TELEMETRY ---',
         `CPU Utilization:    ${(c.cpu_util || 0).toFixed(1)}%`,
         `Memory Usage:       ${formatBytes(c.mem_usage)} (${c.mem_percent || 0}%)`,
-        `Network Throughput: Rx: ${formatBytes(c.net_rx_rate, true)} | Tx: ${formatBytes(c.net_tx_rate, true)}`,
+        `Memory RSS:         ${formatBytes(c.mem_rss || 0)}`,
+        `Cache / Buffers:    ${formatBytes(c.mem_cache || 0)}`,
+        `Network Rate:       Rx: ${formatBytes(c.net_rx_rate, true)} | Tx: ${formatBytes(c.net_tx_rate, true)}`,
+        `Total Network I/O:  Rx: ${formatBytes(c.net_rx || 0)} | Tx: ${formatBytes(c.net_tx || 0)}`,
         `Disk I/O Rate:      Read: ${formatBytes(c.io_rate_read, true)} | Write: ${formatBytes(c.io_rate_write, true)}`,
+        `Total Disk I/O:     Read: ${formatBytes(c.io_bytes_read || 0)} | Write: ${formatBytes(c.io_bytes_write || 0)}`,
         `PIDs / Processes:   ${c.pids || 0}`,
         ''
       ];
@@ -1892,6 +2749,18 @@
         lines.push(subSep);
         drillSamples.forEach(s => {
           lines.push(`${padRight(s.time, 12)} ${padRight(s.cpu, 10)} ${padRight(s.mem, 16)} ${padRight(s.net, 24)} ${padRight(s.io, 24)} ${s.pids}`);
+        });
+        lines.push('');
+      }
+
+      if (latestTopData && latestTopData.processes && latestTopData.processes.length > 0) {
+        lines.push(`--- IN-CONTAINER ACTIVE PROCESSES (${latestTopData.processes.length}) ---`);
+        if (latestTopData.titles && latestTopData.titles.length > 0) {
+          lines.push(latestTopData.titles.join('\t'));
+          lines.push(subSep);
+        }
+        latestTopData.processes.forEach(row => {
+          lines.push(row.join('\t'));
         });
         lines.push('');
       }
@@ -1916,10 +2785,62 @@
         lines.push('');
       }
 
+      if (latestProbes && latestProbes.length > 0) {
+        lines.push(`--- NETWORK PROBE DIAGNOSTICS (${latestProbes.length}) ---`);
+        lines.push(`${padRight('TARGET', 24)} ${padRight('LABEL', 14)} ${padRight('STATUS', 12)} ${padRight('LATENCY', 12)} PROBED AT`);
+        lines.push(subSep);
+        latestProbes.forEach(p => {
+          const lat = p.latency_ms !== undefined && p.latency_ms >= 0 ? `${p.latency_ms}ms` : '—';
+          lines.push(`${padRight(p.target || '—', 24)} ${padRight(p.label || '—', 14)} ${padRight(p.status || '—', 12)} ${padRight(lat, 12)} ${p.timestamp || '—'}`);
+        });
+        lines.push('');
+      }
+
+      if (latestDiffs && latestDiffs.length > 0) {
+        let added = 0, modified = 0, deleted = 0;
+        latestDiffs.forEach(d => {
+          if (d.kind === 'A' || d.kind === 'Added') added++;
+          else if (d.kind === 'D' || d.kind === 'Deleted') deleted++;
+          else modified++;
+        });
+        lines.push(`--- FILESYSTEM MUTATIONS / DIFF (${latestDiffs.length} changes: ${added} added, ${modified} modified, ${deleted} deleted) ---`);
+        const maxShow = Math.min(latestDiffs.length, 100);
+        for (let i = 0; i < maxShow; i++) {
+          const d = latestDiffs[i];
+          const badge = (d.kind === 'A' || d.kind === 'Added') ? '[A]' : ((d.kind === 'D' || d.kind === 'Deleted') ? '[D]' : '[C]');
+          lines.push(`${badge} ${d.path}`);
+        }
+        if (latestDiffs.length > 100) {
+          lines.push(`... and ${latestDiffs.length - 100} more file mutations (see diff tab for full list)`);
+        }
+        lines.push('');
+      }
+
+      if (logEntries && logEntries.length > 0) {
+        const count = Math.min(logEntries.length, 30);
+        lines.push(`--- RECENT LOG BUFFER (Last ${count} lines) ---`);
+        const startIdx = Math.max(0, logEntries.length - count);
+        for (let i = startIdx; i < logEntries.length; i++) {
+          const entry = logEntries[i];
+          const time = entry.timestamp ? `[${entry.timestamp}] ` : '';
+          const lvl = entry.level ? `[${entry.level}] ` : '';
+          lines.push(`${time}${lvl}${entry.message || ''}`);
+        }
+        lines.push('');
+      }
+
       if (c.env && c.env.length > 0) {
         lines.push(`--- ENVIRONMENT VARIABLES (Sanitized - ${c.env.length}) ---`);
         c.env.forEach(env => {
-          lines.push(env);
+          lines.push(sanitizeEnvLine(env));
+        });
+        lines.push('');
+      }
+
+      if (c.image_env && c.image_env.length > 0) {
+        lines.push(`--- BASE IMAGE ENVIRONMENT (${c.image_env.length}) ---`);
+        c.image_env.forEach(env => {
+          lines.push(sanitizeEnvLine(env));
         });
         lines.push('');
       }
@@ -1927,8 +2848,28 @@
       if (c.labels && Object.keys(c.labels).length > 0) {
         lines.push(`--- LABELS (${Object.keys(c.labels).length}) ---`);
         Object.entries(c.labels).forEach(([k, v]) => {
-          lines.push(`${k}=${v}`);
+          lines.push(`${k}=${isSensitiveSecretKey(k) ? MASK_SECRET_PLACEHOLDER : v}`);
         });
+        lines.push('');
+      }
+
+      if (c.image_labels && Object.keys(c.image_labels).length > 0) {
+        lines.push(`--- IMAGE LABELS (${Object.keys(c.image_labels).length}) ---`);
+        Object.entries(c.image_labels).forEach(([k, v]) => {
+          lines.push(`${k}=${isSensitiveSecretKey(k) ? MASK_SECRET_PLACEHOLDER : v}`);
+        });
+        lines.push('');
+      }
+
+      if (c.generated_run_cmd) {
+        lines.push('--- GENERATED DOCKER RUN COMMAND ---');
+        lines.push(sanitizeCommandSecrets(c.generated_run_cmd));
+        lines.push('');
+      }
+
+      if (c.generated_compose) {
+        lines.push('--- GENERATED DOCKER COMPOSE ---');
+        lines.push(sanitizeCommandSecrets(c.generated_compose));
         lines.push('');
       }
 
@@ -2010,11 +2951,18 @@
       drillNetHistory.length = 0;
       drillDiskHistory.length = 0;
       drillSamples.length = 0;
+      latestTopData = null;
+      latestDiffs = [];
+      latestFiles = [];
+      latestProbes = [];
 
       const c = latestContainers.find(x => x.id === containerId);
       if (c) {
         selectedContainerData = c;
         updateModalData(c);
+        if (c.state && c.state.toLowerCase() === 'running') {
+          fetchContainerTop(containerId);
+        }
       }
 
       document.getElementById('containerModal').classList.add('open');
@@ -2029,11 +2977,13 @@
         clearInterval(probeTimer);
         probeTimer = null;
       }
+      stopContainerLogStream();
       selectedContainerId = null;
     }
 
     const tabNames = {
       'tab-overview': '[o] Overview',
+      'tab-logs': '[l] Logs',
       'tab-volumes': '[v] Volumes',
       'tab-networking': '[n] Networking',
       'tab-env': '[E] Process & Env',
@@ -2077,6 +3027,12 @@
         menuBtn.innerHTML = `&#x1F4CB; ${tabNames[tabId]} &#x25BE;`;
       }
 
+      if (tabId === 'tab-logs' && selectedContainerId) {
+        startContainerLogStream(selectedContainerId);
+      } else {
+        stopContainerLogStream();
+      }
+
       if (tabId === 'tab-networking' && selectedContainerId) {
         fetchContainerProbes(selectedContainerId, false);
         resetProbeTimer();
@@ -2101,6 +3057,596 @@
       if (tabId === 'tab-overview') {
         renderDrillCharts();
       }
+    }
+
+    // ==========================================
+    // Container Logs Module (Aligned with TUI)
+    // ==========================================
+    const MAX_LOG_BUFFER = 6000;
+    let activeLogContainerId = null;
+    let logEventSource = null;
+    let logEntries = [];
+    let logAutoTail = true;
+    let logShowTime = true;
+    let logWrap = false;
+    let logFilterQuery = '';
+    let logLevelFilter = 'ALL';
+    let logSearchMatches = [];
+    let currentSearchMatchIndex = -1;
+    let pendingLogBatch = [];
+    let logBatchRafId = null;
+
+    function toggleLogSaveDropdown(e) {
+      if (e) e.stopPropagation();
+      const dd = document.getElementById('logSaveDropdown');
+      if (dd) dd.classList.toggle('open');
+    }
+
+    document.addEventListener('click', (e) => {
+      const dd = document.getElementById('logSaveDropdown');
+      if (dd && !dd.contains(e.target)) {
+        dd.classList.remove('open');
+      }
+    });
+
+    function setLogLevelFilter(lvl) {
+      logLevelFilter = lvl || 'ALL';
+      const pills = document.querySelectorAll('#logLevelPills .level-pill');
+      pills.forEach(p => {
+        p.classList.toggle('active', p.dataset.level === logLevelFilter);
+      });
+      applyLogFilter();
+    }
+
+    function openContainerLogs(containerId, e) {
+      if (e) e.stopPropagation();
+      openContainerModal(containerId);
+      switchModalTab('tab-logs');
+    }
+
+    function escapeHTML(str) {
+      return String(str !== null && str !== undefined ? str : '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeRegex(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function highlightSyntax(escaped) {
+      let formatted = escaped.replace(/\b(FATAL|CRITICAL|CRIT|EMERGENCY|ALERT|ERROR|ERR|FAIL|FAILED|FAILURE)\b/g, '<span class="log-level-error">$1</span>');
+      formatted = formatted.replace(/\b(WARN|WARNING)\b/g, '<span class="log-level-warn">$1</span>');
+      formatted = formatted.replace(/\b(INFO|NOTICE)\b/g, '<span class="log-level-info">$1</span>');
+      formatted = formatted.replace(/\b(DEBUG|TRACE)\b/g, '<span class="log-level-debug">$1</span>');
+      formatted = formatted.replace(/\b(SUCCESS|OK|PASSED|PASS)\b/g, '<span class="log-level-success">$1</span>');
+      formatted = formatted.replace(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g, '<span style="color:#60a5fa; font-weight:600;">$1</span>');
+      formatted = formatted.replace(/(?<=\s)(200|201|204)(?=\s|$)/g, '<span style="color:#4ade80; font-weight:600;">$1</span>');
+      formatted = formatted.replace(/(?<=\s)(400|401|403|404|405|409|422|429)(?=\s|$)/g, '<span style="color:#fbbf24; font-weight:600;">$1</span>');
+      formatted = formatted.replace(/(?<=\s)(500|502|503|504)(?=\s|$)/g, '<span style="color:#f87171; font-weight:600;">$1</span>');
+      return formatted;
+    }
+
+    function ansiToHtml(text) {
+      if (!text || typeof text !== 'string') return '';
+      const ansiMap = {
+        30: 'ansi-black', 31: 'ansi-red', 32: 'ansi-green', 33: 'ansi-yellow',
+        34: 'ansi-blue', 35: 'ansi-magenta', 36: 'ansi-cyan', 37: 'ansi-white',
+        90: 'ansi-bright-black', 91: 'ansi-bright-red', 92: 'ansi-bright-green', 93: 'ansi-bright-yellow',
+        94: 'ansi-bright-blue', 95: 'ansi-bright-magenta', 96: 'ansi-bright-cyan', 97: 'ansi-bright-white'
+      };
+
+      if (!text.includes('\u001b[') && !text.includes('\x1b[')) {
+        return highlightSyntax(escapeHTML(text));
+      }
+
+      let result = '';
+      let currentClasses = [];
+      const regex = /(?:\x1b|\u001b)\[([0-9;]*)m/g;
+      let lastIndex = 0;
+      let match;
+
+      while ((match = regex.exec(text)) !== null) {
+        const chunk = text.slice(lastIndex, match.index);
+        if (chunk) {
+          const escapedChunk = highlightSyntax(escapeHTML(chunk));
+          if (currentClasses.length > 0) {
+            result += `<span class="${currentClasses.join(' ')}">${escapedChunk}</span>`;
+          } else {
+            result += escapedChunk;
+          }
+        }
+        lastIndex = regex.lastIndex;
+
+        const codes = match[1] ? match[1].split(';').map(c => parseInt(c, 10)) : [0];
+        for (const code of codes) {
+          if (code === 0) {
+            currentClasses = [];
+          } else if (code === 1) {
+            if (!currentClasses.includes('ansi-bold')) currentClasses.push('ansi-bold');
+          } else if (ansiMap[code]) {
+            currentClasses = currentClasses.filter(c => !c.startsWith('ansi-') || c === 'ansi-bold');
+            currentClasses.push(ansiMap[code]);
+          }
+        }
+      }
+
+      const remaining = text.slice(lastIndex);
+      if (remaining) {
+        const escapedRemaining = highlightSyntax(escapeHTML(remaining));
+        if (currentClasses.length > 0) {
+          result += `<span class="${currentClasses.join(' ')}">${escapedRemaining}</span>`;
+        } else {
+          result += escapedRemaining;
+        }
+      }
+
+      return result;
+    }
+
+    function formatLogTimestamp(ts) {
+      if (!ts) return '';
+      try {
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return String(ts);
+        const pad = n => String(n).padStart(2, '0');
+        return `[${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}]`;
+      } catch (_) {
+        return String(ts);
+      }
+    }
+
+    function appendLogEntry(entry) {
+      pendingLogBatch.push(entry);
+      if (!logBatchRafId) {
+        logBatchRafId = requestAnimationFrame(flushLogBatch);
+      }
+    }
+
+    function flushLogBatch() {
+      logBatchRafId = null;
+      if (pendingLogBatch.length === 0) return;
+
+      const batch = pendingLogBatch;
+      pendingLogBatch = [];
+
+      const viewer = document.getElementById('logViewerContent');
+      if (!viewer) return;
+
+      const placeholder = document.getElementById('logLoadingPlaceholder');
+      if (placeholder) {
+        placeholder.remove();
+      }
+
+      // Evict oldest entries if total exceeds MAX_LOG_BUFFER
+      const overflow = (logEntries.length + batch.length) - MAX_LOG_BUFFER;
+      if (overflow > 0) {
+        logEntries.splice(0, overflow);
+        const existingLines = viewer.querySelectorAll('.log-line');
+        const removeCount = Math.min(overflow, existingLines.length);
+        for (let i = 0; i < removeCount; i++) {
+          existingLines[i].remove();
+        }
+      }
+
+      const startIndex = logEntries.length;
+      for (let i = 0; i < batch.length; i++) {
+        logEntries.push(batch[i]);
+      }
+
+      const fragment = document.createDocumentFragment();
+      const hasFilter = Boolean(logFilterQuery || (logLevelFilter && logLevelFilter !== 'ALL'));
+
+      for (let i = 0; i < batch.length; i++) {
+        const entry = batch[i];
+        const lineEl = document.createElement('div');
+        lineEl.className = 'log-line';
+        lineEl.dataset.index = startIndex + i;
+
+        const tsText = formatLogTimestamp(entry.timestamp);
+        let msgHtml = ansiToHtml(entry.message);
+
+        if (hasFilter) {
+          const matches = isLineMatchingFilter(entry, logFilterQuery);
+          if (!matches) {
+            lineEl.classList.add('filtered-out');
+          } else if (logFilterQuery) {
+            try {
+              const regex = new RegExp(`(${escapeRegex(logFilterQuery)})`, 'gi');
+              msgHtml = msgHtml.replace(regex, '<mark class="log-search-match">$1</mark>');
+            } catch (_) {}
+          }
+        }
+
+        lineEl.innerHTML = `<span class="log-ts">${escapeHTML(tsText)}</span><span class="log-msg">${msgHtml}</span>`;
+        fragment.appendChild(lineEl);
+      }
+
+      viewer.appendChild(fragment);
+      updateLineCounter();
+
+      if (logAutoTail) {
+        const container = document.getElementById('logViewerContainer');
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      }
+    }
+
+    function handleLogScroll() {
+      const container = document.getElementById('logViewerContainer');
+      if (!container) return;
+      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 30;
+      if (isAtBottom) {
+        if (!logAutoTail) {
+          logAutoTail = true;
+          updateAutoTailButton();
+        }
+      } else {
+        if (logAutoTail) {
+          logAutoTail = false;
+          updateAutoTailButton();
+        }
+      }
+    }
+
+    function toggleLogAutoTail() {
+      logAutoTail = !logAutoTail;
+      updateAutoTailButton();
+      if (logAutoTail) {
+        scrollLogsToBottom();
+      }
+    }
+
+    function updateAutoTailButton() {
+      const btn = document.getElementById('logAutoTailBtn');
+      const pill = document.getElementById('logStreamStatusPill');
+      const text = document.getElementById('logStreamStatusText');
+      if (btn) {
+        btn.classList.toggle('active', logAutoTail);
+        btn.innerHTML = logAutoTail ? '&#x26A1; Auto-Tail: ON' : '&#x23F8;&#xFE0F; Auto-Tail: PAUSED';
+      }
+      if (text && logEventSource) {
+        if (logAutoTail) {
+          text.textContent = 'STREAMING';
+          if (pill) { pill.className = 'status-pill running'; }
+        } else {
+          text.textContent = 'PAUSED';
+          if (pill) { pill.className = 'status-pill paused'; }
+        }
+      }
+    }
+
+    function scrollLogsToTop() {
+      const container = document.getElementById('logViewerContainer');
+      if (container) {
+        logAutoTail = false;
+        updateAutoTailButton();
+        container.scrollTop = 0;
+      }
+    }
+
+    function scrollLogsToBottom() {
+      const container = document.getElementById('logViewerContainer');
+      if (container) {
+        logAutoTail = true;
+        updateAutoTailButton();
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function toggleLogTime() {
+      logShowTime = !logShowTime;
+      const container = document.getElementById('logViewerContainer');
+      const btn = document.getElementById('logTimeBtn');
+      if (container) {
+        container.classList.toggle('hide-time', !logShowTime);
+      }
+      if (btn) {
+        btn.classList.toggle('active', logShowTime);
+        btn.innerHTML = logShowTime ? '&#x23F0; Time: ON' : '&#x23F0; Time: OFF';
+      }
+    }
+
+    function toggleLogWrap() {
+      logWrap = !logWrap;
+      const container = document.getElementById('logViewerContainer');
+      const btn = document.getElementById('logWrapBtn');
+      if (container) {
+        container.classList.toggle('wrap-lines', logWrap);
+      }
+      if (btn) {
+        btn.classList.toggle('active', logWrap);
+        btn.innerHTML = logWrap ? '&#x21A9;&#xFE0F; Wrap: ON' : '&#x21A9;&#xFE0F; Wrap: OFF';
+      }
+    }
+
+    function isLineMatchingFilter(entry, query) {
+      const msg = entry.message || '';
+      if (logLevelFilter && logLevelFilter !== 'ALL') {
+        if (logLevelFilter === 'ERROR') {
+          if (!/\b(FATAL|CRITICAL|CRIT|EMERGENCY|ALERT|ERROR|ERR|FAIL|FAILED|FAILURE)\b/i.test(msg)) {
+            return false;
+          }
+        } else if (logLevelFilter === 'WARN') {
+          if (!/\b(WARN|WARNING)\b/i.test(msg)) {
+            return false;
+          }
+        } else if (logLevelFilter === 'INFO') {
+          if (!/\b(INFO|NOTICE)\b/i.test(msg)) {
+            return false;
+          }
+        }
+      }
+      if (!query) return true;
+      const target = msg + ' ' + (entry.timestamp || '');
+      try {
+        const reg = new RegExp(escapeRegex(query), 'i');
+        return reg.test(target);
+      } catch (_) {
+        return target.toLowerCase().includes(query.toLowerCase());
+      }
+    }
+
+    function handleLogFilterInput() {
+      const input = document.getElementById('logFilterInput');
+      logFilterQuery = input ? input.value.trim() : '';
+      applyLogFilter();
+    }
+
+    function applyLogFilter() {
+      const viewer = document.getElementById('logViewerContent');
+      if (!viewer) return;
+
+      const lines = viewer.querySelectorAll('.log-line');
+      let visibleCount = 0;
+      logSearchMatches = [];
+      currentSearchMatchIndex = -1;
+      const isFiltered = Boolean(logFilterQuery || (logLevelFilter && logLevelFilter !== 'ALL'));
+
+      lines.forEach((line, idx) => {
+        const entry = logEntries[idx];
+        if (!entry) return;
+
+        if (!isFiltered) {
+          line.classList.remove('filtered-out', 'search-current');
+          visibleCount++;
+          const msgSpan = line.querySelector('.log-msg');
+          if (msgSpan) {
+            msgSpan.innerHTML = ansiToHtml(entry.message);
+          }
+        } else {
+          const matches = isLineMatchingFilter(entry, logFilterQuery);
+          if (matches) {
+            line.classList.remove('filtered-out');
+            visibleCount++;
+            if (logFilterQuery) {
+              logSearchMatches.push(line);
+            }
+            const msgSpan = line.querySelector('.log-msg');
+            if (msgSpan) {
+              let html = ansiToHtml(entry.message);
+              if (logFilterQuery) {
+                try {
+                  const regex = new RegExp(`(${escapeRegex(logFilterQuery)})`, 'gi');
+                  html = html.replace(regex, '<mark class="log-search-match">$1</mark>');
+                } catch (_) {}
+              }
+              msgSpan.innerHTML = html;
+            }
+          } else {
+            line.classList.add('filtered-out');
+          }
+        }
+      });
+
+      const badge = document.getElementById('logFilterMatchBadge');
+      if (badge) {
+        if (logFilterQuery) {
+          badge.style.display = 'inline-block';
+          badge.textContent = `${visibleCount} match${visibleCount === 1 ? '' : 'es'}`;
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+      updateLineCounter();
+    }
+
+    function navigateLogSearch(dir) {
+      if (logSearchMatches.length === 0) return;
+      if (currentSearchMatchIndex >= 0 && currentSearchMatchIndex < logSearchMatches.length) {
+        logSearchMatches[currentSearchMatchIndex].classList.remove('search-current');
+      }
+      currentSearchMatchIndex = (currentSearchMatchIndex + dir + logSearchMatches.length) % logSearchMatches.length;
+      const targetLine = logSearchMatches[currentSearchMatchIndex];
+      if (targetLine) {
+        targetLine.classList.add('search-current');
+        targetLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        logAutoTail = false;
+        updateAutoTailButton();
+      }
+    }
+
+    function clearLogFilter() {
+      const input = document.getElementById('logFilterInput');
+      if (input) input.value = '';
+      logFilterQuery = '';
+      applyLogFilter();
+    }
+
+    function downloadContainerLogs(mode) {
+      const dd = document.getElementById('logSaveDropdown');
+      if (dd) dd.classList.remove('open');
+
+      const targetId = activeLogContainerId || selectedContainerId;
+      if (!targetId) return;
+
+      if (mode === 'full') {
+        const cName = selectedContainerData ? (selectedContainerData.name || selectedContainerData.id) : (targetId || '');
+        const nameParam = cName ? `&name=${encodeURIComponent(cName)}` : '';
+        const url = (BASE_PATH || '') + '/api/v1/containers/' + encodeURIComponent(targetId) + '/logs?download=true&tail=all' + nameParam;
+        const a = document.createElement('a');
+        a.href = url;
+        a.setAttribute('download', '');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+
+      const cName = selectedContainerData ? (selectedContainerData.name || selectedContainerData.id) : (targetId || 'container');
+      const safeName = cName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const dateStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+      if (mode === 'ndjson') {
+        const filename = `ctop_logs_${safeName}_${targetId}_${dateStr}.ndjson`;
+        let lines = [];
+        for (const entry of logEntries) {
+          if (!isLineMatchingFilter(entry, logFilterQuery)) {
+            continue;
+          }
+          lines.push(JSON.stringify({
+            timestamp: entry.timestamp || new Date().toISOString(),
+            container_name: cName,
+            container_id: targetId,
+            level: entry.level || 'INFO',
+            message: entry.message
+          }));
+        }
+        downloadTxtFile(lines.join('\n'), filename);
+        return;
+      }
+
+      const filename = `ctop_logs_${safeName}_${targetId}_${dateStr}.log`;
+
+      let lines = [];
+      for (const entry of logEntries) {
+        if (!isLineMatchingFilter(entry, logFilterQuery)) {
+          continue;
+        }
+        if (logShowTime && entry.timestamp) {
+          lines.push(`${formatLogTimestamp(entry.timestamp)} ${entry.message}`);
+        } else {
+          lines.push(entry.message);
+        }
+      }
+      downloadTxtFile(lines.join('\n'), filename);
+    }
+
+    function copyContainerLogs() {
+      let lines = [];
+      for (const entry of logEntries) {
+        if (!isLineMatchingFilter(entry, logFilterQuery)) {
+          continue;
+        }
+        if (logShowTime && entry.timestamp) {
+          lines.push(`${formatLogTimestamp(entry.timestamp)} ${entry.message}`);
+        } else {
+          lines.push(entry.message);
+        }
+      }
+      copyText(lines.join('\n'), `Copied ${lines.length} log lines to clipboard`);
+    }
+
+    function clearLogViewer() {
+      if (logBatchRafId) {
+        cancelAnimationFrame(logBatchRafId);
+        logBatchRafId = null;
+      }
+      pendingLogBatch = [];
+      logEntries = [];
+      const viewer = document.getElementById('logViewerContent');
+      if (viewer) {
+        viewer.innerHTML = '<div class="log-placeholder" style="color:var(--text-muted);">&#x1F5D1;&#xFE0F; Buffer cleared. Waiting for new log lines...</div>';
+      }
+      updateLineCounter();
+    }
+
+    function updateLineCounter() {
+      const counter = document.getElementById('logLineCounter');
+      if (!counter) return;
+      const visible = document.querySelectorAll('.log-line:not(.filtered-out)').length;
+      const total = logEntries.length;
+      const isFiltered = Boolean(logFilterQuery || (logLevelFilter && logLevelFilter !== 'ALL'));
+      if (isFiltered) {
+        counter.textContent = `${visible} / ${total} (max ${MAX_LOG_BUFFER})`;
+      } else {
+        counter.textContent = `${total} / ${MAX_LOG_BUFFER} lines`;
+      }
+    }
+
+    function startContainerLogStream(containerId) {
+      if (activeLogContainerId === containerId && logEventSource && logEventSource.readyState !== EventSource.CLOSED) {
+        return;
+      }
+      stopContainerLogStream();
+      activeLogContainerId = containerId;
+      if (logBatchRafId) {
+        cancelAnimationFrame(logBatchRafId);
+        logBatchRafId = null;
+      }
+      pendingLogBatch = [];
+      logEntries = [];
+
+      const viewer = document.getElementById('logViewerContent');
+      if (viewer) {
+        viewer.innerHTML = '<div class="log-placeholder" id="logLoadingPlaceholder"><span class="spinner">&#x23F3;</span> Connecting to live container log stream...</div>';
+      }
+      updateLineCounter();
+
+      const pill = document.getElementById('logStreamStatusPill');
+      const text = document.getElementById('logStreamStatusText');
+      if (text) text.textContent = 'CONNECTING';
+      if (pill) pill.className = 'status-pill paused';
+
+      const url = (BASE_PATH || '') + '/api/v1/containers/' + encodeURIComponent(containerId) + '/logs?stream=true';
+      try {
+        logEventSource = new EventSource(url);
+        logEventSource.onopen = () => {
+          if (text) text.textContent = logAutoTail ? 'STREAMING' : 'PAUSED';
+          if (pill) pill.className = logAutoTail ? 'status-pill running' : 'status-pill paused';
+        };
+        logEventSource.onmessage = (e) => {
+          try {
+            const entry = JSON.parse(e.data);
+            appendLogEntry(entry);
+          } catch (_) {}
+        };
+        logEventSource.onerror = () => {
+          if (logEventSource && logEventSource.readyState === EventSource.CLOSED) {
+            if (text) text.textContent = 'STREAM ENDED';
+            if (pill) pill.className = 'status-pill stopped';
+          } else {
+            if (text) text.textContent = 'RECONNECTING';
+            if (pill) pill.className = 'status-pill paused';
+          }
+        };
+      } catch (err) {
+        if (text) text.textContent = 'ERROR';
+        if (pill) pill.className = 'status-pill error';
+      }
+    }
+
+    function stopContainerLogStream() {
+      if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
+      }
+      if (logBatchRafId) {
+        cancelAnimationFrame(logBatchRafId);
+        logBatchRafId = null;
+      }
+      pendingLogBatch = [];
+      activeLogContainerId = null;
+      const pill = document.getElementById('logStreamStatusPill');
+      const text = document.getElementById('logStreamStatusText');
+      if (text) text.textContent = 'DISCONNECTED';
+      if (pill) pill.className = 'status-pill stopped';
     }
 
     let latestProbes = [];
@@ -2329,24 +3875,89 @@
         portsGrid.innerHTML = `<div style="color:var(--text-muted); font-size:0.82rem;">No exposed or published ports</div>`;
       }
 
-      // Update Environment Tab
+      // Update Process & Runtime and Environment Tab
+      function setProc(id, val, titleVal) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.textContent = val || '—';
+          el.title = titleVal || val || '';
+        }
+      }
+
+      setProc('procEntrypoint', c.entrypoint);
+      setProc('procWorkdir', c.workdir);
+      setProc('procUser', c.user);
+      setProc('procRestart', c.restart_policy || 'no');
+      setProc('procExitCode', (c.exit_code !== undefined && c.exit_code !== '') ? c.exit_code : (isRunning ? '0 (running)' : '—'));
+
+      const oomElem = document.getElementById('procOOMKilled');
+      if (oomElem) {
+        const isOom = (c.oom_killed === 'true' || c.oom_killed === true);
+        oomElem.textContent = isOom ? 'true (OOM KILLED)' : (c.oom_killed || 'false');
+        oomElem.title = isOom ? 'OOM Killed' : 'Not OOM Killed';
+        oomElem.style.color = isOom ? '#ef4444' : '#10b981';
+      }
+
+      setProc('procMemLimit', c.mem_limit_str || formatBytes(c.mem_limit));
+      setProc('procCPULimit', c.cpu_limit || 'unlimited');
+      setProc('procPidsLimit', c.pids_limit || 'unlimited');
+
+      const privElem = document.getElementById('procPrivileged');
+      if (privElem) {
+        const isPriv = (c.privileged === 'true' || c.privileged === true);
+        privElem.textContent = isPriv ? 'true (Privileged)' : (c.privileged || 'false');
+        privElem.title = isPriv ? 'Privileged Container' : 'Unprivileged';
+        privElem.style.color = isPriv ? '#f59e0b' : '#94a3b8';
+      }
+
+      setProc('procReadonly', c.readonly_rootfs || 'false');
+      setProc('procCapAdd', c.cap_add || 'default (none added)');
+      setProc('procCapDrop', c.cap_drop || 'none (standard set)');
+      setProc('procSecurityOpt', c.security_opt || 'default (seccomp:default)');
+
+      const healthElem = document.getElementById('procHealthStatus');
+      if (healthElem) {
+        const hStatus = c.health_status || c.health || 'none configured';
+        healthElem.textContent = hStatus;
+        healthElem.title = 'Health Status: ' + hStatus;
+        if (hStatus.toLowerCase().includes('healthy') && !hStatus.toLowerCase().includes('unhealthy')) {
+          healthElem.style.color = '#10b981';
+        } else if (hStatus.toLowerCase().includes('unhealthy')) {
+          healthElem.style.color = '#ef4444';
+        } else {
+          healthElem.style.color = '#94a3b8';
+        }
+      }
+
+      setProc('procHealthCmd', c.health_test || '—');
+      setProc('procHealthInterval', c.health_interval || '—');
+      setProc('procHealthTimeout', c.health_timeout || '—');
+      setProc('procHealthRetries', c.health_retries || '—');
+
       renderEnvTable();
 
       // Update Image Details Tab
-      document.getElementById('imgNameTag').textContent = c.image || '—';
-      document.getElementById('imgID').textContent = c.image_id || '—';
-      document.getElementById('imgPlatform').textContent = c.image_arch || '—';
-      document.getElementById('imgSize').textContent = c.image_size || '—';
-      document.getElementById('imgLayers').textContent = c.image_layers || '—';
-      document.getElementById('imgAuthor').textContent = c.image_author || '—';
-      document.getElementById('imgCreated').textContent = c.image_created || '—';
-      document.getElementById('imgDockerVer').textContent = c.image_docker_version || '—';
-      document.getElementById('imgEntrypoint').textContent = c.image_entrypoint || c.entrypoint || '—';
-      document.getElementById('imgCmd').textContent = c.image_cmd || c.command || '—';
-      document.getElementById('imgWorkDir').textContent = c.image_workdir || c.workdir || '—';
-      document.getElementById('imgUser').textContent = c.image_user || c.user || '—';
-      document.getElementById('imgExposedPorts').textContent = c.image_ports || c.ports || '—';
-      document.getElementById('imgVolumes').textContent = c.image_volumes || '—';
+      function setImg(id, val) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.textContent = val || '—';
+          el.title = val || '';
+        }
+      }
+      setImg('imgNameTag', c.image);
+      setImg('imgID', c.image_id);
+      setImg('imgPlatform', c.image_arch);
+      setImg('imgSize', c.image_size);
+      setImg('imgLayers', c.image_layers);
+      setImg('imgAuthor', c.image_author);
+      setImg('imgCreated', c.image_created);
+      setImg('imgDockerVer', c.image_docker_version);
+      setImg('imgEntrypoint', c.image_entrypoint || c.entrypoint);
+      setImg('imgCmd', c.image_cmd || c.command);
+      setImg('imgWorkDir', c.image_workdir || c.workdir);
+      setImg('imgUser', c.image_user || c.user);
+      setImg('imgExposedPorts', c.image_ports || c.ports);
+      setImg('imgVolumes', c.image_volumes);
       renderImageLabelsTable();
     }
 
@@ -2369,15 +3980,23 @@
         return;
       }
 
-      tbody.innerHTML = filtered.map(([k, v]) => `
-        <tr>
-          <td style="color:#38bdf8; font-weight:600; word-break:break-all;">${k}</td>
-          <td style="word-break:break-all;">${v}</td>
-          <td style="text-align:right;">
-            <button class="copy-btn" onclick="copyText('${String(v).replace(/'/g, "\\'")}')" title="Copy Value">&#x2398;</button>
-          </td>
-        </tr>
-      `).join('');
+      tbody.innerHTML = filtered.map(([k, v]) => {
+        const strVal = String(v);
+        const isMasked = strVal.includes('[masked]') || strVal.includes('••••');
+        const valHtml = isMasked
+          ? `<span style="color:#f59e0b; font-weight:500; font-family:var(--font-mono);">${strVal}</span>`
+          : `<span style="word-break:break-all;">${strVal}</span>`;
+        const copyBtnHtml = isMasked
+          ? ''
+          : `<button class="copy-btn" onclick="copyText('${strVal.replace(/'/g, "\\'")}')" title="Copy Value">&#x2398;</button>`;
+        return `
+          <tr>
+            <td style="color:#38bdf8; font-weight:600; word-break:break-all;">${k}</td>
+            <td>${valHtml}</td>
+            <td style="text-align:right;">${copyBtnHtml}</td>
+          </tr>
+        `;
+      }).join('');
     }
 
     // Fetch Filesystem Diff via REST API
@@ -2810,13 +4429,18 @@
         const eqIdx = item.indexOf('=');
         const k = eqIdx > -1 ? item.substring(0, eqIdx) : item;
         const v = eqIdx > -1 ? item.substring(eqIdx + 1) : '';
+        const isMasked = v.includes('[masked]') || v.includes('••••');
+        const valHtml = isMasked
+          ? `<span style="color:#f59e0b; font-weight:500; font-family:var(--font-mono);">${v}</span>`
+          : `<span style="word-break:break-all;">${v}</span>`;
+        const copyBtnHtml = isMasked
+          ? ''
+          : `<button class="copy-btn" onclick="copyText('${v.replace(/'/g, "\\'")}')" title="Copy Value">&#x2398;</button>`;
         return `
           <tr>
             <td style="color:#38bdf8; font-weight:600;">${k}</td>
-            <td style="word-break:break-all;">${v}</td>
-            <td style="text-align:right;">
-              <button class="copy-btn" onclick="copyText('${v.replace(/'/g, "\\'")}')" title="Copy Value">&#x2398;</button>
-            </td>
+            <td>${valHtml}</td>
+            <td style="text-align:right;">${copyBtnHtml}</td>
           </tr>
         `;
       }).join('');
@@ -2851,6 +4475,7 @@
           return;
         }
         const data = await resp.json();
+        latestTopData = data || null;
         if (!data || !data.processes || data.processes.length === 0) {
           tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No active processes detected</td></tr>`;
           return;
@@ -3088,8 +4713,9 @@
             </td>
             <td>
               <div class="cont-name-cell">
-                ${c.name || (c.id ? c.id.substring(0, 12) : 'container')}
+                <span>${c.name || (c.id ? c.id.substring(0, 12) : 'container')}</span>
                 <span class="inspect-hint">&#x1F50D; inspect</span>
+                <button class="row-quick-btn logs-btn" onclick="openContainerLogs('${c.id}', event)" title="View live logs for ${c.name || c.id}">&#x1F4DC; logs</button>
               </div>
               <div class="cont-image">${c.image || 'unknown'}</div>
             </td>
@@ -3433,7 +5059,21 @@
           if (e.key === '3') { setWebMode('raw'); return; }
         }
 
+        const isLogsTab = document.getElementById('tab-logs')?.classList.contains('active');
+        if (isLogsTab) {
+          if (e.key === 'a' || e.key === 'A') { toggleLogAutoTail(); return; }
+          if (e.key === 't' || e.key === 'T') { toggleLogTime(); return; }
+          if (e.key === 'w' || e.key === 'W') { toggleLogWrap(); return; }
+          if (e.key === 's' || e.key === 'S') { toggleLogSaveDropdown(e); return; }
+          if (e.key === '/') {
+            e.preventDefault();
+            document.getElementById('logFilterInput')?.focus();
+            return;
+          }
+        }
+
         if (e.key === 'o' || e.key === 'O') switchModalTab('tab-overview');
+        if (e.key === 'l' || e.key === 'L') switchModalTab('tab-logs');
         if (e.key === 'v' || e.key === 'V') switchModalTab('tab-volumes');
         if (e.key === 'n' || e.key === 'N') switchModalTab('tab-networking');
         if (e.key === 'e' || e.key === 'E') switchModalTab('tab-env');
@@ -3449,6 +5089,15 @@
         if (e.key === 'd' || e.key === 'D') switchModalTab('tab-diff');
         if (e.key === 'f' || e.key === 'F') switchModalTab('tab-files');
         if (e.key === 'w' || e.key === 'W') switchModalTab('tab-web');
+      }
+    });
+
+    document.getElementById('logFilterInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        navigateLogSearch(e.shiftKey ? -1 : 1);
+      } else if (e.key === 'Escape') {
+        e.target.blur();
       }
     });
 

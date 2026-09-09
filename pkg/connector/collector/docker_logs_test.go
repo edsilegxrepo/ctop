@@ -124,3 +124,121 @@ func TestDockerLogsStreamClientError(t *testing.T) {
 	}
 	dl.Stop()
 }
+
+func TestDockerLogsStreamWithTTYMockServer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/json") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"Id":"c123","Config":{"Tty":true}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+		// TTY sends raw bytes without 8-byte multiplexed header, often with \r\n
+		body := []byte("2026-08-18T10:00:00Z tty test log\r\n")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	dl := NewDockerLogs("c123", client)
+	stream := dl.Stream()
+
+	select {
+	case logItem, ok := <-stream:
+		if !ok {
+			t.Fatalf("stream closed unexpectedly without logs")
+		}
+		if logItem.Message != "tty test log" {
+			t.Fatalf("expected message 'tty test log', got %q", logItem.Message)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for TTY container logs")
+	}
+
+	dl.Stop()
+}
+
+func TestDockerLogsStreamFallback(t *testing.T) {
+	reqCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/json") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		reqCount++
+		w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+		// Always return raw stream; on the first attempt RawTerminal=false will fail with unrecognized input header
+		// then fallback should retry with RawTerminal=true and succeed.
+		body := []byte("2026-08-18T10:00:00Z fallback raw log\n")
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	dl := NewDockerLogs("c123", client)
+	stream := dl.Stream()
+
+	select {
+	case logItem, ok := <-stream:
+		if !ok {
+			t.Fatalf("stream closed unexpectedly without logs (reqCount: %d)", reqCount)
+		}
+		if logItem.Message != "fallback raw log" {
+			t.Fatalf("expected message 'fallback raw log', got %q", logItem.Message)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for fallback logs (reqCount: %d)", reqCount)
+	}
+
+	dl.Stop()
+}
+
+func TestDockerLogsSanitizeLine(t *testing.T) {
+	dl := &DockerLogs{}
+
+	// Test 1: trailing CRLF removal
+	if res := dl.sanitizeLine("hello world\r\n"); res != "hello world" {
+		t.Fatalf("expected 'hello world', got %q", res)
+	}
+
+	// Test 2: internal carriage returns (progress bar style - keeps final state)
+	if res := dl.sanitizeLine("downloading 20%\rdownloading 80%\rdownloading 100%"); res != "downloading 100%" {
+		t.Fatalf("expected 'downloading 100%%', got %q", res)
+	}
+
+	// Test 3: null byte replacement
+	if res := dl.sanitizeLine("abc\x00def\x00ghi"); res != "abc def ghi" {
+		t.Fatalf("expected 'abc def ghi', got %q", res)
+	}
+
+	// Test 4: Docker header prefix stripping combined with CRLF
+	raw := string([]byte{0x01, 0, 0, 0, 0, 0, 0, 0}) + "log line with header\r\n"
+	if res := dl.sanitizeLine(raw); res != "log line with header" {
+		t.Fatalf("expected 'log line with header', got %q", res)
+	}
+}
+
+func TestDockerLogsNilClientSafety(t *testing.T) {
+	dl := NewDockerLogs("c_nil", nil)
+	stream := dl.Stream()
+
+	// Should not panic and stream should close gracefully
+	select {
+	case _, ok := <-stream:
+		if ok {
+			t.Log("received unexpected log from nil client")
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for nil client stream closure")
+	}
+
+	dl.Stop()
+}

@@ -99,3 +99,39 @@ func TestGenerateCompose(t *testing.T) {
 		t.Errorf("expected read_only: true, got: %s", compose)
 	}
 }
+
+func TestGenerateWithSensitiveSecrets(t *testing.T) {
+	meta := MapMeta{
+		"name":      "aqilink",
+		"image":     "ghcr.io/aqipro/aqilink:26.0.0-rc.1",
+		"[ENV-VAR]": "PORT=9090;AQL_NUXEO_PASSWORD=99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1;DB_URL=postgres://user:pass@host/db;APP_NAME=aqilink",
+	}
+
+	cmd := GenerateRunCmd(meta)
+	if strings.Contains(cmd, "99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1") {
+		t.Errorf("secret password leaked in generated run command: %s", cmd)
+	}
+	if strings.Contains(cmd, "postgres://user:pass@host/db") {
+		t.Errorf("secret db_url leaked in generated run command: %s", cmd)
+	}
+	if !strings.Contains(cmd, `-e "AQL_NUXEO_PASSWORD=•••••••••••• [masked]"`) {
+		t.Errorf("expected masked password in generated run command, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, `-e "PORT=9090"`) {
+		t.Errorf("expected non-sensitive PORT=9090 in generated run command, got: %s", cmd)
+	}
+
+	compose := GenerateCompose(meta)
+	if strings.Contains(compose, "99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1") {
+		t.Errorf("secret password leaked in generated compose: %s", compose)
+	}
+	if strings.Contains(compose, "postgres://user:pass@host/db") {
+		t.Errorf("secret db_url leaked in generated compose: %s", compose)
+	}
+	if !strings.Contains(compose, `- AQL_NUXEO_PASSWORD=•••••••••••• [masked]`) {
+		t.Errorf("expected masked password in generated compose, got: %s", compose)
+	}
+	if !strings.Contains(compose, `- PORT=9090`) {
+		t.Errorf("expected non-sensitive PORT=9090 in generated compose, got: %s", compose)
+	}
+}

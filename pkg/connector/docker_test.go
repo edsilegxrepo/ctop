@@ -490,6 +490,17 @@ func TestNewDockerFromMockServer(t *testing.T) {
 	}
 }
 
+func TestNewDockerClientDefaultEndpoint(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	client, err := newDockerClient("")
+	if err != nil {
+		t.Fatalf("expected newDockerClient(\"\") to succeed with default env client, got err: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client from default endpoint")
+	}
+}
+
 func TestMockConnectorOperations(t *testing.T) {
 	conn, err := NewMock()
 	if err != nil {

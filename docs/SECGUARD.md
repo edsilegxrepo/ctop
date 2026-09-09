@@ -212,7 +212,7 @@ flowchart TD
    ```http
    GET /api/v1/metrics HTTP/1.1
    Host: localhost:9090
-   Authorization: Bearer 1263171892d7bc4ba3b4e632ffd8d4fb
+   Authorization: Bearer 9kL2xP8vB1mN7qR4tY6wZ3aC5eG8hJ0kL2xP8vB1mN7qR4tY6wZ3aC5eG8hJ0kL2
    ```
 
 2. **Channel 2: Web Dashboard UI (`HttpOnly; SameSite=Strict; Secure` Session Cookie)**:
@@ -362,7 +362,7 @@ In accordance with strict security policies:
 
 | Test Suite | Test Function | Verified Security Invariant |
 | :--- | :--- | :--- |
-| **Unit (`pkg/web`)** | `TestGenerateAuthToken` | Verifies 32-character hexadecimal output and CSPRNG uniqueness. |
+| **Unit (`pkg/web`)** | `TestGenerateAuthToken` | Verifies 64-character alphanumeric output and CSPRNG uniqueness. |
 | **Unit (`pkg/web`)** | `TestWebServerAuthToken` | Verifies 401 on missing token, 401 on invalid token, 200 on Bearer header, 401 on deprecated query param. |
 | **Unit (`pkg/web`)** | `TestWebServerSessionCookie` | Verifies session creation via `POST /api/v1/auth/login`, cookie validation, and session logout revocation. |
 | **Unit (`pkg/web`)** | `TestWebServerDirectLocalAccess` | Verifies direct `127.0.0.1` bypasses password modal, while requests with `X-Forwarded-For` or remote IPs strictly enforce authentication. |

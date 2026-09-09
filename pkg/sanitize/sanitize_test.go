@@ -83,6 +83,9 @@ func TestIsSensitiveKey(t *testing.T) {
 		"APP_NAME",
 		"LOG_LEVEL",
 		"MAX_WORKERS",
+		"X_AUTHELIA_CONFIG",
+		"AUTHELIA_CONFIG",
+		"AUTHELIA_LOG_LEVEL",
 	}
 
 	for _, key := range nonSensitive {
@@ -112,5 +115,105 @@ func TestSanitizeEnv(t *testing.T) {
 
 	if len(cleaned) != 3 {
 		t.Fatalf("expected 3 non-sensitive env variables, got %d: %+v", len(cleaned), cleaned)
+	}
+}
+
+func TestMaskSecretAndEnv(t *testing.T) {
+	if MaskSecret("secret") != MaskValue {
+		t.Errorf("expected %q, got %q", MaskValue, MaskSecret("secret"))
+	}
+	if MaskSecret("") != "" {
+		t.Errorf("expected empty string for empty input, got %q", MaskSecret(""))
+	}
+
+	// MaskEnv
+	passEnv := "AQL_NUXEO_PASSWORD=99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1"
+	maskedPass := MaskEnv(passEnv)
+	expectedPass := "AQL_NUXEO_PASSWORD=" + MaskValue
+	if maskedPass != expectedPass {
+		t.Errorf("expected %q, got %q", expectedPass, maskedPass)
+	}
+
+	normalEnv := "PORT=8080"
+	if MaskEnv(normalEnv) != normalEnv {
+		t.Errorf("expected non-sensitive %q to remain unchanged, got %q", normalEnv, MaskEnv(normalEnv))
+	}
+
+	// MaskEnvList
+	list := []string{
+		"PORT=8080",
+		"AQL_NUXEO_PASSWORD=secret123",
+		"API_KEY=key_abc",
+	}
+	maskedList := MaskEnvList(list)
+	if len(maskedList) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(maskedList))
+	}
+	if maskedList[0] != "PORT=8080" {
+		t.Errorf("unexpected first item: %s", maskedList[0])
+	}
+	if maskedList[1] != "AQL_NUXEO_PASSWORD="+MaskValue {
+		t.Errorf("unexpected second item: %s", maskedList[1])
+	}
+	if maskedList[2] != "API_KEY="+MaskValue {
+		t.Errorf("unexpected third item: %s", maskedList[2])
+	}
+
+	// MaskLabels
+	labels := map[string]string{
+		"version":     "1.0",
+		"DB_PASSWORD": "secretpassword",
+	}
+	cleanLabels := MaskLabels(labels)
+	if cleanLabels["version"] != "1.0" {
+		t.Errorf("expected version to be 1.0, got %s", cleanLabels["version"])
+	}
+	if cleanLabels["DB_PASSWORD"] != MaskValue {
+		t.Errorf("expected DB_PASSWORD to be masked, got %s", cleanLabels["DB_PASSWORD"])
+	}
+}
+
+func TestSanitizeCommandString(t *testing.T) {
+	runCmd := `docker run -d \
+  --name aqilink \
+  -e "PORT=8080" \
+  -e "AQL_NUXEO_PASSWORD=99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1" \
+  -e "AUTH_TOKEN=supertoken" \
+  aqilink:latest`
+
+	sanitizedRun := SanitizeCommandString(runCmd)
+	if strings.Contains(sanitizedRun, "99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1") {
+		t.Errorf("secret leaked in sanitized run command: %s", sanitizedRun)
+	}
+	if strings.Contains(sanitizedRun, "supertoken") {
+		t.Errorf("token leaked in sanitized run command: %s", sanitizedRun)
+	}
+	if !strings.Contains(sanitizedRun, "-e \"AQL_NUXEO_PASSWORD="+MaskValue+"\"") {
+		t.Errorf("expected masked password in run command, got: %s", sanitizedRun)
+	}
+	if !strings.Contains(sanitizedRun, "-e \"PORT=8080\"") {
+		t.Errorf("expected non-sensitive port to be preserved in run command, got: %s", sanitizedRun)
+	}
+
+	compose := `version: '3.8'
+services:
+  aqilink:
+    environment:
+      - PORT=8080
+      - AQL_NUXEO_PASSWORD=99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1
+      - DB_SECRET=dbsecret`
+
+	sanitizedCompose := SanitizeCommandString(compose)
+	if strings.Contains(sanitizedCompose, "99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1") {
+		t.Errorf("secret leaked in sanitized compose: %s", sanitizedCompose)
+	}
+	if strings.Contains(sanitizedCompose, "dbsecret") {
+		t.Errorf("secret leaked in sanitized compose: %s", sanitizedCompose)
+	}
+	if !strings.Contains(sanitizedCompose, "- AQL_NUXEO_PASSWORD="+MaskValue) {
+		t.Errorf("expected masked password in compose, got: %s", sanitizedCompose)
+	}
+	if !strings.Contains(sanitizedCompose, "- PORT=8080") {
+		t.Errorf("expected non-sensitive port to be preserved in compose, got: %s", sanitizedCompose)
 	}
 }

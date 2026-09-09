@@ -158,8 +158,8 @@ func BuildReport(id string, meta map[string]string, m *models.Metrics, hostID, r
 		Labels:           parseLabels(meta["[LABELS]"]),
 		Mounts:           parseMounts(meta["[MOUNTS]"]),
 		Networks:         parseNetworks(meta["[NETWORKS]"]),
-		GeneratedRunCmd:  runCmd,
-		GeneratedCompose: compose,
+		GeneratedRunCmd:  sanitize.SanitizeCommandString(runCmd),
+		GeneratedCompose: sanitize.SanitizeCommandString(compose),
 		Timestamp:        time.Now().UTC(),
 	}
 
@@ -383,10 +383,29 @@ func SaveReport(report *ContainerReport, destDir, format string) ([]string, erro
 	return savedPaths, nil
 }
 
+// sanitizeMeta returns a shallow copy of meta with sensitive keys and secrets in environment lists obfuscated.
+func sanitizeMeta(meta map[string]string) map[string]string {
+	if meta == nil {
+		return nil
+	}
+	clean := make(map[string]string, len(meta))
+	for k, v := range meta {
+		if k == "[ENV-VAR]" || k == "imageEnv" {
+			parts := strings.Split(v, ";")
+			clean[k] = strings.Join(sanitize.MaskEnvList(parts), ";")
+		} else if sanitize.IsSensitiveKey(k) {
+			clean[k] = sanitize.MaskValue
+		} else {
+			clean[k] = v
+		}
+	}
+	return clean
+}
+
 // DumpText formats container state into a human-readable diagnostic text dump.
 func DumpText(id string, meta map[string]string, metrics any) string {
 	msg := fmt.Sprintf("logging state for container: %s\n", id)
-	for k, v := range meta {
+	for k, v := range sanitizeMeta(meta) {
 		msg += fmt.Sprintf("Meta.%s = %s\n", k, v)
 	}
 	if metrics != nil {
@@ -399,7 +418,7 @@ func DumpText(id string, meta map[string]string, metrics any) string {
 func DumpJSON(id string, meta map[string]string, metrics any) ([]byte, error) {
 	snapshot := ContainerSnapshot{
 		ID:      id,
-		Meta:    meta,
+		Meta:    sanitizeMeta(meta),
 		Metrics: metrics,
 	}
 	return json.MarshalIndent(snapshot, "", "  ")
@@ -498,7 +517,7 @@ func parseEnv(raw string) []string {
 	if raw == "" {
 		return nil
 	}
-	return sanitize.SanitizeEnv(strings.Split(raw, ";"))
+	return sanitize.MaskEnvList(strings.Split(raw, ";"))
 }
 
 func nonNeg[T ~int | ~int64](v T) T {

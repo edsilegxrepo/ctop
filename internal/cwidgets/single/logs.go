@@ -24,6 +24,9 @@ type LogEntry struct {
 	Message   string
 }
 
+// Maximum number of entries kept in memory for the TUI log viewer
+const maxLogEntries = 8192
+
 // Logs widget provides real-time streaming, filtering, timestamp toggling, and export for container logs.
 type Logs struct {
 	ui.Block
@@ -43,7 +46,7 @@ type Logs struct {
 func NewLogs() *Logs {
 	l := &Logs{
 		Block:    *ui.NewBlock(),
-		Entries:  make([]LogEntry, 0, 4096),
+		Entries:  make([]LogEntry, 0, maxLogEntries),
 		Offset:   0,
 		AutoTail: true,
 		ShowTime: true,
@@ -101,8 +104,13 @@ func (w *Logs) Add(l models.Log) {
 	cleanMsg := sanitize.StripANSI(l.Message)
 	formatted := jsonfmt.FormatLogMessage(cleanMsg)
 
-	if len(w.Entries) >= 4096 {
-		w.Entries = append(w.Entries[:0], w.Entries[1:]...)
+	if len(w.Entries) >= maxLogEntries {
+		copy(w.Entries, w.Entries[1:])
+		w.Entries[maxLogEntries-1] = LogEntry{
+			Timestamp: l.Timestamp,
+			Message:   formatted,
+		}
+		return
 	}
 	w.Entries = append(w.Entries, LogEntry{
 		Timestamp: l.Timestamp,
@@ -304,7 +312,7 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 	if statusActive {
 		w.Title = fmt.Sprintf("LOGS%s%s [%s]", cTag, filterInfo, w.StatusMsg)
 	} else if w.AutoTail {
-		w.Title = fmt.Sprintf("LOGS%s%s [🔴 Auto-Tail | t: time | %s | /: filter | s: save | D: target | ▲▼: scroll]", cTag, filterInfo, wrapTag)
+		w.Title = fmt.Sprintf("LOGS%s%s [🔴 Auto-Tail (%d/%d) | t: time | %s | /: filter | s: save | D: target | ▲▼: scroll]", cTag, filterInfo, len(w.Entries), maxLogEntries, wrapTag)
 	} else {
 		endLine := w.Offset + visibleH
 		if endLine > len(renderedLines) {

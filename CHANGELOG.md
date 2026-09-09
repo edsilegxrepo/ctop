@@ -4,6 +4,27 @@ All notable changes to `ctop` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.5] - 2026-09-09
+
+### Added
+- **Web Dashboard Log Viewer (`[l] logs`)**: Integrated dedicated log inspection tab in the embedded web dashboard featuring real-time Server-Sent Events (SSE) log streaming from `/api/v1/containers/{id}/logs?stream=true`.
+- **High-Performance Log Batching**: Implemented `requestAnimationFrame` + `DocumentFragment` DOM update batching in the dashboard, maintaining smooth 60 FPS rendering under high-frequency log bursts.
+- **Quick Log-Level Filtering**: Added instant log-level filtering pills (`[ALL]`, `[ERROR]`, `[WARN]`, `[INFO]`) and case-insensitive keyword search in the web log viewer.
+- **Dual Log Export Modes**: Added dual log export options in the dashboard: download the current active browser buffer or stream full unbounded history directly from Docker engine (`tail=all`).
+- **REST & SSE Log API**: Exposed `/api/v1/containers/{id}/logs` supporting snapshot JSON, raw plain-text download (`?download=true`), custom line tails (`?tail=<N>`), and SSE streaming (`?stream=true`).
+- **Linux Rootless Docker Discovery**: Added automatic fallback discovery for rootless Docker sockets (`$XDG_RUNTIME_DIR/docker.sock` and `/run/user/<uid>/docker.sock`) when `/var/run/docker.sock` is absent.
+
+### Changed
+- **TUI Log Buffer Zero-Allocation Rotation**: Refactored the single-container TUI `Logs` widget to use an in-place circular slice rotation (`copy(w.Entries, w.Entries[1:])`) capped at 8,192 lines, eliminating heap reallocations at buffer saturation.
+- **Upper Limit Buffer Awareness**: Added live counter awareness indicators in both TUI title bar `(current/8192)` and Web Dashboard `visible / total (max 6000)` to provide clear capacity visibility.
+
+### Fixed & Hardened
+- **Docker TTY Log Stream Demuxing**: Auto-detected container `Tty` mode in `docker_logs.go` to consume raw streams correctly without 8-byte multiplex header errors, adding dynamic retry fallback with `RawTerminal: true`.
+- **Log Stream Output Sanitization**: Resolved inline carriage returns (`\r`) to properly render terminal progress bar overwrites, stripped trailing CRLF, and filtered null bytes to prevent display artifacts.
+- **Test Suite Reconciliation**: Expanded test suite to **279 test suites** across all 28 packages with 100% passing rate, adding comprehensive coverage for log streaming, in-place rotation, asset validation, and rootless context resolution.
+
+---
+
 ## [v0.9.4] - 2026-09-03
 
 ### Added

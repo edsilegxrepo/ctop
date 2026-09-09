@@ -36,19 +36,6 @@ func (l *DockerLogs) Stream() chan models.Log {
 	ctx, cancel := context.WithCancel(context.Background())
 	l.cancel = cancel
 
-	opts := api.LogsOptions{
-		Context:      ctx,
-		Container:    l.id,
-		OutputStream: w,
-		ErrorStream:  w,
-		Stdout:       true,
-		Stderr:       true,
-		Tail:         "100",
-		Follow:       true,
-		Timestamps:   true,
-		RawTerminal:  false,
-	}
-
 	// read io pipe into channel
 	go func() {
 		defer close(logCh)
@@ -59,11 +46,8 @@ func (l *DockerLogs) Stream() chan models.Log {
 		scanner.Buffer(buf, maxLogLineSize)
 
 		for scanner.Scan() {
-			text := l.stripPfx(scanner.Text())
+			text := l.sanitizeLine(scanner.Text())
 			parts := strings.SplitN(text, " ", 2)
-			if len(parts) == 0 {
-				continue
-			}
 			if len(parts) < 2 {
 				logCh <- models.Log{Timestamp: l.parseTime(""), Message: parts[0]}
 			} else {
@@ -78,7 +62,43 @@ func (l *DockerLogs) Stream() chan models.Log {
 	// connect to container log stream
 	go func() {
 		defer func() { _ = w.Close() }()
-		err := l.client.Logs(opts)
+
+		if l.client == nil {
+			log.Errorf("docker client is nil for container: %s", l.id)
+			return
+		}
+
+		isTty := false
+		inspectCtx, inspectCancel := context.WithTimeout(ctx, 2*time.Second)
+		insp, err := l.client.InspectContainerWithOptions(api.InspectContainerOptions{Context: inspectCtx, ID: l.id})
+		inspectCancel()
+		if err == nil && insp != nil && insp.Config != nil {
+			isTty = insp.Config.Tty
+		}
+
+		opts := api.LogsOptions{
+			Context:      ctx,
+			Container:    l.id,
+			OutputStream: w,
+			ErrorStream:  w,
+			Stdout:       true,
+			Stderr:       !isTty,
+			Tail:         "100",
+			Follow:       true,
+			Timestamps:   true,
+			RawTerminal:  isTty,
+		}
+
+		err = l.client.Logs(opts)
+		if !isTty && ctx.Err() == nil && err != nil {
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "unrecognized stream") || strings.Contains(errStr, "unrecognized input header") {
+				log.Infof("retrying container logs with RawTerminal=true for %s: %s", l.id, err)
+				opts.RawTerminal = true
+				opts.Stderr = false
+				err = l.client.Logs(opts)
+			}
+		}
 		if err != nil && ctx.Err() == nil {
 			log.Errorf("error reading container logs: %s", err)
 		}
@@ -116,6 +136,21 @@ func (l *DockerLogs) stripPfx(s string) string {
 	b := []byte(s)
 	if len(b) > 8 && (b[0] == 1 || b[0] == 2) && b[1] == 0 && b[2] == 0 && b[3] == 0 {
 		return string(b[8:])
+	}
+	return s
+}
+
+// sanitizeLine strips docker headers, trailing CRLF, resolves internal carriage returns, and sanitizes null bytes.
+func (l *DockerLogs) sanitizeLine(raw string) string {
+	s := l.stripPfx(raw)
+	s = strings.TrimRight(s, "\r\n")
+	// If the line contains internal carriage returns (e.g. progress bar overwrites), take the final segment
+	if idx := strings.LastIndexByte(s, '\r'); idx != -1 {
+		s = s[idx+1:]
+	}
+	// Replace null bytes if present to avoid terminal rendering glitches
+	if strings.IndexByte(s, 0) != -1 {
+		s = strings.ReplaceAll(s, "\x00", " ")
 	}
 	return s
 }

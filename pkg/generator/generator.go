@@ -13,6 +13,8 @@ package generator
 import (
 	"fmt"
 	"strings"
+
+	"github.com/edsilegx/ctop/pkg/sanitize"
 )
 
 // MetaGetter abstracts map-like metadata access
@@ -77,6 +79,7 @@ func GenerateRunCmd(meta MetaGetter) string {
 			if e == "" {
 				continue
 			}
+			e = sanitize.MaskEnv(e)
 			fmt.Fprintf(&sb, " \\\n  -e %q", e)
 		}
 	}
@@ -169,6 +172,7 @@ func GenerateCompose(meta MetaGetter) string {
 			if e == "" {
 				continue
 			}
+			e = sanitize.MaskEnv(e)
 			fmt.Fprintf(&sb, "      - %s\n", e)
 		}
 	}

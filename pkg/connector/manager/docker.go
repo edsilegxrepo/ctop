@@ -347,6 +347,11 @@ func (dc *Docker) ReadDir(dirPath string) ([]models.FileInfo, error) {
 			break
 		}
 
+		// Prevent Zip Slip / archive path traversal
+		if strings.Contains(header.Name, "..") {
+			continue
+		}
+
 		cleanHeaderName := path.Clean(strings.TrimPrefix(header.Name, "./"))
 		cleanHeaderName = strings.TrimPrefix(cleanHeaderName, "/")
 		if cleanHeaderName == "." || cleanHeaderName == "" || strings.HasPrefix(cleanHeaderName, "..") {
@@ -796,6 +801,11 @@ func (dc *Docker) Download(srcPath, dstPath string) (int64, error) {
 		}
 		if err != nil {
 			return totalBytes, err
+		}
+
+		// Prevent Zip Slip / arbitrary file write via archive path traversal
+		if strings.Contains(header.Name, "..") {
+			return totalBytes, fmt.Errorf("security violation: illegal path traversal in tar archive %q", header.Name)
 		}
 
 		// Disallow unsafe links/symlinks escaping root

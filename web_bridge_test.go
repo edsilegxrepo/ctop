@@ -42,10 +42,15 @@ func TestWebBridge(t *testing.T) {
 	}
 	defer cleanup()
 
-	time.Sleep(100 * time.Millisecond)
-
 	prov := &superContainerProvider{cSuper: cSuper}
-	snapshots := prov.GetContainerSnapshots()
+	var snapshots []web.ContainerSnapshot
+	for i := 0; i < 20; i++ {
+		snapshots = prov.GetContainerSnapshots()
+		if len(snapshots) > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if len(snapshots) == 0 {
 		t.Fatal("expected mock containers in snapshots")
 	}
@@ -299,9 +304,9 @@ func TestWebBridgeWithOptionsAndAuth(t *testing.T) {
 		t.Fatalf("expected token file at %s: %v", tokenPath, err)
 	}
 	token := strings.TrimSpace(string(tokenBytes))
-	if len(token) < 32 {
+	if len(token) < 64 {
 		cleanup()
-		t.Fatalf("expected token length >= 32, got %d: %s", len(token), token)
+		t.Fatalf("expected token length >= 64, got %d: %s", len(token), token)
 	}
 
 	// Make authenticated request over live bridge
@@ -497,5 +502,52 @@ func TestWebBridgeAuditLog(t *testing.T) {
 	content := string(data)
 	if !strings.Contains(content, "/probe/api/v1/health") {
 		t.Fatalf("expected audit log to record /probe/api/v1/health request, got:\n%s", content)
+	}
+}
+
+func TestWebBridgeContainerLogs(t *testing.T) {
+	cSuper, err := connector.ByName("mock")
+	if err != nil {
+		t.Fatalf("failed to initialize mock connector: %v", err)
+	}
+
+	_, cleanup, err := startWebServer("127.0.0.1:0", "0.9.5", "", cSuper)
+	if err != nil {
+		t.Fatalf("failed to start web server: %v", err)
+	}
+	defer cleanup()
+
+	prov := &superContainerProvider{cSuper: cSuper}
+	var snaps []web.ContainerSnapshot
+	for i := 0; i < 20; i++ {
+		snaps = prov.GetContainerSnapshots()
+		if len(snaps) > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(snaps) == 0 {
+		t.Fatal("expected mock containers")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch, stop, err := prov.StreamContainerLogs(ctx, snaps[0].ID)
+	if err != nil {
+		t.Fatalf("expected log stream to start: %v", err)
+	}
+	defer stop()
+
+	select {
+	case entry, ok := <-ch:
+		if !ok {
+			t.Fatal("expected log entry from mock stream, got closed channel")
+		}
+		if entry.Message == "" {
+			t.Fatal("expected non-empty log message")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for mock log entry")
 	}
 }

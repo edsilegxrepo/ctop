@@ -1628,6 +1628,33 @@ func TestWebServerEndpointsAndProxy(t *testing.T) {
 	if wInvalidPath.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 Bad Request for userinfo @ subpath, got %d", wInvalidPath.Code)
 	}
+
+	// 6. Test subpath validation: reject CRLF injection
+	reqCRLFPath := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_web_proxy_123/proxy?path=/%0d%0aHost:%20evil.com", nil)
+	wCRLFPath := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wCRLFPath, reqCRLFPath)
+	if wCRLFPath.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for CRLF subpath, got %d", wCRLFPath.Code)
+	}
+
+	// 7. Test SSRF protection: reject container with zero endpoints
+	provNoEP := &fullMockProvider{
+		snapshots: []ContainerSnapshot{
+			{
+				ID:    "c_zero_ep",
+				Name:  "zero-ep-app",
+				Ports: "",
+				State: "running",
+			},
+		},
+	}
+	sNoEP := NewServer("127.0.0.1:0", "0.9.2", provNoEP, nil)
+	reqZeroEP := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c_zero_ep/proxy?port=80&path=/", nil)
+	wZeroEP := httptest.NewRecorder()
+	sNoEP.corsMiddleware(sNoEP.mux).ServeHTTP(wZeroEP, reqZeroEP)
+	if wZeroEP.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for container with no endpoints, got %d", wZeroEP.Code)
+	}
 }
 
 func TestWebServer_MultiHopProxyIPExtraction(t *testing.T) {
@@ -1766,5 +1793,654 @@ func TestWebServer_FileExplorerMutations_StrictlyTUIOnly(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+type mockLogsProvider struct {
+	mockContainerProvider
+	entries []LogEntry
+}
+
+func (m *mockLogsProvider) StreamContainerLogs(ctx context.Context, id string) (<-chan LogEntry, func(), error) {
+	if id == "c-err" {
+		return nil, nil, fmt.Errorf("simulated log stream error")
+	}
+	ch := make(chan LogEntry, len(m.entries)+1)
+	for _, e := range m.entries {
+		ch <- e
+	}
+	return ch, func() {}, nil
+}
+
+func TestWebServerContainerLogs(t *testing.T) {
+	sampleEntries := []LogEntry{
+		{Timestamp: time.Now().Add(-2 * time.Second), Message: "Server starting on port 8080"},
+		{Timestamp: time.Now().Add(-1 * time.Second), Message: `{"level":"info","msg":"connected to db"}`},
+		{Timestamp: time.Now(), Message: "[WARN] High latency detected"},
+	}
+
+	mockProv := &mockLogsProvider{
+		mockContainerProvider: mockContainerProvider{
+			snapshots: []ContainerSnapshot{
+				{ID: "c-logs-1", Name: "webapp-prod", State: "running"},
+				{ID: "c-no-prov", Name: "no-prov", State: "running"},
+			},
+		},
+		entries: sampleEntries,
+	}
+
+	s := NewServer("127.0.0.1:0", "0.9.5", mockProv, nil)
+
+	// 1. Snapshot mode: GET /api/v1/containers/c-logs-1/logs -> 200 OK with JSON array
+	reqSnap := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-logs-1/logs", nil)
+	wSnap := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wSnap, reqSnap)
+
+	if wSnap.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for logs snapshot, got %d: %s", wSnap.Code, wSnap.Body.String())
+	}
+	var resEntries []LogEntry
+	if err := json.NewDecoder(wSnap.Body).Decode(&resEntries); err != nil {
+		t.Fatalf("failed to decode logs JSON: %v", err)
+	}
+	if len(resEntries) != len(sampleEntries) {
+		t.Fatalf("expected %d entries, got %d", len(sampleEntries), len(resEntries))
+	}
+	if !strings.Contains(resEntries[0].Message, "Server starting") {
+		t.Fatalf("unexpected first message: %s", resEntries[0].Message)
+	}
+
+	// 2. Download mode: GET /api/v1/containers/c-logs-1/logs?download=true -> 200 OK with text/plain attachment
+	reqDl := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-logs-1/logs?download=true", nil)
+	wDl := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wDl, reqDl)
+
+	if wDl.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for download, got %d", wDl.Code)
+	}
+	if !strings.Contains(wDl.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("expected Content-Disposition attachment, got %s", wDl.Header().Get("Content-Disposition"))
+	}
+	if !strings.Contains(wDl.Body.String(), "Server starting on port 8080") {
+		t.Fatalf("expected downloaded log text in body, got: %s", wDl.Body.String())
+	}
+
+	// 2b. Download mode with tail=all: GET /api/v1/containers/c-logs-1/logs?download=true&tail=all
+	reqDlAll := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-logs-1/logs?download=true&tail=all", nil)
+	wDlAll := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wDlAll, reqDlAll)
+	if wDlAll.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for tail=all download, got %d", wDlAll.Code)
+	}
+	if !strings.Contains(wDlAll.Body.String(), "High latency detected") {
+		t.Fatalf("expected full history logs in body, got: %s", wDlAll.Body.String())
+	}
+
+	// 3. SSE Stream mode: GET /api/v1/containers/c-logs-1/logs?stream=true -> 200 OK with text/event-stream
+	reqStream := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-logs-1/logs?stream=true", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	reqStream = reqStream.WithContext(ctx)
+
+	wStream := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wStream, reqStream)
+
+	if wStream.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for stream, got %d", wStream.Code)
+	}
+	if wStream.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("expected text/event-stream, got %s", wStream.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(wStream.Body.String(), "ctop log stream connected") {
+		t.Fatalf("expected initial SSE connection comment, got: %s", wStream.Body.String())
+	}
+
+	// 4. Missing container -> 404
+	reqMissing := httptest.NewRequest(http.MethodGet, "/api/v1/containers/missing/logs", nil)
+	wMissing := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wMissing, reqMissing)
+	if wMissing.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing container, got %d", wMissing.Code)
+	}
+
+	// 5. Provider without LogsProvider -> 501 Not Implemented
+	plainProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{{ID: "c-plain", Name: "plain", State: "running"}},
+	}
+	sPlain := NewServer("127.0.0.1:0", "0.9.5", plainProv, nil)
+	reqPlain := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-plain/logs", nil)
+	wPlain := httptest.NewRecorder()
+	sPlain.corsMiddleware(sPlain.mux).ServeHTTP(wPlain, reqPlain)
+	if wPlain.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501 Not Implemented, got %d", wPlain.Code)
+	}
+}
+
+func TestWebServerContainerLogsAdvanced(t *testing.T) {
+	sampleEntries := []LogEntry{
+		{Timestamp: time.Now().Add(-3 * time.Second), Message: "[INFO] app initialized"},
+		{Timestamp: time.Now().Add(-2 * time.Second), Message: "[WARN] cache miss rate high"},
+		{Timestamp: time.Now().Add(-1 * time.Second), Message: "[ERROR] connection timeout to redis"},
+		{Timestamp: time.Now(), Message: "[FATAL] unrecoverable crash"},
+	}
+
+	mockProv := &mockLogsProvider{
+		mockContainerProvider: mockContainerProvider{
+			snapshots: []ContainerSnapshot{
+				{ID: "c-adv-logs", Name: "payment-worker", State: "running"},
+			},
+		},
+		entries: sampleEntries,
+	}
+
+	s := NewServer("127.0.0.1:0", "0.9.5", mockProv, nil)
+
+	// 1. Test custom tail limit: GET /api/v1/containers/c-adv-logs/logs?tail=2
+	reqTail := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-adv-logs/logs?tail=2", nil)
+	wTail := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wTail, reqTail)
+	if wTail.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", wTail.Code)
+	}
+	var tailEntries []LogEntry
+	if err := json.NewDecoder(wTail.Body).Decode(&tailEntries); err != nil {
+		t.Fatalf("failed to decode JSON: %v", err)
+	}
+	if len(tailEntries) != 2 {
+		t.Fatalf("expected exactly 2 entries with tail=2, got %d", len(tailEntries))
+	}
+
+	// 2. Test case-insensitive tail=ALL download: GET /api/v1/containers/c-adv-logs/logs?download=true&tail=ALL
+	reqAll := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-adv-logs/logs?download=true&tail=ALL", nil)
+	wAll := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wAll, reqAll)
+	if wAll.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for tail=ALL, got %d", wAll.Code)
+	}
+	bodyStr := wAll.Body.String()
+	if !strings.Contains(bodyStr, "app initialized") || !strings.Contains(bodyStr, "unrecoverable crash") {
+		t.Fatalf("expected all logs in download body, got:\n%s", bodyStr)
+	}
+}
+
+func TestWebDashboardLogViewerAssets(t *testing.T) {
+	mockProv := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{
+			{ID: "c-test-ui", Name: "ui-test", State: "running"},
+		},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.5", mockProv, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for dashboard index, got %d", w.Code)
+	}
+	html := w.Body.String()
+
+	// Verify Recommendation 1: requestAnimationFrame & DocumentFragment
+	if !strings.Contains(html, "requestAnimationFrame(flushLogBatch)") {
+		t.Fatalf("expected dashboard HTML to contain requestAnimationFrame flushLogBatch")
+	}
+	if !strings.Contains(html, "document.createDocumentFragment()") {
+		t.Fatalf("expected dashboard HTML to use DocumentFragment for batch rendering")
+	}
+
+	// Verify Recommendation 2: Full History Docker Engine & Active Buffer downloads
+	if !strings.Contains(html, "downloadContainerLogs('full')") {
+		t.Fatalf("expected dashboard HTML to have full history Docker engine download action")
+	}
+	if !strings.Contains(html, "downloadContainerLogs('buffer')") {
+		t.Fatalf("expected dashboard HTML to have active buffer download action")
+	}
+	if !strings.Contains(html, "downloadContainerLogs('ndjson')") {
+		t.Fatalf("expected dashboard HTML to have active buffer ndjson download action")
+	}
+
+	// Verify Recommendation 3: Quick Log Level Filter Pills
+	if !strings.Contains(html, "id=\"logLevelPills\"") {
+		t.Fatalf("expected dashboard HTML to include logLevelPills container")
+	}
+	if !strings.Contains(html, "setLogLevelFilter('ERROR')") {
+		t.Fatalf("expected dashboard HTML to have setLogLevelFilter('ERROR') pill")
+	}
+
+	// Verify Upper Limit Awareness: MAX_LOG_BUFFER = 6000
+	if !strings.Contains(html, "MAX_LOG_BUFFER = 6000") {
+		t.Fatalf("expected dashboard HTML to define MAX_LOG_BUFFER = 6000")
+	}
+	if !strings.Contains(html, "max ${MAX_LOG_BUFFER}") {
+		t.Fatalf("expected line counter to display upper limit cap")
+	}
+}
+
+func TestWebServerLogDownloadFilenameWithContainerName(t *testing.T) {
+	prov := &mockLogsProvider{
+		mockContainerProvider: mockContainerProvider{
+			snapshots: []ContainerSnapshot{
+				{ID: "60e0738e34fb", Name: "authelia-sso", State: "running"},
+			},
+		},
+		entries: []LogEntry{
+			{Timestamp: time.Now(), Message: "starting server"},
+		},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", prov, nil)
+
+	// 1. With ?name=authelia-sso query param
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers/60e0738e34fb/logs?download=true&tail=all&name=authelia-sso", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w.Code)
+	}
+	disp := w.Header().Get("Content-Disposition")
+	if !strings.Contains(disp, "ctop_logs_authelia-sso_60e0738e34fb_") {
+		t.Fatalf("expected Content-Disposition to contain ctop_logs_authelia-sso_60e0738e34fb_, got %s", disp)
+	}
+
+	// 2. Without ?name= query param (falls back to provider snapshot lookup)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/containers/60e0738e34fb/logs?download=true&tail=all", nil)
+	w2 := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w2.Code)
+	}
+	disp2 := w2.Header().Get("Content-Disposition")
+	if !strings.Contains(disp2, "ctop_logs_authelia-sso_60e0738e34fb_") {
+		t.Fatalf("expected Content-Disposition to contain ctop_logs_authelia-sso_60e0738e34fb_, got %s", disp2)
+	}
+}
+
+func TestWebServerReportAndExportAssets(t *testing.T) {
+	s := NewServer("127.0.0.1:0", "0.9.0", nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for dashboard, got %d", w.Code)
+	}
+	html := w.Body.String()
+
+	// Verify Cluster Report builders and elements
+	clusterReportKeywords := []string{
+		"buildClusterReportText()",
+		"formatUptimeSeconds",
+		"CTOP CLUSTER TELEMETRY REPORT",
+		"--- CLUSTER SUMMARY ---",
+		"--- CONTAINER INVENTORY (",
+		"padRight('HEALTH', 10)",
+		"padRight(shortId, 14)",
+	}
+	for _, kw := range clusterReportKeywords {
+		if !strings.Contains(html, kw) {
+			t.Fatalf("expected dashboard HTML to contain %q for cluster report", kw)
+		}
+	}
+
+	// Verify Container Report builders and elements
+	containerReportKeywords := []string{
+		"buildContainerReportText()",
+		"CTOP CONTAINER INSPECTION REPORT:",
+		"Image Digest/ID:",
+		"Health:",
+		"Memory RSS:",
+		"Cache / Buffers:",
+		"Total Network I/O:",
+		"Total Disk I/O:",
+		"--- IN-CONTAINER ACTIVE PROCESSES (",
+		"--- NETWORK PROBE DIAGNOSTICS (",
+		"--- FILESYSTEM MUTATIONS / DIFF (",
+		"--- RECENT LOG BUFFER (",
+		"--- BASE IMAGE ENVIRONMENT (",
+		"--- IMAGE LABELS (",
+		"--- GENERATED DOCKER RUN COMMAND ---",
+		"--- GENERATED DOCKER COMPOSE ---",
+	}
+	for _, kw := range containerReportKeywords {
+		if !strings.Contains(html, kw) {
+			t.Fatalf("expected dashboard HTML to contain %q for container report", kw)
+		}
+	}
+
+	// Verify JSON export structures
+	jsonExportKeywords := []string{
+		"report_type: 'cluster_telemetry'",
+		"report_type: 'container_inspection'",
+		"in_container_processes:",
+		"network_probes:",
+		"filesystem_diff:",
+		"recent_logs:",
+	}
+	for _, kw := range jsonExportKeywords {
+		if !strings.Contains(html, kw) {
+			t.Fatalf("expected dashboard HTML to contain %q for JSON export", kw)
+		}
+	}
+
+	// Verify UI layout, title, and dropdown widening
+	uiKeywords := []string{
+		"<title>ctop - Container Metrics Dashboard</title>",
+		"min-width: 250px;",
+		"fill-table-wrap",
+		"sticky",
+	}
+	for _, kw := range uiKeywords {
+		if !strings.Contains(html, kw) {
+			t.Fatalf("expected dashboard HTML to contain %q for layout styling", kw)
+		}
+	}
+}
+
+func TestWebServerExportComprehensiveData(t *testing.T) {
+	snap := ContainerSnapshot{
+		ID:               "c123456789ab",
+		Name:             "test-container",
+		Image:            "test-image:latest",
+		ImageID:          "sha256:abcd1234ef",
+		State:            "running",
+		Health:           "healthy",
+		Host:             "node-1",
+		Created:          "2026-09-01T12:00:00Z",
+		Uptime:           "2d 4h",
+		CPUUtil:          35,
+		MemUsage:         209715200,
+		MemLimit:         2147483648,
+		MemPercent:       10,
+		MemRss:           157286400,
+		MemCache:         52428800,
+		NetRx:            1048576,
+		NetTx:            2097152,
+		NetRxRate:        1024,
+		NetTxRate:        2048,
+		IOBytesRead:      4194304,
+		IOBytesWrite:     8388608,
+		IORateRead:       512,
+		IORateWrite:      1024,
+		Pids:             12,
+		IPs:              "172.20.0.5",
+		Ports:            "8080:80/tcp",
+		WebPort:          "8080",
+		Command:          "/app/start.sh",
+		Entrypoint:       "/bin/sh",
+		WorkDir:          "/app",
+		User:             "appuser",
+		RestartPol:       "unless-stopped",
+		MemLimitStr:      "2.0 GiB",
+		GeneratedRunCmd:  "docker run -d --name test-container -p 8080:80 test-image:latest",
+		GeneratedCompose: "services:\n  test-container:\n    image: test-image:latest",
+		Env:              []string{"APP_ENV=production", "PORT=8080"},
+		Labels:           map[string]string{"maintainer": "devops@company.org"},
+		ImageLabels:      map[string]string{"org.opencontainers.image.version": "1.0.0"},
+		Mounts: []MountInfo{
+			{Type: "bind", Source: "/host/data", Destination: "/app/data", Mode: "rw", Driver: "local"},
+		},
+		Networks: []NetworkInfo{
+			{Name: "webnet", IPAddress: "172.20.0.5", Gateway: "172.20.0.1", Mac: "02:42:ac:14:00:05", PrefixLen: 16},
+		},
+	}
+
+	prov := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{snap},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", prov, nil)
+
+	// 1. Test Cluster Export endpoint (/api/v1/export)
+	reqCluster := httptest.NewRequest(http.MethodGet, "/api/v1/export", nil)
+	wCluster := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wCluster, reqCluster)
+	if wCluster.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for cluster export, got %d", wCluster.Code)
+	}
+	if !strings.Contains(wCluster.Header().Get("Content-Disposition"), "ctop-telemetry-export.json") {
+		t.Fatalf("unexpected content disposition: %s", wCluster.Header().Get("Content-Disposition"))
+	}
+
+	var clusterExport struct {
+		Timestamp  time.Time           `json:"timestamp"`
+		System     SystemMetrics       `json:"system"`
+		Containers []ContainerSnapshot `json:"containers"`
+	}
+	if err := json.Unmarshal(wCluster.Body.Bytes(), &clusterExport); err != nil {
+		t.Fatalf("failed to parse cluster export json: %v", err)
+	}
+	if clusterExport.System.TotalContainers != 1 {
+		t.Fatalf("expected 1 container, got %d", clusterExport.System.TotalContainers)
+	}
+	if clusterExport.System.TotalCPUUtil != 35 {
+		t.Fatalf("expected total CPU 35, got %d", clusterExport.System.TotalCPUUtil)
+	}
+	if clusterExport.System.TotalMemUsage != 209715200 {
+		t.Fatalf("expected total mem 209715200, got %d", clusterExport.System.TotalMemUsage)
+	}
+	if len(clusterExport.Containers) != 1 {
+		t.Fatalf("expected 1 container in export list, got %d", len(clusterExport.Containers))
+	}
+	cOut := clusterExport.Containers[0]
+	if cOut.Health != "healthy" || cOut.MemRss != 157286400 || cOut.MemCache != 52428800 {
+		t.Fatalf("container snapshot missing expected telemetry fields: health=%s rss=%d cache=%d", cOut.Health, cOut.MemRss, cOut.MemCache)
+	}
+	if len(cOut.Mounts) != 1 || cOut.Mounts[0].Destination != "/app/data" {
+		t.Fatalf("mounts not properly exported: %+v", cOut.Mounts)
+	}
+	if len(cOut.Networks) != 1 || cOut.Networks[0].Name != "webnet" {
+		t.Fatalf("networks not properly exported: %+v", cOut.Networks)
+	}
+
+	// 2. Test Container Export endpoint (/api/v1/export?container=test-container)
+	reqSingle := httptest.NewRequest(http.MethodGet, "/api/v1/export?container=test-container", nil)
+	wSingle := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wSingle, reqSingle)
+	if wSingle.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for single container export, got %d", wSingle.Code)
+	}
+	if !strings.Contains(wSingle.Header().Get("Content-Disposition"), "ctop-container-test-container.json") {
+		t.Fatalf("unexpected content disposition: %s", wSingle.Header().Get("Content-Disposition"))
+	}
+
+	var singleOut ContainerSnapshot
+	if err := json.Unmarshal(wSingle.Body.Bytes(), &singleOut); err != nil {
+		t.Fatalf("failed to parse single container export json: %v", err)
+	}
+	if singleOut.ID != snap.ID || singleOut.Name != snap.Name {
+		t.Fatalf("expected ID %s and Name %s, got %s and %s", snap.ID, snap.Name, singleOut.ID, singleOut.Name)
+	}
+	if singleOut.GeneratedRunCmd != snap.GeneratedRunCmd {
+		t.Fatalf("expected GeneratedRunCmd preserved, got %s", singleOut.GeneratedRunCmd)
+	}
+	if singleOut.GeneratedCompose != snap.GeneratedCompose {
+		t.Fatalf("expected GeneratedCompose preserved, got %s", singleOut.GeneratedCompose)
+	}
+	if singleOut.IOBytesRead != 4194304 || singleOut.IOBytesWrite != 8388608 {
+		t.Fatalf("expected cumulative IO bytes preserved, got read=%d write=%d", singleOut.IOBytesRead, singleOut.IOBytesWrite)
+	}
+
+	// 3. Test Container Not Found returns 404
+	req404 := httptest.NewRequest(http.MethodGet, "/api/v1/export?container=non-existent-xyz", nil)
+	w404 := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w404, req404)
+	if w404.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for non-existent container, got %d", w404.Code)
+	}
+}
+
+func TestWebServerExportSanitizesSecrets(t *testing.T) {
+	snap := ContainerSnapshot{
+		ID:               "ea9b48055ec941ee581da23e35349fe182310eebff8df79c6936273b3dda09ac",
+		Name:             "aqilink",
+		Image:            "ghcr.io/aqipro/aqilink:26.0.0-rc.1",
+		GeneratedRunCmd:  "docker run -d --name aqilink -e \"AQL_NUXEO_PASSWORD=99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1\" -e \"PORT=9090\"",
+		GeneratedCompose: "version: '3.8'\nservices:\n  aqilink:\n    environment:\n      - AQL_NUXEO_PASSWORD=99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1\n      - PORT=9090",
+		Env:              []string{"AQL_NUXEO_PASSWORD=99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1", "PORT=9090"},
+		ImageEnv:         []string{"DATABASE_URL=postgres://user:pass@host/db", "PATH=/bin"},
+		Labels:           map[string]string{"DB_PASSWORD": "secretpassword", "app": "aqilink"},
+		ImageLabels:      map[string]string{"SECRET_TOKEN": "token123", "version": "1.0"},
+	}
+
+	prov := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{snap},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", prov, nil)
+
+	// 1. Check Single Export
+	reqSingle := httptest.NewRequest(http.MethodGet, "/api/v1/export?container=aqilink", nil)
+	wSingle := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wSingle, reqSingle)
+	if wSingle.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", wSingle.Code)
+	}
+	bodySingle := wSingle.Body.String()
+	if strings.Contains(bodySingle, "99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1") {
+		t.Fatalf("secret password leaked in single export: %s", bodySingle)
+	}
+	if strings.Contains(bodySingle, "secretpassword") {
+		t.Fatalf("label secret leaked in single export: %s", bodySingle)
+	}
+	if strings.Contains(bodySingle, "token123") {
+		t.Fatalf("image label secret leaked in single export: %s", bodySingle)
+	}
+	if strings.Contains(bodySingle, "postgres://user:pass@host/db") {
+		t.Fatalf("image env secret leaked in single export: %s", bodySingle)
+	}
+	if !strings.Contains(bodySingle, "AQL_NUXEO_PASSWORD=•••••••••••• [masked]") {
+		t.Fatalf("expected masked password in single export, got: %s", bodySingle)
+	}
+
+	// 2. Check Cluster Export
+	reqCluster := httptest.NewRequest(http.MethodGet, "/api/v1/export", nil)
+	wCluster := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wCluster, reqCluster)
+	if wCluster.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", wCluster.Code)
+	}
+	bodyCluster := wCluster.Body.String()
+	if strings.Contains(bodyCluster, "99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1") {
+		t.Fatalf("secret password leaked in cluster export: %s", bodyCluster)
+	}
+	if !strings.Contains(bodyCluster, "AQL_NUXEO_PASSWORD=•••••••••••• [masked]") {
+		t.Fatalf("expected masked password in cluster export, got: %s", bodyCluster)
+	}
+
+	// 3. Check Containers Endpoint
+	reqContainers := httptest.NewRequest(http.MethodGet, "/api/v1/containers", nil)
+	wContainers := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wContainers, reqContainers)
+	if wContainers.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", wContainers.Code)
+	}
+	bodyContainers := wContainers.Body.String()
+	if strings.Contains(bodyContainers, "99uzy9eFaX0YgVF4UbZw8MWBLiXg8KH1") {
+		t.Fatalf("secret password leaked in containers endpoint: %s", bodyContainers)
+	}
+}
+
+func TestWebServerProcessAndRuntimePane(t *testing.T) {
+	// 1. Verify dashboard HTML has Process & Runtime pane and its elements
+	if len(dashboardHTML) == 0 {
+		t.Fatal("dashboardHTML should not be empty")
+	}
+	htmlStr := string(dashboardHTML)
+	requiredElements := []string{
+		"Process &amp; Runtime Configuration",
+		"procEntrypoint",
+		"procWorkdir",
+		"procUser",
+		"procRestart",
+		"procExitCode",
+		"procOOMKilled",
+		"procMemLimit",
+		"procCPULimit",
+		"procPidsLimit",
+		"procPrivileged",
+		"procReadonly",
+		"procCapAdd",
+		"procCapDrop",
+		"procSecurityOpt",
+		"procHealthStatus",
+		"procHealthCmd",
+		"procHealthInterval",
+		"procHealthTimeout",
+		"procHealthRetries",
+	}
+	for _, elem := range requiredElements {
+		if !strings.Contains(htmlStr, elem) {
+			t.Errorf("expected dashboard HTML to contain %q", elem)
+		}
+	}
+
+	// 2. Verify ContainerSnapshot JSON serialization of process & runtime fields
+	snap := ContainerSnapshot{
+		ID:             "c-proc-1",
+		Name:           "test-proc-container",
+		Entrypoint:     "/app/aqilink",
+		WorkDir:        "/",
+		User:           "10001:10001",
+		RestartPol:     "always",
+		ExitCode:       "0",
+		OOMKilled:      "false",
+		MemLimitStr:    "6144 MB",
+		CPULimit:       "3.00 CPUs",
+		PidsLimit:      "unlimited",
+		Privileged:     "false",
+		ReadonlyRootfs: "true",
+		CapAdd:         "default (none added)",
+		CapDrop:        "ALL",
+		SecurityOpt:    "no-new-privileges:true",
+		HealthStatus:   "healthy",
+		HealthTest:     "CMD wget -q -O /dev/null -T 3 http://localhost:3000/serverInfo",
+		HealthInterval: "30s",
+		HealthTimeout:  "5s",
+		HealthRetries:  "3",
+	}
+
+	prov := &mockContainerProvider{
+		snapshots: []ContainerSnapshot{snap},
+	}
+	s := NewServer("127.0.0.1:0", "0.9.0", prov, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers/c-proc-1", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", w.Code)
+	}
+
+	var parsed ContainerSnapshot
+	if err := json.Unmarshal(w.Body.Bytes(), &parsed); err != nil {
+		t.Fatalf("failed to decode container json: %v", err)
+	}
+
+	if parsed.CPULimit != "3.00 CPUs" {
+		t.Errorf("expected CPULimit '3.00 CPUs', got %q", parsed.CPULimit)
+	}
+	if parsed.PidsLimit != "unlimited" {
+		t.Errorf("expected PidsLimit 'unlimited', got %q", parsed.PidsLimit)
+	}
+	if parsed.Privileged != "false" {
+		t.Errorf("expected Privileged 'false', got %q", parsed.Privileged)
+	}
+	if parsed.ReadonlyRootfs != "true" {
+		t.Errorf("expected ReadonlyRootfs 'true', got %q", parsed.ReadonlyRootfs)
+	}
+	if parsed.CapAdd != "default (none added)" {
+		t.Errorf("expected CapAdd 'default (none added)', got %q", parsed.CapAdd)
+	}
+	if parsed.CapDrop != "ALL" {
+		t.Errorf("expected CapDrop 'ALL', got %q", parsed.CapDrop)
+	}
+	if parsed.SecurityOpt != "no-new-privileges:true" {
+		t.Errorf("expected SecurityOpt 'no-new-privileges:true', got %q", parsed.SecurityOpt)
+	}
+	if parsed.HealthStatus != "healthy" {
+		t.Errorf("expected HealthStatus 'healthy', got %q", parsed.HealthStatus)
+	}
+	if parsed.HealthTest != "CMD wget -q -O /dev/null -T 3 http://localhost:3000/serverInfo" {
+		t.Errorf("expected HealthTest match, got %q", parsed.HealthTest)
+	}
+	if parsed.HealthInterval != "30s" || parsed.HealthTimeout != "5s" || parsed.HealthRetries != "3" {
+		t.Errorf("health timing parameters mismatch: %s / %s / %s", parsed.HealthInterval, parsed.HealthTimeout, parsed.HealthRetries)
 	}
 }
