@@ -59,3 +59,31 @@ func TestTermDimensionsAndSync(t *testing.T) {
 	SyncTerm()
 	SafeClear()
 }
+
+func TestTermDimensionsFallback(t *testing.T) {
+	// When tb.IsInit is false, TermDimensions must return cached/default dimensions
+	w, h := TermDimensions()
+	if w <= 0 || h <= 0 {
+		t.Errorf("expected positive fallback dimensions, got w=%d, h=%d", w, h)
+	}
+
+	// Verify custom atomic values
+	origW, origH := lastW.Load(), lastH.Load()
+	defer func() {
+		lastW.Store(origW)
+		lastH.Store(origH)
+	}()
+
+	lastW.Store(140)
+	lastH.Store(45)
+	if w, h := TermDimensions(); w != 140 || h != 45 {
+		t.Errorf("expected w=140, h=45, got w=%d, h=%d", w, h)
+	}
+
+	// Test zero fallback resets to 80x24
+	lastW.Store(0)
+	lastH.Store(0)
+	if w, h := TermDimensions(); w != 80 || h != 24 {
+		t.Errorf("expected default w=80, h=24 on zero, got w=%d, h=%d", w, h)
+	}
+}

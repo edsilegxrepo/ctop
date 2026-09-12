@@ -118,3 +118,101 @@ func TestLogsWidgetFilterAndSave(t *testing.T) {
 		t.Fatalf("unexpected save path filename: %s", savedPath)
 	}
 }
+
+func TestLogsWidgetIncludeExcludeFilter(t *testing.T) {
+	logsWidget := NewLogs()
+	logsWidget.SetContainerName("api-server")
+
+	logsWidget.Add(models.Log{Timestamp: time.Now(), Message: "[INFO] Server started on port 8080"})
+	logsWidget.Add(models.Log{Timestamp: time.Now(), Message: "[WARN] Cache miss for key session:123"})
+	logsWidget.Add(models.Log{Timestamp: time.Now(), Message: "[ERROR] Connection timeout to redis"})
+
+	bufferContains := func(buf *ui.Buffer, needle string) bool {
+		for y := buf.Min.Y; y < buf.Max.Y; y++ {
+			var sb strings.Builder
+			for x := buf.Min.X; x < buf.Max.X; x++ {
+				cell := buf.GetCell(image.Pt(x, y))
+				if cell.Rune != 0 {
+					sb.WriteRune(cell.Rune)
+				}
+			}
+			if strings.Contains(sb.String(), needle) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// 1. Default filter mode must be inclusive
+	if logsWidget.IsFilterExclude() {
+		t.Fatalf("expected default filter mode to be inclusive (FilterExclude=false)")
+	}
+
+	// 2. Inclusive filter for "ERROR": only ERROR line rendered
+	logsWidget.SetFilter("ERROR")
+	buf := ui.NewBuffer(image.Rect(0, 0, 120, 20))
+	logsWidget.SetRect(0, 0, 120, 20)
+	logsWidget.Draw(buf)
+
+	if !strings.Contains(logsWidget.Title, "[/filter: ERROR (include)]") {
+		t.Fatalf("expected title to show include filter mode, got: %s", logsWidget.Title)
+	}
+	if !bufferContains(buf, "Connection timeout to redis") {
+		t.Fatalf("expected ERROR log line to be present in include mode")
+	}
+	if bufferContains(buf, "Server started on port 8080") {
+		t.Fatalf("expected INFO log line to be omitted in include mode")
+	}
+	if bufferContains(buf, "Cache miss for key session:123") {
+		t.Fatalf("expected WARN log line to be omitted in include mode")
+	}
+
+	// 3. Toggle filter mode to Exclude: ERROR line excluded, INFO and WARN rendered
+	mode := logsWidget.ToggleFilterMode()
+	if !mode || !logsWidget.IsFilterExclude() {
+		t.Fatalf("expected filter mode to be exclude after ToggleFilterMode")
+	}
+
+	buf = ui.NewBuffer(image.Rect(0, 0, 120, 20))
+	logsWidget.Draw(buf)
+	if !strings.Contains(logsWidget.Title, "[/filter: ERROR (exclude)]") {
+		t.Fatalf("expected title to show exclude filter mode, got: %s", logsWidget.Title)
+	}
+	if bufferContains(buf, "Connection timeout to redis") {
+		t.Fatalf("expected ERROR log line to be excluded in exclude mode")
+	}
+	if !bufferContains(buf, "Server started on port 8080") {
+		t.Fatalf("expected INFO log line to be present in exclude mode")
+	}
+	if !bufferContains(buf, "Cache miss for key session:123") {
+		t.Fatalf("expected WARN log line to be present in exclude mode")
+	}
+
+	// 4. SetFilterExclude explicit setter
+	logsWidget.SetFilterExclude(false)
+	if logsWidget.IsFilterExclude() {
+		t.Fatalf("expected filter mode to be inclusive after SetFilterExclude(false)")
+	}
+	logsWidget.SetFilterExclude(true)
+	if !logsWidget.IsFilterExclude() {
+		t.Fatalf("expected filter mode to be exclusive after SetFilterExclude(true)")
+	}
+
+	// 5. Empty filter query in exclude mode shows all logs (does not filter anything out)
+	logsWidget.SetFilter("")
+	buf = ui.NewBuffer(image.Rect(0, 0, 120, 20))
+	logsWidget.Draw(buf)
+	if !bufferContains(buf, "Server started on port 8080") ||
+		!bufferContains(buf, "Cache miss for key session:123") ||
+		!bufferContains(buf, "Connection timeout to redis") {
+		t.Fatalf("expected all logs to be rendered when filter query is empty in exclude mode")
+	}
+
+	// 6. When filter matches all lines in exclude mode, empty state message is shown
+	logsWidget.SetFilter("e") // all 3 entries contain letter 'e'
+	buf = ui.NewBuffer(image.Rect(0, 0, 120, 20))
+	logsWidget.Draw(buf)
+	if !bufferContains(buf, "no logs left after excluding \"e\"") {
+		t.Fatalf("expected empty exclude state message in buffer")
+	}
+}

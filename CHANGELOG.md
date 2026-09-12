@@ -4,6 +4,30 @@ All notable changes to `ctop` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.6] - 2026-09-11
+
+### Added
+- **Inclusive / Exclusive Log Filter**: Added dual-mode log filtering across both TUI (`2: Logs`) and Web Dashboard, with `<Tab>` / `[x]` mode toggles in TUI (showing `[/filter: <query> (include)]` vs `(exclude)`) and an interactive `[Include/Exclude]` toggle button in the dashboard.
+- **Alphabetical Environment Variables Sorting**: Environment variables in TUI (`5: Env/Proc`) and Web Dashboard are now sorted alphabetically (case-insensitive by key) with secrets masking preserved.
+- **Main Grid `[E]` Shortcut**: Added direct hotkey `[E]` on the main container grid to jump straight to the selected container's `5: Env/Proc` view.
+- **Configurable Web Session Idle Timeout**: Added `--web-session-idle-timeout` flag (default 30m, range 1m-24h) with a sliding activity window and automated termination of SSE streams on expired sessions.
+- **Windows Interactive Shell Support**: Extended container interactive shell execution (`[s]`) to Windows hosts, suspending and restoring `termbox` cleanly.
+
+### Changed
+- **Accurate Container Port Inspection**: Refactored port discovery in `pkg/connector/docker.go` to distinguish exposed-only ports from host-published port mappings, ensuring accurate display for internal containers.
+- **PTY Terminal Dimension Synchronization**: Synchronized container PTY window sizes via `ResizeExecTTY` using host terminal dimensions during `docker exec` initialization to eliminate layout warping.
+
+### Fixed & Hardened
+- **Interactive Shell Keystroke Pollution & Drop Elimination**:
+  - Placed host `os.Stdin` into true raw mode during `docker exec` via `term.SetRawTerminal` with deferred restoration to prevent leaked ANSI CPR responses and host echo pollution.
+  - Implemented `cancellableStdin` (with self-pipe wakeup on Unix and atomic cancellation on Windows) to unblock pending `io.Copy` reads immediately upon container exit, eliminating the swallowed post-exit keystroke.
+  - Added input buffer draining (`flushTerminalInput`) on container start and exit to discard lingering terminal control sequences.
+- **Integer Overflow Protection (G115) & Audit Compliance**:
+  - Upgraded terminal dimension tracking atomics (`lastW`, `lastH`) in `theme.go` to `atomic.Int64`.
+  - Added `math.MaxInt32` bounds checking and safe descriptor storage in `cancellable_stdin_unix.go` for Linux 64-bit systems.
+
+---
+
 ## [v0.9.5] - 2026-09-09
 
 ### Added

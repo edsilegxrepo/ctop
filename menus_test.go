@@ -13,11 +13,14 @@
 package main
 
 import (
+	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/edsilegx/ctop/pkg/config"
+	"github.com/edsilegx/ctop/pkg/container"
 	ui "github.com/gizak/termui/v3"
 )
 
@@ -560,5 +563,200 @@ func TestGoroutineLeakVerification(t *testing.T) {
 	if diff := finalGoroutines - initialGoroutines; diff > 8 {
 		t.Fatalf("POTENTIAL GOROUTINE LEAK: %d goroutines remained active after tests (initial=%d, final=%d)",
 			diff, initialGoroutines, finalGoroutines)
+	}
+}
+
+type mockExecRecordingManager struct {
+	mockCursorManager
+	executedCmds [][]string
+	failUntil    int
+	callCount    int
+	customErr    error
+}
+
+func (m *mockExecRecordingManager) Exec(cmd []string) error {
+	m.callCount++
+	m.executedCmds = append(m.executedCmds, cmd)
+	if m.callCount <= m.failUntil {
+		if m.customErr != nil {
+			return m.customErr
+		}
+		return fmt.Errorf("simulated exec failure")
+	}
+	return nil
+}
+
+func TestExecShellNilCursor(t *testing.T) {
+	oldCursor := cursor
+	cursor = nil
+	defer func() { cursor = oldCursor }()
+
+	res := ExecShell()
+	if res != nil {
+		t.Fatalf("expected nil when cursor is nil, got %v", res)
+	}
+}
+
+func TestExecShellCommandSecurityAndScreenClean(t *testing.T) {
+	oldCursor := cursor
+	defer func() { cursor = oldCursor }()
+
+	recMgr := &mockExecRecordingManager{}
+	c := container.New("cid-test-shell", &mockCursorCollector{}, recMgr)
+	c.SetMeta("name", "test-shell-target")
+	c.SetMeta("state", "running")
+	c.Display = true
+
+	cursor = &GridCursor{
+		filtered:   container.Containers{c},
+		selectedID: c.Id,
+	}
+
+	res := ExecShell()
+	if res != nil {
+		t.Errorf("expected ExecShell to return nil MenuFn, got %v", res)
+	}
+
+	if len(recMgr.executedCmds) != 1 {
+		t.Fatalf("expected exactly 1 Exec call on primary command success, got %d", len(recMgr.executedCmds))
+	}
+
+	cmd := recMgr.executedCmds[0]
+	if runtime.GOOS == "windows" {
+		if len(cmd) < 2 || cmd[0] != "powershell.exe" || cmd[1] != "-NoLogo" {
+			t.Fatalf("unexpected Windows shell command: %v", cmd)
+		}
+	} else {
+		// Non-windows Linux/Unix container shell execution
+		if len(cmd) < 3 || cmd[0] != "/bin/sh" || cmd[1] != "-c" {
+			t.Fatalf("unexpected Linux shell wrapper: %v", cmd)
+		}
+
+		shellScript := cmd[2]
+
+		// 1. Security Check: Avoid /etc/passwd parsing or eval which breaks unprivileged service accounts
+		// (e.g. mysql, postgres, redis whose login shells are /sbin/nologin or /bin/false)
+		prohibitedTokens := []string{
+			"/etc/passwd",
+			"nologin",
+			"/bin/false",
+			"eval",
+			"cut -d : -f 7-",
+			"grep ^$(id -un)",
+		}
+		for _, token := range prohibitedTokens {
+			if strings.Contains(shellScript, token) {
+				t.Fatalf("SECURITY/COMPATIBILITY DEFECT: shell script contains prohibited token %q which breaks unprivileged service accounts: %s", token, shellScript)
+			}
+		}
+
+		// 2. Clean Invocation Check: Ensure no raw escape sequence injections (printf/clear) pollute the container TTY
+		if strings.Contains(shellScript, "printf") {
+			t.Errorf("shell script should not contain printf escape sequence injection: %s", shellScript)
+		}
+		if strings.Contains(shellScript, "clear") {
+			t.Errorf("shell script should not contain clear invocation: %s", shellScript)
+		}
+
+		// 3. Shell Discovery Check: Must test for bash then sh
+		if !strings.Contains(shellScript, "exec /bin/bash") && !strings.Contains(shellScript, "exec bash") {
+			t.Errorf("shell script missing exec bash: %s", shellScript)
+		}
+		if !strings.Contains(shellScript, "exec sh") {
+			t.Errorf("shell script missing exec sh fallback: %s", shellScript)
+		}
+	}
+}
+
+func TestExecShellFallbackHierarchy(t *testing.T) {
+	oldCursor := cursor
+	defer func() { cursor = oldCursor }()
+
+	// Case 1: Primary fails, 1st fallback fails, 2nd fallback succeeds
+	recMgr := &mockExecRecordingManager{failUntil: 2}
+	c := container.New("cid-test-fallback", &mockCursorCollector{}, recMgr)
+	c.SetMeta("name", "test-fallback-target")
+	c.SetMeta("state", "running")
+	c.Display = true
+
+	cursor = &GridCursor{
+		filtered:   container.Containers{c},
+		selectedID: c.Id,
+	}
+
+	_ = ExecShell()
+
+	if len(recMgr.executedCmds) != 3 {
+		t.Fatalf("expected exactly 3 attempts (primary + 2 fallbacks), got %d attempts: %v",
+			len(recMgr.executedCmds), recMgr.executedCmds)
+	}
+
+	// Case 2: All commands fail
+	recMgrAllFail := &mockExecRecordingManager{failUntil: 999}
+	cFail := container.New("cid-test-fail-all", &mockCursorCollector{}, recMgrAllFail)
+	cursor = &GridCursor{
+		filtered:   container.Containers{cFail},
+		selectedID: cFail.Id,
+	}
+
+	_ = ExecShell()
+
+	if runtime.GOOS != "windows" {
+		// 1 primary + 6 fallbacks = 7 attempts
+		if len(recMgrAllFail.executedCmds) != 7 {
+			t.Fatalf("expected 7 attempts when all fallbacks fail, got %d", len(recMgrAllFail.executedCmds))
+		}
+	} else {
+		// 1 primary + 3 fallbacks = 4 attempts
+		if len(recMgrAllFail.executedCmds) != 4 {
+			t.Fatalf("expected 4 attempts when all fallbacks fail on Windows, got %d", len(recMgrAllFail.executedCmds))
+		}
+	}
+}
+
+func TestExecShellResidualEventDraining(t *testing.T) {
+	oldCursor := cursor
+	oldUiEvents := uiEvents
+	defer func() {
+		cursor = oldCursor
+		uiEvents = oldUiEvents
+	}()
+
+	recMgr := &mockExecRecordingManager{}
+	c := container.New("cid-test-drain", &mockCursorCollector{}, recMgr)
+	c.SetMeta("name", "test-drain-target")
+	cursor = &GridCursor{
+		filtered:   container.Containers{c},
+		selectedID: c.Id,
+	}
+
+	// Preload uiEvents with residual keystrokes left over from shell exit (e.g. exit<Enter>, Ctrl+D)
+	drainChan := make(chan ui.Event, 10)
+	drainChan <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	drainChan <- ui.Event{Type: ui.KeyboardEvent, ID: "<Enter>"}
+	drainChan <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	drainChan <- ui.Event{Type: ui.KeyboardEvent, ID: "<Ctrl-d>"}
+	uiEvents = drainChan
+
+	if len(uiEvents) != 4 {
+		t.Fatalf("expected 4 residual events buffered before ExecShell, got %d", len(uiEvents))
+	}
+
+	_ = ExecShell()
+
+	// All residual keystrokes must have been drained during ExecShell exit cleanup
+	if len(uiEvents) != 0 {
+		t.Fatalf("expected uiEvents channel to be completely drained (0 events), got %d remaining events", len(uiEvents))
+	}
+
+	// Ensure new subsequent keystroke is received immediately without needing a second press
+	drainChan <- ui.Event{Type: ui.KeyboardEvent, ID: "j"}
+	select {
+	case ev := <-uiEvents:
+		if ev.ID != "j" {
+			t.Fatalf("expected immediate next key 'j', got '%s'", ev.ID)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for next keypress after draining")
 	}
 }

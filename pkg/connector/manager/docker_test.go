@@ -14,13 +14,18 @@ package manager
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/edsilegx/ctop/internal/theme"
 	api "github.com/fsouza/go-dockerclient"
 )
 
@@ -687,5 +692,243 @@ func TestDockerManagerStrictAbsolutePathRejection(t *testing.T) {
 	}
 	if err := dm.DeleteFile(""); err == nil {
 		t.Error("expected error for empty DeleteFile path")
+	}
+}
+
+func TestDockerManagerExecTtyAndStream(t *testing.T) {
+	var execCreated struct {
+		AttachStdin  bool     `json:"AttachStdin"`
+		AttachStdout bool     `json:"AttachStdout"`
+		AttachStderr bool     `json:"AttachStderr"`
+		Tty          bool     `json:"Tty"`
+		Cmd          []string `json:"Cmd"`
+		Container    string   `json:"Container"`
+	}
+	var execStarted struct {
+		Tty bool `json:"Tty"`
+	}
+	var startCalled bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/exec") && r.Method == "POST":
+			_ = json.NewDecoder(r.Body).Decode(&execCreated)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"Id":"exec-tty-test-456"}`))
+		case strings.Contains(r.URL.Path, "/exec/exec-tty-test-456/start") && r.Method == "POST":
+			startCalled = true
+			_ = json.NewDecoder(r.Body).Decode(&execStarted)
+			w.WriteHeader(http.StatusOK)
+			// Return raw terminal output without 8-byte multiplex headers to verify raw streaming
+			_, _ = w.Write([]byte("root@container:/# "))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create docker client: %v", err)
+	}
+
+	dm := NewDocker(client, "test-container-id")
+
+	testCmd := []string{"/bin/sh", "-c", "printf 'hello'"}
+	if err := dm.Exec(testCmd); err != nil {
+		t.Fatalf("unexpected Exec error: %v", err)
+	}
+
+	// Verify TTY is enabled on CreateExec
+	if !execCreated.Tty {
+		t.Error("expected Tty: true on CreateExec for interactive shell")
+	}
+	if !execCreated.AttachStdin || !execCreated.AttachStdout || !execCreated.AttachStderr {
+		t.Errorf("expected all stdio streams attached (stdin=%v, stdout=%v, stderr=%v)",
+			execCreated.AttachStdin, execCreated.AttachStdout, execCreated.AttachStderr)
+	}
+	if len(execCreated.Cmd) != len(testCmd) {
+		t.Errorf("expected Cmd length %d, got %d", len(testCmd), len(execCreated.Cmd))
+	} else {
+		for i := range testCmd {
+			if execCreated.Cmd[i] != testCmd[i] {
+				t.Errorf("expected Cmd[%d]=%s, got %s", i, testCmd[i], execCreated.Cmd[i])
+			}
+		}
+	}
+
+	if !startCalled {
+		t.Error("expected StartExec endpoint to be invoked")
+	}
+	if !execStarted.Tty {
+		t.Error("expected Tty: true on StartExec for direct PTY streaming without 8-byte multiplex headers")
+	}
+
+	// Verify error when client is nil
+	nilDm := NewDocker(nil, "test-container-id")
+	if err := nilDm.Exec(testCmd); err == nil || !strings.Contains(err.Error(), "docker client is nil") {
+		t.Errorf("expected 'docker client is nil' error, got %v", err)
+	}
+
+	// Verify error when CreateExec fails (daemon returns 500)
+	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"daemon failure"}`))
+	}))
+	defer failServer.Close()
+
+	failClient, err := api.NewClient(failServer.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	failDm := NewDocker(failClient, "test-container-id")
+	if err := failDm.Exec(testCmd); err == nil {
+		t.Error("expected error when CreateExec fails with 500")
+	}
+}
+
+func TestCancellableStdinUnblocksOnClose(t *testing.T) {
+	// Create an OS pipe to simulate a terminal/descriptor with no active input
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+
+	cs := newCancellableStdin(r)
+	defer func() { _ = cs.Close() }()
+
+	readDone := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 64)
+		_, readErr := cs.Read(buf)
+		readDone <- readErr
+	}()
+
+	// Verify Read is currently waiting
+	select {
+	case res := <-readDone:
+		t.Fatalf("expected Read to block while waiting for input, but returned early with %v", res)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Close cancellableStdin (simulating Docker container exit calling closer.Close())
+	if err := cs.Close(); err != nil {
+		t.Errorf("unexpected error on Close: %v", err)
+	}
+
+	// Read must immediately unblock with io.EOF without needing any terminal keypress
+	select {
+	case res := <-readDone:
+		if res != io.EOF {
+			t.Errorf("expected io.EOF on Close, got %v", res)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("DEADLOCK: cs.Read failed to unblock within 500ms after Close()")
+	}
+}
+
+func TestDockerManagerExecResizeTTY(t *testing.T) {
+	var resizeH, resizeW string
+	var resizeCalled bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/exec"):
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"Id":"exec-resize-100"}`))
+		case strings.Contains(r.URL.Path, "/exec/exec-resize-100/start"):
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/exec/exec-resize-100/resize"):
+			resizeCalled = true
+			resizeH = r.URL.Query().Get("h")
+			resizeW = r.URL.Query().Get("w")
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+
+	client, err := api.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	mgr := NewDocker(client, "test-resize")
+	termW, termH := theme.TermDimensions()
+
+	if err := mgr.Exec([]string{"/bin/sh"}); err != nil {
+		t.Fatalf("unexpected Exec error: %v", err)
+	}
+
+	if !resizeCalled {
+		t.Errorf("expected ResizeExecTTY to be called during Exec, but was not")
+	}
+	expectedH := strconv.Itoa(termH)
+	expectedW := strconv.Itoa(termW)
+	if resizeH != expectedH || resizeW != expectedW {
+		t.Errorf("expected dimensions h=%s, w=%s; got h=%s, w=%s", expectedH, expectedW, resizeH, resizeW)
+	}
+}
+
+func TestFlushTerminalInput(t *testing.T) {
+	// 1. Calling on invalid fd must safely return without panicking
+	flushTerminalInput(^uintptr(0))
+
+	// 2. Calling on pipe with unread data must drain/flush without blocking
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+
+	if _, err := w.Write([]byte("stray bytes\n")); err != nil {
+		t.Fatalf("failed to write to pipe: %v", err)
+	}
+
+	flushTerminalInput(r.Fd())
+}
+
+func TestCancellableStdinNormalReadAndIdempotentClose(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+
+	cs := newCancellableStdin(r)
+
+	// 1. Normal read
+	go func() {
+		_, _ = w.Write([]byte("terminal payload\n"))
+	}()
+
+	buf := make([]byte, 32)
+	n, err := cs.Read(buf)
+	if err != nil {
+		t.Fatalf("expected successful read, got error: %v", err)
+	}
+	if string(buf[:n]) != "terminal payload\n" {
+		t.Errorf("expected 'terminal payload\\n', got %q", string(buf[:n]))
+	}
+
+	// 2. Idempotent close: multiple calls must succeed without panicking
+	for i := 0; i < 3; i++ {
+		if err := cs.Close(); err != nil {
+			t.Errorf("Close iteration %d returned error: %v", i, err)
+		}
+	}
+
+	// 3. Subsequent reads after Close must return immediately with io.EOF
+	n2, err2 := cs.Read(buf)
+	if n2 != 0 || err2 != io.EOF {
+		t.Errorf("expected 0, io.EOF after close, got n=%d, err=%v", n2, err2)
 	}
 }

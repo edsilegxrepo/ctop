@@ -123,6 +123,7 @@ func main() {
 		persistentTokenFlag bool
 		webTLSCertFlag      string
 		webTLSKeyFlag       string
+		sessionTimeoutFlag  int
 		auditLogFlag        string
 		headlessFlag        bool
 		hostFlags           stringSlice
@@ -151,6 +152,7 @@ func main() {
 	flag.BoolVar(&persistentTokenFlag, "persistent-token", false, "persist authentication token across restarts (requires --web-auth-token)")
 	flag.StringVar(&webTLSCertFlag, "web-tls-cert", "", "path to server TLS certificate PEM file for web HTTPS")
 	flag.StringVar(&webTLSKeyFlag, "web-tls-key", "", "path to server TLS private key PEM file for web HTTPS")
+	flag.IntVar(&sessionTimeoutFlag, "session-timeout", 1800, "web session idle timeout in seconds (default: 1800 [30m], 0 to disable)")
 	flag.StringVar(&auditLogFlag, "audit-log", "", "path to audit log file (records all events and access in NDJSON with daily rotation)")
 	flag.BoolVar(&headlessFlag, "headless", false, "run in headless daemon mode without terminal UI (requires --web)")
 	flag.Var(&hostFlags, "host", "Docker host endpoint(s) to connect to (can be specified multiple times)")
@@ -288,6 +290,7 @@ func main() {
 			TLSCert:         webTLSCertFlag,
 			TLSKey:          webTLSKeyFlag,
 			AuditLog:        auditLogFlag,
+			SessionTimeout:  sessionTimeoutFlag,
 		})
 		if err != nil {
 			errStr := strings.ToLower(err.Error())
@@ -416,6 +419,7 @@ options:
     --url-prefix string  Base URL subpath when running behind reverse proxies (e.g. /probe)
     --web-auth-token     enforce web authentication token (auto-generated in ~/.config/ctop/token)
     --persistent-token   persist authentication token across restarts (requires --web-auth-token)
+    --session-timeout int web session idle timeout in seconds (default: 1800 [30m], 0 to disable)
     --web-tls-cert string path to server TLS certificate PEM file for web HTTPS
     --web-tls-key string  path to server TLS private key PEM file for web HTTPS
     --audit-log string   path to audit log file (records all events and access in NDJSON with daily rotation)

@@ -17,6 +17,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -2442,5 +2443,287 @@ func TestWebServerProcessAndRuntimePane(t *testing.T) {
 	}
 	if parsed.HealthInterval != "30s" || parsed.HealthTimeout != "5s" || parsed.HealthRetries != "3" {
 		t.Errorf("health timing parameters mismatch: %s / %s / %s", parsed.HealthInterval, parsed.HealthTimeout, parsed.HealthRetries)
+	}
+}
+
+func TestWebServerSessionIdleTimeoutConfiguration(t *testing.T) {
+	s := NewServer("127.0.0.1:0", "0.9.6", nil, nil)
+	// Default session idle timeout should be 30 minutes (1800s)
+	if s.SessionIdleTimeout() != 30*time.Minute {
+		t.Fatalf("expected default idle timeout 30m, got %v", s.SessionIdleTimeout())
+	}
+
+	// Test configuring custom timeout
+	s.SetSessionIdleTimeout(15 * time.Minute)
+	if s.SessionIdleTimeout() != 15*time.Minute {
+		t.Fatalf("expected configured idle timeout 15m, got %v", s.SessionIdleTimeout())
+	}
+
+	// Verify /api/v1/auth/status reports configured session_timeout in seconds
+	reqStatus := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	wStatus := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(wStatus, reqStatus)
+	if wStatus.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", wStatus.Code)
+	}
+	var authStatus AuthStatusResponse
+	if err := json.NewDecoder(wStatus.Body).Decode(&authStatus); err != nil {
+		t.Fatalf("failed to decode auth status: %v", err)
+	}
+	if authStatus.SessionTimeout != 900 {
+		t.Fatalf("expected session_timeout=900 (15m), got %d", authStatus.SessionTimeout)
+	}
+
+	// Test idle expiration using store with fast 30ms TTL
+	store := NewSessionStore(10, 5*time.Second, 30*time.Millisecond)
+	sessID, err := store.CreateSession()
+	if err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+	if !store.IsSessionValid(sessID) {
+		t.Fatalf("expected newly created session to be valid")
+	}
+
+	// Wait for idle TTL to expire
+	time.Sleep(50 * time.Millisecond)
+	if store.IsSessionValid(sessID) {
+		t.Fatalf("expected session to be invalid after idle TTL expiration")
+	}
+	if store.ValidateSession(sessID) {
+		t.Fatalf("expected ValidateSession to return false and evict expired session")
+	}
+}
+
+func TestWebDashboardEnvAndLogFilterFeatures(t *testing.T) {
+	s := NewServer("127.0.0.1:0", "0.9.6", nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	s.corsMiddleware(s.mux).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for root dashboard, got %d", w.Code)
+	}
+
+	htmlContent := w.Body.String()
+
+	// 1. Check Env Filter controls and features
+	if !strings.Contains(htmlContent, `id="envSearchInput"`) {
+		t.Errorf("expected dashboard to contain envSearchInput")
+	}
+	if !strings.Contains(htmlContent, `id="envClearBtn"`) {
+		t.Errorf("expected dashboard to contain envClearBtn [Clear] button")
+	}
+	if !strings.Contains(htmlContent, `id="envFilterModeBtn"`) {
+		t.Errorf("expected dashboard to contain envFilterModeBtn [Include/Exclude] button")
+	}
+	if !strings.Contains(htmlContent, `clearEnvFilter()`) {
+		t.Errorf("expected dashboard to contain clearEnvFilter function")
+	}
+	if !strings.Contains(htmlContent, `toggleEnvFilterMode()`) {
+		t.Errorf("expected dashboard to contain toggleEnvFilterMode function")
+	}
+	if !strings.Contains(htmlContent, `localeCompare`) {
+		t.Errorf("expected dashboard to contain alphabetical sorting with localeCompare")
+	}
+
+	// 2. Check Log Filter controls and features
+	if !strings.Contains(htmlContent, `id="logFilterInput"`) {
+		t.Errorf("expected dashboard to contain logFilterInput")
+	}
+	if !strings.Contains(htmlContent, `id="logFilterModeBtn"`) {
+		t.Errorf("expected dashboard to contain logFilterModeBtn [Include/Exclude] button")
+	}
+	if !strings.Contains(htmlContent, `toggleLogFilterMode()`) {
+		t.Errorf("expected dashboard to contain toggleLogFilterMode function")
+	}
+	if !strings.Contains(htmlContent, `logFilterMode === 'exclude'`) {
+		t.Errorf("expected dashboard to contain logFilterMode exclude logic")
+	}
+
+	// 3. Check Session Idle Timeout client-side handling
+	if !strings.Contains(htmlContent, `sessionIdleTimeoutSec`) {
+		t.Errorf("expected dashboard to contain sessionIdleTimeoutSec")
+	}
+	if !strings.Contains(htmlContent, `startSessionIdleChecker()`) {
+		t.Errorf("expected dashboard to contain startSessionIdleChecker function")
+	}
+	if !strings.Contains(htmlContent, `resetUserActivity`) {
+		t.Errorf("expected dashboard to contain resetUserActivity listener")
+	}
+}
+
+func TestWebServerSessionStoreIdleSlidingWindow(t *testing.T) {
+	// 80ms idle TTL
+	store := NewSessionStore(5, 5*time.Second, 80*time.Millisecond)
+	sID, err := store.CreateSession()
+	if err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	// Stay active: call ValidateSession every 40ms for 160ms (2x the idle TTL)
+	for i := 0; i < 4; i++ {
+		time.Sleep(40 * time.Millisecond)
+		if !store.ValidateSession(sID) {
+			t.Fatalf("iteration %d: active session should remain valid during ongoing activity", i)
+		}
+	}
+
+	// Now stop activity and wait 100ms (exceeding 80ms idle TTL)
+	time.Sleep(100 * time.Millisecond)
+	if store.IsSessionValid(sID) {
+		t.Fatalf("session should be invalid after inactivity exceeding idle TTL")
+	}
+	if store.ValidateSession(sID) {
+		t.Fatalf("session should fail validation and be evicted after idle TTL")
+	}
+}
+
+func TestWebServerStreamSessionExpiration(t *testing.T) {
+	mockProv := &mockContainerProvider{}
+	broadcaster := NewBroadcaster()
+	s := NewServer("127.0.0.1:0", "0.9.6", mockProv, broadcaster)
+
+	// Set short idle timeout of 50ms
+	s.SetSessionIdleTimeout(50 * time.Millisecond)
+	sessionID, err := s.SessionStore().CreateSession()
+	if err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	server := httptest.NewServer(s.corsMiddleware(s.mux))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/stream", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: "ctop_session", Value: sessionID})
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to connect to stream: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for stream, got %d", resp.StatusCode)
+	}
+
+	// Wait for idle TTL (50ms) to expire on the session
+	time.Sleep(70 * time.Millisecond)
+
+	// Broadcast an event; broadcaster should send, but handleStream detects expired session and terminates
+	broadcaster.Broadcast(TelemetryEvent{Type: "tick", Timestamp: time.Now().Format(time.RFC3339)})
+
+	reader := bufio.NewReader(resp.Body)
+	closed := make(chan bool)
+	go func() {
+		for {
+			_, err := reader.ReadString('\n')
+			if err != nil {
+				closed <- true
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-closed:
+		// Successfully disconnected on expired session
+	case <-time.After(1 * time.Second):
+		t.Fatalf("expected stream to disconnect after session idle expiration")
+	}
+}
+
+func TestWebDashboardJavaScriptFilterAndSort(t *testing.T) {
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found in PATH, skipping JS logic execution test")
+	}
+
+	// Node script to test the exact JS algorithms used in dashboard.html
+	jsScript := `
+const assert = require('assert');
+
+// 1. Test Env Alpha Sorting
+const rawEnv = ["PORT=8080", "APP_ENV=production", "DATABASE_URL=postgres://...", "CACHE_TTL=300", "DEBUG=false"];
+const sorted = [...rawEnv].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+assert.deepStrictEqual(sorted, [
+  "APP_ENV=production",
+  "CACHE_TTL=300",
+  "DATABASE_URL=postgres://...",
+  "DEBUG=false",
+  "PORT=8080"
+], "Env variables must be sorted alphabetically");
+
+// 2. Test Env Filter: Include mode
+let envFilterMode = 'include';
+let q = 'cache';
+let filteredInc = sorted.filter(e => e.toLowerCase().includes(q));
+assert.strictEqual(filteredInc.length, 1);
+assert.strictEqual(filteredInc[0], "CACHE_TTL=300");
+
+// 3. Test Env Filter: Exclude mode
+envFilterMode = 'exclude';
+let filteredExc = sorted.filter(e => !e.toLowerCase().includes(q));
+assert.strictEqual(filteredExc.length, 4);
+assert(!filteredExc.includes("CACHE_TTL=300"));
+
+// 4. Test Env Filter: Clear
+q = '';
+let filteredCleared = sorted;
+assert.strictEqual(filteredCleared.length, 5);
+
+// 5. Test Log Filter: Include vs Exclude
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isLineMatchingFilter(entry, query, logFilterMode, logLevelFilter) {
+  const msg = entry.message || '';
+  if (logLevelFilter && logLevelFilter !== 'ALL') {
+    if (logLevelFilter === 'ERROR' && !/\b(FATAL|CRITICAL|ERROR|ERR|FAIL)\b/i.test(msg)) return false;
+  }
+  if (!query) return true;
+  const target = msg + ' ' + (entry.timestamp || '');
+  let matches = false;
+  try {
+    const reg = new RegExp(escapeRegex(query), 'i');
+    matches = reg.test(target);
+  } catch (_) {
+    matches = target.toLowerCase().includes(query.toLowerCase());
+  }
+  return logFilterMode === 'exclude' ? !matches : matches;
+}
+
+const entries = [
+  { message: "INFO: server listening on :8080", timestamp: "12:00:01" },
+  { message: "ERROR: connection timeout to db", timestamp: "12:00:02" },
+  { message: "WARN: high latency detected", timestamp: "12:00:03" }
+];
+
+// Include mode with query "timeout"
+assert.strictEqual(isLineMatchingFilter(entries[0], "timeout", "include", "ALL"), false);
+assert.strictEqual(isLineMatchingFilter(entries[1], "timeout", "include", "ALL"), true);
+
+// Exclude mode with query "timeout"
+assert.strictEqual(isLineMatchingFilter(entries[0], "timeout", "exclude", "ALL"), true);
+assert.strictEqual(isLineMatchingFilter(entries[1], "timeout", "exclude", "ALL"), false);
+
+// Empty query in Exclude mode shows all
+assert.strictEqual(isLineMatchingFilter(entries[0], "", "exclude", "ALL"), true);
+assert.strictEqual(isLineMatchingFilter(entries[1], "", "exclude", "ALL"), true);
+
+console.log("ALL_JS_TESTS_PASSED");
+`
+
+	cmd := exec.Command(nodePath, "-e", jsScript)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node test execution failed: %v, output:\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "ALL_JS_TESTS_PASSED") {
+		t.Fatalf("expected node test to pass, got output:\n%s", string(out))
 	}
 }

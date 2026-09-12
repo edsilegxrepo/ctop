@@ -58,6 +58,7 @@ func TestPrintHelp(t *testing.T) {
 		"--web-tls-cert",
 		"--web-tls-key",
 		"--url-prefix",
+		"--session-timeout",
 		"--headless",
 		"--audit-log",
 	}

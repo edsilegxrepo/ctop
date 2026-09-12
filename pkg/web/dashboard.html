@@ -1139,8 +1139,37 @@
       border: 1px solid var(--card-border);
       border-radius: 6px;
       padding: 0.2rem 0.5rem;
-      flex: 1 1 240px;
-      max-width: 420px;
+      flex: 1 1 260px;
+      max-width: 480px;
+    }
+    .filter-mode-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: var(--text-dim);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      font-family: var(--font-sans);
+    }
+    .filter-mode-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--text);
+    }
+    .filter-mode-btn.mode-exclude,
+    .toggle-btn.mode-exclude {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+    .filter-mode-btn.mode-exclude:hover,
+    .toggle-btn.mode-exclude:hover {
+      background: rgba(239, 68, 68, 0.25);
+      color: #fca5a5;
     }
     .logs-filter-box input {
       background: transparent;
@@ -1735,6 +1764,7 @@
             <div class="logs-filter-box">
               <span class="logs-filter-icon">&#x1F50D;</span>
               <input type="text" id="logFilterInput" placeholder="Filter logs (regex or text, press / to focus)..." oninput="handleLogFilterInput()" />
+              <button id="logFilterModeBtn" class="filter-mode-btn" onclick="toggleLogFilterMode()" title="Toggle filter mode: Include matching lines vs Exclude matching lines (default: Include)">Include</button>
               <span id="logFilterMatchBadge" class="filter-match-badge" style="display:none;">0 matches</span>
               <button class="icon-ctrl-btn" id="logSearchPrevBtn" onclick="navigateLogSearch(-1)" title="Previous match (Shift+Enter)">&#x25B2;</button>
               <button class="icon-ctrl-btn" id="logSearchNextBtn" onclick="navigateLogSearch(1)" title="Next match (Enter)">&#x25BC;</button>
@@ -1938,6 +1968,8 @@
           </div>
           <div class="env-search-row">
             <input type="text" id="envSearchInput" class="search-input" style="flex:1;" placeholder="Filter environment variables (sensitive secrets sanitized)..." />
+            <button id="envFilterModeBtn" class="toggle-btn" onclick="toggleEnvFilterMode()" title="Toggle filter mode: Include vs Exclude (default: Include)">Include</button>
+            <button id="envClearBtn" class="toggle-btn" onclick="clearEnvFilter()" title="Clear filter">Clear</button>
             <button class="toggle-btn" onclick="copyAllEnv()">Copy All Env</button>
           </div>
           <div class="env-table-wrap fill-table-wrap">
@@ -2582,7 +2614,8 @@
 
     function copyAllEnv() {
       if (!selectedContainerData || !selectedContainerData.env) return;
-      copyText(selectedContainerData.env.map(sanitizeEnvLine).join('\n'), 'Environment variables copied to clipboard');
+      const sorted = [...selectedContainerData.env].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      copyText(sorted.map(sanitizeEnvLine).join('\n'), 'Environment variables copied to clipboard');
     }
 
     function formatUptimeSeconds(sec) {
@@ -3070,6 +3103,7 @@
     let logShowTime = true;
     let logWrap = false;
     let logFilterQuery = '';
+    let logFilterMode = 'include'; // 'include' or 'exclude'
     let logLevelFilter = 'ALL';
     let logSearchMatches = [];
     let currentSearchMatchIndex = -1;
@@ -3253,7 +3287,7 @@
           const matches = isLineMatchingFilter(entry, logFilterQuery);
           if (!matches) {
             lineEl.classList.add('filtered-out');
-          } else if (logFilterQuery) {
+          } else if (logFilterQuery && logFilterMode !== 'exclude') {
             try {
               const regex = new RegExp(`(${escapeRegex(logFilterQuery)})`, 'gi');
               msgHtml = msgHtml.replace(regex, '<mark class="log-search-match">$1</mark>');
@@ -3383,12 +3417,25 @@
       }
       if (!query) return true;
       const target = msg + ' ' + (entry.timestamp || '');
+      let matches = false;
       try {
         const reg = new RegExp(escapeRegex(query), 'i');
-        return reg.test(target);
+        matches = reg.test(target);
       } catch (_) {
-        return target.toLowerCase().includes(query.toLowerCase());
+        matches = target.toLowerCase().includes(query.toLowerCase());
       }
+      return logFilterMode === 'exclude' ? !matches : matches;
+    }
+
+    function toggleLogFilterMode() {
+      logFilterMode = logFilterMode === 'include' ? 'exclude' : 'include';
+      const btn = document.getElementById('logFilterModeBtn');
+      if (btn) {
+        btn.textContent = logFilterMode === 'include' ? 'Include' : 'Exclude';
+        btn.classList.toggle('mode-exclude', logFilterMode === 'exclude');
+        btn.title = logFilterMode === 'include' ? 'Filter Mode: Include matching lines (click for Exclude)' : 'Filter Mode: Exclude matching lines (click for Include)';
+      }
+      applyLogFilter();
     }
 
     function handleLogFilterInput() {
@@ -3423,13 +3470,13 @@
           if (matches) {
             line.classList.remove('filtered-out');
             visibleCount++;
-            if (logFilterQuery) {
+            if (logFilterQuery && logFilterMode !== 'exclude') {
               logSearchMatches.push(line);
             }
             const msgSpan = line.querySelector('.log-msg');
             if (msgSpan) {
               let html = ansiToHtml(entry.message);
-              if (logFilterQuery) {
+              if (logFilterQuery && logFilterMode !== 'exclude') {
                 try {
                   const regex = new RegExp(`(${escapeRegex(logFilterQuery)})`, 'gi');
                   html = html.replace(regex, '<mark class="log-search-match">$1</mark>');
@@ -3447,7 +3494,11 @@
       if (badge) {
         if (logFilterQuery) {
           badge.style.display = 'inline-block';
-          badge.textContent = `${visibleCount} match${visibleCount === 1 ? '' : 'es'}`;
+          if (logFilterMode === 'exclude') {
+            badge.textContent = `${visibleCount} kept`;
+          } else {
+            badge.textContent = `${visibleCount} match${visibleCount === 1 ? '' : 'es'}`;
+          }
         } else {
           badge.style.display = 'none';
         }
@@ -4413,16 +4464,47 @@
       `).join('');
     }
 
+    let envFilterMode = 'include'; // 'include' or 'exclude'
+
+    function toggleEnvFilterMode() {
+      envFilterMode = envFilterMode === 'include' ? 'exclude' : 'include';
+      const btn = document.getElementById('envFilterModeBtn');
+      if (btn) {
+        btn.textContent = envFilterMode === 'include' ? 'Include' : 'Exclude';
+        btn.classList.toggle('mode-exclude', envFilterMode === 'exclude');
+        btn.classList.toggle('active', envFilterMode === 'exclude');
+        btn.title = envFilterMode === 'include' ? 'Filter Mode: Include matches (click for Exclude)' : 'Filter Mode: Exclude matches (click for Include)';
+      }
+      renderEnvTable();
+    }
+
+    function clearEnvFilter() {
+      const input = document.getElementById('envSearchInput');
+      if (input) input.value = '';
+      renderEnvTable();
+    }
+
     function renderEnvTable() {
       const tbody = document.getElementById('envTableBody');
-      const q = (document.getElementById('envSearchInput').value || '').toLowerCase();
+      const input = document.getElementById('envSearchInput');
+      const q = (input ? input.value : '').trim().toLowerCase();
       if (!selectedContainerData || !selectedContainerData.env || selectedContainerData.env.length === 0) {
         tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1rem;">No environment variables found</td></tr>`;
         return;
       }
-      const filtered = selectedContainerData.env.filter(e => e.toLowerCase().includes(q));
+      // Alpha sort environment variables
+      const sorted = [...selectedContainerData.env].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      let filtered = sorted;
+      if (q) {
+        if (envFilterMode === 'exclude') {
+          filtered = sorted.filter(e => !e.toLowerCase().includes(q));
+        } else {
+          filtered = sorted.filter(e => e.toLowerCase().includes(q));
+        }
+      }
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1rem;">No variables matching "${q}"</td></tr>`;
+        const msg = envFilterMode === 'exclude' ? `All variables match exclude filter "${q}"` : `No variables matching "${q}"`;
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; color:var(--text-muted); padding:1rem;">${msg}</td></tr>`;
         return;
       }
       tbody.innerHTML = filtered.map(item => {
@@ -4877,6 +4959,8 @@
         hideAuthModal();
         input.value = '';
         document.getElementById('logoutBtn').style.display = 'inline-flex';
+        resetUserActivity();
+        startSessionIdleChecker();
         initSSE();
       } catch (err) {
         errEl.textContent = 'Network or connection error. Ensure ctop is running.';
@@ -4902,6 +4986,37 @@
       showAuthModal('Logged out successfully.');
     }
 
+    let sessionIdleTimeoutSec = 1800; // 30 minutes default
+    let lastUserActivityTime = Date.now();
+    let sessionIdleCheckTimer = null;
+
+    function resetUserActivity() {
+      lastUserActivityTime = Date.now();
+    }
+
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(evt => {
+      window.addEventListener(evt, resetUserActivity, { passive: true });
+    });
+
+    function startSessionIdleChecker() {
+      if (sessionIdleCheckTimer) clearInterval(sessionIdleCheckTimer);
+      sessionIdleCheckTimer = setInterval(() => {
+        if (sessionIdleTimeoutSec <= 0) return;
+        const idleDuration = (Date.now() - lastUserActivityTime) / 1000;
+        if (idleDuration >= sessionIdleTimeoutSec) {
+          const logoutBtn = document.getElementById('logoutBtn');
+          if (logoutBtn && logoutBtn.style.display !== 'none') {
+            if (activeSSE) {
+              activeSSE.close();
+              activeSSE = null;
+            }
+            showAuthModal(`Session expired after ${Math.round(sessionIdleTimeoutSec / 60)} minutes of inactivity for security.`);
+            fetch(`${BASE_PATH}/api/v1/auth/logout`, { method: 'POST' }).catch(() => {});
+          }
+        }
+      }, 10000);
+    }
+
     async function checkAuthStatus() {
       try {
         const resp = await fetch(`${BASE_PATH}/api/v1/auth/status`);
@@ -4910,10 +5025,14 @@
           return;
         }
         const data = await resp.json();
+        if (typeof data.session_timeout === 'number') {
+          sessionIdleTimeoutSec = data.session_timeout;
+        }
         if (data.authenticated) {
           hideAuthModal();
           if (data.auth_enabled && !data.direct_local) {
             document.getElementById('logoutBtn').style.display = 'inline-flex';
+            startSessionIdleChecker();
           } else {
             document.getElementById('logoutBtn').style.display = 'none';
           }

@@ -73,7 +73,7 @@
 - **REST / SSE Dual Channel**:
   - **REST API / SSE Streams / CLI**: Authenticated via standard `Authorization: Bearer <token>` headers.
   - **Web Dashboard UI**: Authenticated via an ephemeral, in-memory `ctop_session` cookie (`HttpOnly; SameSite=Strict; Secure; Max-Age=86400`).
-- **Memory-Bounded Ephemeral Session Store**: Thread-safe in-memory session store bounded at 100 concurrent sessions with Least Recently Used (LRU) eviction, a 24-hour absolute TTL, and a 2-hour idle timeout. Sessions are wiped automatically on daemon restart.
+- **Memory-Bounded Ephemeral Session Store**: Thread-safe in-memory session store bounded at 100 concurrent sessions with Least Recently Used (LRU) eviction, a 24-hour absolute TTL, and a 30-minute default configurable idle timeout (`--session-timeout`). Sessions are wiped automatically on daemon restart.
 - **Sliding-Window Login Rate Limiter**: Max 5 failed login attempts per client IP per minute; subsequent attempts receive `429 Too Many Requests` with `Retry-After: 60` headers.
 - **Constant-Time Verification**: All token and session validations enforce `crypto/subtle.ConstantTimeCompare` to eliminate timing side-channel attacks.
 - **Filesystem Security**: Tokens are stored in `~/.config/ctop/token` with strict owner-only permissions (`0400` file, `0700` directory) and cleaned up automatically on daemon shutdown.
@@ -129,6 +129,7 @@ For test specifications, defect logs, and coverage reports, see [TESTING.md](TES
 | `--persistent-token` | `bool` | `false` | Prevent token regeneration on startup; autogenerates token once and persists across restarts (requires `--web-auth-token`). |
 | `--web-tls-cert` | `string` | `""` | Path to server TLS certificate PEM file for web HTTPS. |
 | `--web-tls-key` | `string` | `""` | Path to server TLS private key PEM file for web HTTPS. |
+| `--session-timeout` | `int` | `1800` | Web session idle timeout in seconds (default: `1800` [30m]; `0` or negative to disable). |
 | `--audit-log` | `string` | `""` | Path to daily-rotated NDJSON audit log file (e.g. `/var/log/ctop/audit.ndjson`). |
 | `--headless` | `bool` | `false` | Run in headless daemon mode without terminal UI (requires `--web`). |
 
@@ -166,11 +167,12 @@ ctop --web :9090
 # Run ctop as a headless background monitoring daemon with auto-generated 64-character token
 ctop --headless --web 127.0.0.1:9090 --web-auth-token
 
-# Run ctop with native TLS 1.2+ encryption, web authentication token, and daily audit logging
+# Run ctop with native TLS 1.2+ encryption, web authentication token, session idle timeout, and daily audit logging
 ctop --headless --web :9443 \
      --web-tls-cert /path/to/server.crt \
      --web-tls-key /path/to/server.key \
      --web-auth-token \
+     --session-timeout 1800 \
      --audit-log /var/log/ctop/audit.ndjson
 ```
 
@@ -624,10 +626,10 @@ MEMORY BREAKDOWN                       METADATA
 
 The multi-tab inspector provides deep inspection across 12 specialized tabs:
 - **`[1]` Overview & Metrics**: Real-time telemetry sparklines (CPU, Memory, Net Rx/Tx, Disk I/O), memory breakdown (RSS, Cache, Swap, Kernel Memory, OOM Kill detection), and container metadata.
-- **`[2]` Live Logs**: Real-time container stdout/stderr log stream viewer with timestamp toggle, keyword filtering, and disk export.
+- **`[2]` Live Logs**: Real-time container stdout/stderr log stream viewer with timestamp toggle (`t`), runtime line wrapping (`w`), keyword filtering (`/`), Include/Exclude filter mode toggle (`x` or `<Tab>` in filter prompt), and disk export (`s`, `D`).
 - **`[3]` Volumes & Mounts**: Storage bindings table showing Destination path, Source path, Mount Type (`volume`/`bind`/`tmpfs`), and Access Mode (`rw`/`ro`).
 - **`[4]` Networking & Ports**: Network interface table (Name, IP, Gateway, MAC, Subnet), published host port bindings (`0.0.0.0:8080 -> 80/tcp`), and live TCP reachability probes for external host and internal container endpoints (`[p]` to re-probe).
-- **`[5]` Process & Env**: Runtime execution parameters, Linux Capabilities (`CapAdd`/`CapDrop`), Security Options (Seccomp, AppArmor), Healthcheck probe timeline, and environment variables with sensitive variable masking (`[u]` to toggle).
+- **`[5]` Process & Env**: Runtime execution parameters, Linux Capabilities (`CapAdd`/`CapDrop`), Security Options (Seccomp, AppArmor), Healthcheck probe timeline, and case-insensitive alphabetically sorted environment variables with sensitive variable masking (`[u]` to toggle).
 - **`[6]` Image Details**: Detailed container image metadata, layer hierarchy, labels, and tags.
 - **`[7]` In-Container Top**: Live running process table inside the container namespace (`PID`, `USER`, `TIME`, `CMD`).
 - **`[8]` Filesystem Diff**: Real-time filesystem changes on the writable layer with Added (`[A]`), Changed (`[C]`), and Deleted (`[D]`) status indicators.
@@ -640,7 +642,7 @@ The multi-tab inspector provides deep inspection across 12 specialized tabs:
 
 #### 3. Log Stream Drawer (`[l]` key)
 ```text
-Logs: web-frontend (c8a412f10a8b) ───────────────── [t] time [/] filter [s] save [D] dir [q] exit
+Logs: web-frontend (c8a412f10a8b) ───────── [t] time [w] wrap [/] filter [x] incl/excl [s] save [D] dir [q] exit
 2026-08-18T18:48:12Z [info] HTTP GET /api/v1/health 200 OK 4ms
 2026-08-18T18:48:25Z [info] Database connection pool verified healthy
 2026-08-18T18:49:01Z [info] Handling websocket broadcast to 12 clients
@@ -675,10 +677,12 @@ Directly adjust container limits and policies without container restarts or down
 | `o` | Open multi-tab container inspector (12 tabs: Overview, Logs, Mounts, Network, Env, Image, Top, Diff, Recreate, Labels, Files, Web) |
 | `v` | Open volumes & mounts inspector directly (Tab 3) |
 | `n` | Open networking & ports inspector directly (Tab 4) |
+| `E` | Open process & env inspector directly (Tab 5) |
 | `p` | Re-run live TCP port reachability probes (in Network tab) |
 | `F` | Open interactive in-container file explorer & text previewer directly (Tab F) |
 | `W` / `w` | Open in-terminal web service inspector directly (Tab W) |
-| `l` | Open live container log drawer (`t` timestamps, `/` filter, `s` save, `D` dir, `q` close) |
+| `l` | Open live container log viewer (`t` timestamps, `w` wrap, `/` filter, `x` toggle incl/excl, `s` save, `D` dir, `q` close) |
+| `x` (in logs) | Toggle log filter mode between Include (matching lines) and Exclude (invert matches) |
 | `X` / `x` | Export container diagnostic report directly (JSON/Text) |
 | `U` | Open live resource hot-tuning dialog (Memory limit MB, CPU quota, Restart policy) |
 | `k` (in menu) | Open granular POSIX signal menu inside container action menu (`<Enter>` -> `[k]`) |

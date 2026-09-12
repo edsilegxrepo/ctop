@@ -399,6 +399,7 @@ type WebOptions struct {
 	TLSCert         string
 	TLSKey          string
 	AuditLog        string
+	SessionTimeout  int
 }
 
 func startWebServer(addr, version, urlPrefix string, cSuper *connector.ConnectorSuper, opts ...WebOptions) (*web.Server, func(), error) {
@@ -483,6 +484,12 @@ func startWebServer(addr, version, urlPrefix string, cSuper *connector.Connector
 
 	if opt.TLSCert != "" && opt.TLSKey != "" {
 		srv.SetTLS(opt.TLSCert, opt.TLSKey)
+	}
+
+	if opt.SessionTimeout > 0 {
+		srv.SetSessionIdleTimeout(time.Duration(opt.SessionTimeout) * time.Second)
+	} else if opt.SessionTimeout < 0 {
+		srv.SetSessionIdleTimeout(0)
 	}
 
 	if err := srv.Start(); err != nil {

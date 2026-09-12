@@ -80,7 +80,7 @@ func TestSingleViewNavigation(t *testing.T) {
 		keys []string
 	}{
 		{"Metrics", SingleView, []string{"j", "k", "h", "l", "<Tab>", "<BackTab>", "1", "u", "X", "2", "3", "4", "5", "6", "7", "8", "9", "0", "F", "1", "q"}},
-		{"Logs", SingleViewLogs, []string{"j", "k", "l", "t", "w", "W", "s", "g", "G", "D", "t", "m", "p", "<Enter>", "<Tab>", "q"}},
+		{"Logs", SingleViewLogs, []string{"j", "k", "l", "t", "w", "W", "s", "x", "/", "<Tab>", "e", "r", "r", "<Enter>", "x", "g", "G", "D", "t", "m", "p", "<Enter>", "<Tab>", "q"}},
 		{"Volumes", SingleViewVolumes, []string{"j", "k", "v", "<Tab>", "q"}},
 		{"Network", SingleViewNetwork, []string{"j", "k", "n", "p", "<Tab>", "q"}},
 		{"Process", SingleViewProcess, []string{"j", "k", "E", "u", "<Tab>", "q"}},
@@ -195,6 +195,52 @@ func TestDisplayLoop(t *testing.T) {
 		mEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"} // safety exit fallback
 		uiEvents = mEvents
 		_ = Display()
+	}
+}
+
+func TestGridShortcutESingleViewProcess(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Logf("recovered: %v", r)
+		}
+		header = nil
+		status = nil
+		cGrid = nil
+		cursor = nil
+	}()
+
+	tempCfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tempCfg)
+	config.Init()
+	header = widgets.NewCTopHeader()
+	status = widgets.NewStatusLine()
+	cGrid = compact.NewCompactGrid()
+	mockContainers := createMockContainers(3)
+	cursor = &GridCursor{
+		filtered:   mockContainers,
+		selectedID: mockContainers[0].Id,
+	}
+
+	// 1. Press "E" to open SingleViewProcess, "q" to exit back to grid
+	mockEvents := make(chan ui.Event, 10)
+	mockEvents <- ui.Event{Type: ui.ResizeEvent}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "E"}
+	mockEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"} // exits SingleViewProcess
+	uiEvents = mockEvents
+
+	exit := Display()
+	if exit {
+		t.Fatal("expected Display to return false (remain in main grid) after exiting SingleViewProcess")
+	}
+
+	// 2. Press "q" on main grid to exit app
+	exitEvents := make(chan ui.Event, 10)
+	exitEvents <- ui.Event{Type: ui.KeyboardEvent, ID: "q"}
+	uiEvents = exitEvents
+
+	exit = Display()
+	if !exit {
+		t.Fatal("expected Display to return true when exiting ctop from main grid via 'q'")
 	}
 }
 

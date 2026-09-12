@@ -25,11 +25,13 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edsilegx/ctop/internal/cwidgets"
 	"github.com/edsilegx/ctop/internal/cwidgets/single"
@@ -60,6 +62,7 @@ var helpDialog = []menu.Item{
 	{Val: "[l]     - open container logs tab (Tab 2)", Label: "[l]     - open container logs tab (Tab 2)"},
 	{Val: "[v]     - open volumes & mounts tab (Tab 3)", Label: "[v]     - open volumes & mounts tab (Tab 3)"},
 	{Val: "[n]     - open networking & ports tab (Tab 4)", Label: "[n]     - open networking & ports tab (Tab 4)"},
+	{Val: "[E]     - open process & env tab (Tab 5)", Label: "[E]     - open process & env tab (Tab 5)"},
 	{Val: "[i]     - open image details tab (Tab 6)", Label: "[i]     - open image details tab (Tab 6)"},
 	{Val: "[F]     - in-container file explorer (Tab F)", Label: "[F]     - in-container file explorer (Tab F)"},
 	{Val: "[X]     - export container diagnostic report (JSON/Text)", Label: "[X]     - export container diagnostic report (JSON/Text)"},
@@ -1158,30 +1161,85 @@ func ExecShell() MenuFn {
 		return nil
 	}
 
+	wasInit := tb.IsInit
+	if wasInit {
+		tb.Close()
+		defer func() {
+			if !tb.IsInit {
+				_ = tb.Init()
+				tb.SetInputMode(tb.InputEsc)
+				tb.HideCursor()
+				_ = tb.Sync()
+				RedrawRows(true)
+			}
+		}()
+		// Clean the screen and reset cursor to (1, 1) on the host terminal before entering the container shell
+		_, _ = os.Stdout.WriteString("\033[H\033[2J")
+	}
+
 	var cmd []string
 	if runtime.GOOS == "windows" {
 		cmd = []string{"powershell.exe", "-NoLogo"}
 	} else {
-		cmd = []string{"/bin/sh", "-c", "printf '\\e[0m\\e[?25h' && clear && eval `grep ^$(id -un): /etc/passwd | cut -d : -f 7-`"}
+		// Launch the best interactive shell available in the container without injecting raw escape sequences.
+		// We explicitly do NOT evaluate /etc/passwd login shells because service containers (such as mysqldb, postgres,
+		// redis) configure service accounts with /sbin/nologin or /bin/false, which causes "This account is not available".
+		cmd = []string{"/bin/sh", "-c", "if [ -x /bin/bash ]; then exec /bin/bash; elif command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"}
 	}
 
 	if err := c.Exec(cmd); err != nil {
-		// Fallback to basic shell if advanced command failed
-		var fbCmd []string
+		// Fallback to basic shells if the primary shell launcher failed to execute
+		var fallbacks [][]string
 		if runtime.GOOS == "windows" {
-			fbCmd = []string{"cmd.exe"}
+			fallbacks = [][]string{
+				{"cmd.exe"},
+				{"powershell"},
+				{"cmd"},
+			}
 		} else {
-			fbCmd = []string{"/bin/sh"}
+			fallbacks = [][]string{
+				{"/bin/bash"},
+				{"/bin/sh"},
+				{"bash"},
+				{"sh"},
+				{"/bin/ash"},
+				{"ash"},
+			}
 		}
-		if fbErr := c.Exec(fbCmd); fbErr != nil {
-			log.StatusErr(fbErr)
+
+		executed := false
+		for _, fb := range fallbacks {
+			if fbErr := c.Exec(fb); fbErr == nil {
+				executed = true
+				break
+			}
+		}
+		if !executed {
+			log.StatusErr(err)
 		}
 	}
 
-	if tb.IsInit {
+	if wasInit {
+		_ = tb.Init()
+		tb.SetInputMode(tb.InputEsc)
 		tb.HideCursor()
 		_ = tb.Sync()
 	}
+
+	if uiEvents != nil {
+		// Drain residual keystrokes (e.g. exit<Enter>, Ctrl+D) captured by the terminal input
+		// reader during the interactive shell session so the next TUI keypress triggers immediately.
+		time.Sleep(20 * time.Millisecond)
+		for {
+			select {
+			case <-uiEvents:
+			default:
+				goto Drained
+			}
+		}
+	Drained:
+	}
+
 	RedrawRows(true)
 	return nil
 }

@@ -3,6 +3,7 @@ package single
 import (
 	"image"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/edsilegx/ctop/internal/theme"
@@ -53,19 +54,37 @@ func (w *Env) rebuild() {
 	envs := strings.Split(w.raw, ";")
 	w.Rows = [][]string{}
 	w.data = make(map[string]string)
+
+	type envPair struct {
+		key   string
+		value string
+	}
+	var pairs []envPair
+
 	for _, env := range envs {
 		match := envPattern.FindStringSubmatch(env)
 		if len(match) == 3 {
 			key := match[1]
 			value := match[2]
 			w.data[key] = value
-
-			displayVal := value
-			if w.Masked && sanitize.IsSensitiveKey(key) && len(value) > 0 {
-				displayVal = sanitize.MaskValue
-			}
-			w.Rows = append(w.Rows, mkInfoRows(key, displayVal)...)
+			pairs = append(pairs, envPair{key: key, value: value})
 		}
+	}
+
+	sort.Slice(pairs, func(i, j int) bool {
+		ki, kj := strings.ToLower(pairs[i].key), strings.ToLower(pairs[j].key)
+		if ki == kj {
+			return pairs[i].key < pairs[j].key
+		}
+		return ki < kj
+	})
+
+	for _, p := range pairs {
+		displayVal := p.value
+		if w.Masked && sanitize.IsSensitiveKey(p.key) && len(p.value) > 0 {
+			displayVal = sanitize.MaskValue
+		}
+		w.Rows = append(w.Rows, mkInfoRows(p.key, displayVal)...)
 	}
 
 	h := len(w.Rows) + 2

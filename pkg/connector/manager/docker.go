@@ -16,8 +16,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edsilegx/ctop/internal/theme"
 	"github.com/edsilegx/ctop/pkg/models"
 	api "github.com/fsouza/go-dockerclient"
+	"github.com/moby/term"
 )
 
 type dirCacheEntry struct {
@@ -56,6 +58,10 @@ type noClosableReader struct {
 
 func (w *noClosableReader) Read(p []byte) (n int, err error) {
 	return w.Reader.Read(p)
+}
+
+func (w *noClosableReader) Close() error {
+	return nil
 }
 
 const (
@@ -124,12 +130,53 @@ func (dc *Docker) Exec(cmd []string) error {
 		return err
 	}
 
-	return dc.client.StartExec(execCmd.ID, api.StartExecOptions{
-		InputStream:  &noClosableReader{os.Stdin},
-		OutputStream: &frameWriter{os.Stdout, os.Stderr, os.Stdin},
+	inFd, inIsTerminal := term.GetFdInfo(os.Stdin)
+	if inIsTerminal {
+		oldState, termErr := term.SetRawTerminal(inFd)
+		if termErr == nil {
+			defer func() {
+				_ = term.RestoreTerminal(inFd, oldState)
+			}()
+		}
+		flushTerminalInput(inFd)
+	}
+
+	outFd, outIsTerminal := term.GetFdInfo(os.Stdout)
+	var termH, termW int
+	if outIsTerminal {
+		if ws, wErr := term.GetWinsize(outFd); wErr == nil && ws.Height > 0 && ws.Width > 0 {
+			termH = int(ws.Height)
+			termW = int(ws.Width)
+		}
+	}
+	if termH <= 0 || termW <= 0 {
+		termW, termH = theme.TermDimensions()
+	}
+
+	inStream := newCancellableStdin(os.Stdin)
+	defer func() {
+		_ = inStream.Close()
+	}()
+
+	cw, err := dc.client.StartExecNonBlocking(execCmd.ID, api.StartExecOptions{
+		InputStream:  inStream,
+		OutputStream: os.Stdout,
 		ErrorStream:  os.Stderr,
+		Tty:          true,
 		RawTerminal:  true,
 	})
+	if err != nil {
+		return err
+	}
+
+	if termW > 0 && termH > 0 {
+		_ = dc.client.ResizeExecTTY(execCmd.ID, termH, termW)
+	}
+
+	if cw != nil {
+		return cw.Wait()
+	}
+	return nil
 }
 
 func (dc *Docker) Start() error {

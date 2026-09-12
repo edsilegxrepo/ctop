@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	stdpath "path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -102,7 +103,7 @@ func NewSessionStore(maxCapacity int, absoluteTTL, idleTTL time.Duration) *Sessi
 		absoluteTTL = 24 * time.Hour
 	}
 	if idleTTL <= 0 {
-		idleTTL = 2 * time.Hour
+		idleTTL = 30 * time.Minute
 	}
 	return &SessionStore{
 		sessions:    make(map[string]*Session),
@@ -212,6 +213,39 @@ func (s *SessionStore) cleanupExpiredLocked(now time.Time) {
 			s.removeLocked(id)
 		}
 	}
+}
+
+// SetIdleTTL updates the session idle timeout duration.
+func (s *SessionStore) SetIdleTTL(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.idleTTL = d
+}
+
+// IdleTTL returns the current session idle timeout duration.
+func (s *SessionStore) IdleTTL() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.idleTTL
+}
+
+// IsSessionValid checks if a session exists and has not expired, without updating LastSeen.
+func (s *SessionStore) IsSessionValid(id string) bool {
+	if id == "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	sess, exists := s.sessions[id]
+	if !exists {
+		return false
+	}
+	now := time.Now()
+	if now.Sub(sess.CreatedAt) > s.absoluteTTL || (s.idleTTL > 0 && now.Sub(sess.LastSeen) > s.idleTTL) {
+		return false
+	}
+	return true
 }
 
 // LoginRateLimiter enforces a sliding-window failed login attempt threshold per IP.
@@ -426,7 +460,7 @@ func NewServer(addr, version string, provider ContainerProvider, broadcaster *Br
 		version:      version,
 		provider:     provider,
 		broadcaster:  broadcaster,
-		sessionStore: NewSessionStore(100, 24*time.Hour, 2*time.Hour),
+		sessionStore: NewSessionStore(100, 24*time.Hour, 30*time.Minute),
 		rateLimiter:  NewLoginRateLimiter(5, 1*time.Minute),
 		startTime:    time.Now(),
 	}
@@ -515,6 +549,21 @@ func (s *Server) AuthToken() string {
 // SessionStore returns the active in-memory session store.
 func (s *Server) SessionStore() *SessionStore {
 	return s.sessionStore
+}
+
+// SetSessionIdleTimeout configures the idle timeout for web sessions.
+func (s *Server) SetSessionIdleTimeout(d time.Duration) {
+	if s.sessionStore != nil {
+		s.sessionStore.SetIdleTTL(d)
+	}
+}
+
+// SessionIdleTimeout returns the current session idle timeout duration.
+func (s *Server) SessionIdleTimeout() time.Duration {
+	if s.sessionStore != nil {
+		return s.sessionStore.IdleTTL()
+	}
+	return 30 * time.Minute
 }
 
 // RateLimiter returns the active login rate limiter.
@@ -949,9 +998,10 @@ type LoginResponse struct {
 
 // AuthStatusResponse represents the result of querying /api/v1/auth/status.
 type AuthStatusResponse struct {
-	Authenticated bool `json:"authenticated"`
-	AuthEnabled   bool `json:"auth_enabled"`
-	DirectLocal   bool `json:"direct_local"`
+	Authenticated  bool `json:"authenticated"`
+	AuthEnabled    bool `json:"auth_enabled"`
+	DirectLocal    bool `json:"direct_local"`
+	SessionTimeout int  `json:"session_timeout"` // idle timeout in seconds
 }
 
 // handleAuthLogin authenticates a token payload, enforces rate limiting, and issues an HttpOnly session cookie.
@@ -1082,14 +1132,16 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	token := s.authToken
 	s.mu.RUnlock()
 
+	timeoutSec := int(s.SessionIdleTimeout().Seconds())
 	directLocal := isDirectLocalAccess(r)
 	if token == "" {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(AuthStatusResponse{
-			Authenticated: true,
-			AuthEnabled:   false,
-			DirectLocal:   directLocal,
+			Authenticated:  true,
+			AuthEnabled:    false,
+			DirectLocal:    directLocal,
+			SessionTimeout: timeoutSec,
 		})
 		return
 	}
@@ -1098,9 +1150,10 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(AuthStatusResponse{
-			Authenticated: true,
-			AuthEnabled:   true,
-			DirectLocal:   true,
+			Authenticated:  true,
+			AuthEnabled:    true,
+			DirectLocal:    true,
+			SessionTimeout: timeoutSec,
 		})
 		return
 	}
@@ -1113,9 +1166,10 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(AuthStatusResponse{
-				Authenticated: true,
-				AuthEnabled:   true,
-				DirectLocal:   false,
+				Authenticated:  true,
+				AuthEnabled:    true,
+				DirectLocal:    false,
+				SessionTimeout: timeoutSec,
 			})
 			return
 		}
@@ -1127,9 +1181,10 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(AuthStatusResponse{
-				Authenticated: true,
-				AuthEnabled:   true,
-				DirectLocal:   false,
+				Authenticated:  true,
+				AuthEnabled:    true,
+				DirectLocal:    false,
+				SessionTimeout: timeoutSec,
 			})
 			return
 		}
@@ -1138,9 +1193,10 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(AuthStatusResponse{
-		Authenticated: false,
-		AuthEnabled:   true,
-		DirectLocal:   false,
+		Authenticated:  false,
+		AuthEnabled:    true,
+		DirectLocal:    false,
+		SessionTimeout: timeoutSec,
 	})
 }
 
@@ -1880,7 +1936,7 @@ func (s *Server) handleContainerDetail(w http.ResponseWriter, r *http.Request) {
 				Host:   net.JoinHostPort(matchedEP.HostIP, strconv.Itoa(matchedEP.HostPort)),
 			}
 		}
-		baseURL.Path = "/" + strings.TrimPrefix(filepath.Clean(filepath.ToSlash(subpath)), "/")
+		baseURL.Path = "/" + strings.TrimPrefix(stdpath.Clean(filepath.ToSlash(subpath)), "/")
 		targetURL := baseURL.String()
 
 		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
@@ -2041,15 +2097,26 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
+	var sseSessionID string
+	if cookie, err := r.Cookie("ctop_session"); err == nil && cookie != nil {
+		sseSessionID = cookie.Value
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
+			if sseSessionID != "" && s.sessionStore != nil && !s.sessionStore.IsSessionValid(sseSessionID) {
+				return
+			}
 			_, _ = w.Write([]byte(": keepalive\n\n")) // nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter -- SSE keepalive comment
 			flusher.Flush()
 		case ev, ok := <-ch:
 			if !ok {
+				return
+			}
+			if sseSessionID != "" && s.sessionStore != nil && !s.sessionStore.IsSessionValid(sseSessionID) {
 				return
 			}
 			if data, err := json.Marshal(ev); err == nil {

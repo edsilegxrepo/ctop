@@ -551,3 +551,44 @@ func TestWebBridgeContainerLogs(t *testing.T) {
 		t.Fatal("timed out waiting for mock log entry")
 	}
 }
+
+func TestWebBridgeSessionTimeoutOption(t *testing.T) {
+	cSuper, err := connector.ByName("mock")
+	if err != nil {
+		t.Fatalf("failed to initialize mock connector: %v", err)
+	}
+
+	// 1. Default (0 in WebOptions) should preserve default 30 minutes
+	srvDef, cleanupDef, err := startWebServer("127.0.0.1:0", "0.9.6", "", cSuper)
+	if err != nil {
+		t.Fatalf("failed to start web server: %v", err)
+	}
+	defer cleanupDef()
+	if srvDef.SessionIdleTimeout() != 30*time.Minute {
+		t.Fatalf("expected default 30m idle timeout, got %v", srvDef.SessionIdleTimeout())
+	}
+
+	// 2. Custom SessionTimeout in seconds (e.g. 900s = 15m)
+	srvCustom, cleanupCustom, err := startWebServer("127.0.0.1:0", "0.9.6", "", cSuper, WebOptions{
+		SessionTimeout: 900,
+	})
+	if err != nil {
+		t.Fatalf("failed to start web server with custom timeout: %v", err)
+	}
+	defer cleanupCustom()
+	if srvCustom.SessionIdleTimeout() != 15*time.Minute {
+		t.Fatalf("expected 15m idle timeout, got %v", srvCustom.SessionIdleTimeout())
+	}
+
+	// 3. Disabled session timeout (negative value)
+	srvDis, cleanupDis, err := startWebServer("127.0.0.1:0", "0.9.6", "", cSuper, WebOptions{
+		SessionTimeout: -1,
+	})
+	if err != nil {
+		t.Fatalf("failed to start web server with disabled timeout: %v", err)
+	}
+	defer cleanupDis()
+	if srvDis.SessionIdleTimeout() != 0 {
+		t.Fatalf("expected 0 (disabled) idle timeout, got %v", srvDis.SessionIdleTimeout())
+	}
+}

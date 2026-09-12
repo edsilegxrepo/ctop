@@ -15,6 +15,7 @@ package theme
 
 import (
 	"sync"
+	"sync/atomic"
 
 	ui "github.com/gizak/termui/v3"
 	tb "github.com/nsf/termbox-go"
@@ -103,12 +104,35 @@ func InvertColorMap() {
 	ColorMap["header.bg"] = ui.ColorBlack
 }
 
+var (
+	lastW atomic.Int64
+	lastH atomic.Int64
+)
+
+func init() {
+	lastW.Store(80)
+	lastH.Store(24)
+}
+
 // TermDimensions returns terminal width and height without calling tb.Sync()
 func TermDimensions() (int, int) {
 	if !tb.IsInit {
-		return 80, 24
+		w := int(lastW.Load())
+		h := int(lastH.Load())
+		if w <= 0 {
+			w = 80
+		}
+		if h <= 0 {
+			h = 24
+		}
+		return w, h
 	}
-	return tb.Size()
+	w, h := tb.Size()
+	if w > 0 && h > 0 {
+		lastW.Store(int64(w))
+		lastH.Store(int64(h))
+	}
+	return w, h
 }
 
 // SyncTerm syncs termbox internal buffer on resize

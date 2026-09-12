@@ -335,6 +335,36 @@ func TestConnectorHelpers(t *testing.T) {
 	if u := calcUptime(stoppedInsp); u != "-" {
 		t.Fatalf("expected '-' for stopped container uptime, got '%s'", u)
 	}
+
+	// apiPortsFormat (initial container list instant population)
+	apiPList := []api.APIPort{
+		{PrivatePort: 5432, PublicPort: 5432, Type: "tcp", IP: "0.0.0.0"},
+		{PrivatePort: 80, PublicPort: 8080, Type: "tcp", IP: ""},
+		{PrivatePort: 33060, Type: "tcp"},
+	}
+	apiPF := apiPortsFormat(apiPList)
+	if !strings.Contains(apiPF, "0.0.0.0:5432 -> 5432/tcp") || !strings.Contains(apiPF, "0.0.0.0:8080 -> 80/tcp") || !strings.Contains(apiPF, "33060/tcp") {
+		t.Fatalf("unexpected apiPortsFormat result: %s", apiPF)
+	}
+
+	// containerPortsFormat fallback for stopped containers
+	stoppedHostBindings := map[api.Port][]api.PortBinding{
+		"5432/tcp": {{HostIP: "", HostPort: "5432"}},
+	}
+	stoppedExpPorts := map[api.Port]struct{}{
+		"5432/tcp": {},
+		"8080/tcp": {},
+	}
+	cpf := containerPortsFormat(nil, stoppedHostBindings, stoppedExpPorts)
+	if !strings.Contains(cpf, "0.0.0.0:5432 -> 5432/tcp") || !strings.Contains(cpf, "8080/tcp") {
+		t.Fatalf("expected stopped container to format host bindings and exposed ports, got: %s", cpf)
+	}
+
+	// containerWebPort fallback
+	cwp := containerWebPort(nil, stoppedHostBindings)
+	if cwp != "localhost:5432" {
+		t.Fatalf("expected 'localhost:5432' for stopped container webPort fallback, got '%s'", cwp)
+	}
 }
 
 func TestDockerMockServerLifecycle(t *testing.T) {

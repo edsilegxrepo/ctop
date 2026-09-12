@@ -584,6 +584,15 @@ func SingleViewWithTab(initialTab int) MenuFn {
 						ex.Logs.SetWrap(config.GetSwitchVal("logWrap"))
 						ui.Render(ex)
 						continue
+					} else if e.ID == "x" {
+						mode := ex.Logs.ToggleFilterMode()
+						if mode {
+							ex.Logs.SetStatus("✔  Filter mode: EXCLUDE (matching lines hidden)")
+						} else {
+							ex.Logs.SetStatus("✔  Filter mode: INCLUDE (only matching lines shown)")
+						}
+						ui.Render(ex)
+						continue
 					} else if e.ID == "s" || e.ID == "S" {
 						if savedFile, err := ex.Logs.SaveLogs(config.GetDownloadDir()); err != nil {
 							ex.Logs.SetStatus(fmt.Sprintf("❌  Save err: %v", err))
@@ -621,7 +630,14 @@ func SingleViewWithTab(initialTab int) MenuFn {
 						continue
 					} else if e.ID == "/" || e.ID == "f" {
 						filterInput := widgets.NewInput()
-						filterInput.Title = "Filter Logs (Press Enter to apply, Esc to clear)"
+						updateFilterTitle := func() {
+							modeStr := "include"
+							if ex.Logs.FilterExclude {
+								modeStr = "exclude"
+							}
+							filterInput.Title = fmt.Sprintf("Filter Logs [%s mode] (Tab: toggle incl/excl, Enter: apply, Esc: clear)", modeStr)
+						}
+						updateFilterTitle()
 						filterInput.Data = ex.Logs.Filter
 						tw, th := theme.TermDimensions()
 						filterInput.SetRect(0, th-3, tw, th)
@@ -639,6 +655,10 @@ func SingleViewWithTab(initialTab int) MenuFn {
 									ui.Clear()
 									ui.Render(ex)
 									break
+								} else if fe.ID == "<Tab>" || fe.ID == "<BackTab>" {
+									ex.Logs.ToggleFilterMode()
+									updateFilterTitle()
+									ui.Render(ex, filterInput)
 								} else {
 									filterInput.KeyPress(fe.ID)
 									ui.Render(ex, filterInput)
@@ -737,7 +757,7 @@ func SingleViewWithTab(initialTab int) MenuFn {
 					switchTab(single.TabWeb)
 					ui.Clear()
 					ui.Render(ex)
-				} else if (e.ID == "X" || e.ID == "x") && ex.ActiveTab != single.TabFiles {
+				} else if (e.ID == "X" || (e.ID == "x" && ex.ActiveTab != single.TabLogs)) && ex.ActiveTab != single.TabFiles {
 					report := diag.BuildReport(c.Id, c.Meta, &c.Metrics, c.HostID, c.GenerateRunCmd(), c.GenerateCompose())
 					savedPaths, err := diag.SaveReport(report, config.GetDownloadDir(), "both")
 					if err != nil {
@@ -917,6 +937,9 @@ func Display() bool {
 						goto RunMenu
 					case "n":
 						menu = SingleViewNetwork
+						goto RunMenu
+					case "E":
+						menu = SingleViewProcess
 						goto RunMenu
 					case "i", "I":
 						menu = SingleViewImage

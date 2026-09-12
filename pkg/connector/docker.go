@@ -255,6 +255,10 @@ func (cm *Docker) watchEvents() {
 				case <-cm.closed:
 					return
 				}
+				select {
+				case cm.needsRefresh <- e.ID:
+				default:
+				}
 			}
 		}
 	}
@@ -288,6 +292,70 @@ func webPort(ports map[api.Port][]api.PortBinding) string {
 		binding := v[0]
 		publishedIp := binding.HostIP
 		if publishedIp == "0.0.0.0" {
+			publishedIp = "localhost"
+		}
+		return fmt.Sprintf("%s:%s", publishedIp, binding.HostPort)
+	}
+	return ""
+}
+
+func apiPortsFormat(ports []api.APIPort) string {
+	var res []string
+	for _, p := range ports {
+		if p.PublicPort > 0 {
+			ip := p.IP
+			if ip == "" {
+				ip = "0.0.0.0"
+			}
+			res = append(res, fmt.Sprintf("%s:%d -> %d/%s", ip, p.PublicPort, p.PrivatePort, p.Type))
+		} else if p.PrivatePort > 0 {
+			res = append(res, fmt.Sprintf("%d/%s", p.PrivatePort, p.Type))
+		}
+	}
+	return strings.Join(res, "\n")
+}
+
+func containerPortsFormat(netPorts, hostBindings map[api.Port][]api.PortBinding, expPorts map[api.Port]struct{}) string {
+	if len(netPorts) > 0 {
+		return portsFormat(netPorts)
+	}
+
+	var exposed []string
+	var published []string
+	seen := make(map[api.Port]bool)
+
+	for k, v := range hostBindings {
+		seen[k] = true
+		for _, binding := range v {
+			hostIP := binding.HostIP
+			if hostIP == "" {
+				hostIP = "0.0.0.0"
+			}
+			s := fmt.Sprintf("%s:%s -> %s", hostIP, binding.HostPort, k)
+			published = append(published, s)
+		}
+	}
+
+	for k := range expPorts {
+		if !seen[k] {
+			exposed = append(exposed, string(k))
+		}
+	}
+
+	return strings.Join(append(exposed, published...), "\n")
+}
+
+func containerWebPort(netPorts, hostBindings map[api.Port][]api.PortBinding) string {
+	if wp := webPort(netPorts); wp != "" {
+		return wp
+	}
+	for _, v := range hostBindings {
+		if len(v) == 0 {
+			continue
+		}
+		binding := v[0]
+		publishedIp := binding.HostIP
+		if publishedIp == "" || publishedIp == "0.0.0.0" {
 			publishedIp = "localhost"
 		}
 		return fmt.Sprintf("%s:%s", publishedIp, binding.HostPort)
@@ -354,8 +422,20 @@ func (cm *Docker) refresh(c *container.Container) {
 	}
 	c.SetMeta("image", insp.Config.Image)
 	c.SetMeta("IPs", ipsFormat(insp.NetworkSettings.Networks))
-	c.SetMeta("ports", portsFormat(insp.NetworkSettings.Ports))
-	webPort := webPort(insp.NetworkSettings.Ports)
+	var hostBindings map[api.Port][]api.PortBinding
+	if insp.HostConfig != nil {
+		hostBindings = insp.HostConfig.PortBindings
+	}
+	var expPorts map[api.Port]struct{}
+	if insp.Config != nil {
+		expPorts = insp.Config.ExposedPorts
+	}
+	var netPorts map[api.Port][]api.PortBinding
+	if insp.NetworkSettings != nil {
+		netPorts = insp.NetworkSettings.Ports
+	}
+	c.SetMeta("ports", containerPortsFormat(netPorts, hostBindings, expPorts))
+	webPort := containerWebPort(netPorts, hostBindings)
 	if webPort != "" {
 		c.SetMeta("Web Port", webPort)
 	}
@@ -618,6 +698,9 @@ func (cm *Docker) refreshAll() {
 			}
 		}
 		c.SetState(state)
+		if len(i.Ports) > 0 {
+			c.SetMeta("ports", apiPortsFormat(i.Ports))
+		}
 		if len(i.Labels) > 0 {
 			c.SetMeta("[LABELS]", labelsFormat(i.Labels))
 			for k, v := range i.Labels {

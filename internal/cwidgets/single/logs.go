@@ -36,6 +36,7 @@ type Logs struct {
 	AutoTail      bool
 	ShowTime      bool
 	Filter        string
+	FilterExclude bool
 	StatusMsg     string
 	StatusTime    time.Time
 	Wrap          bool
@@ -45,14 +46,15 @@ type Logs struct {
 // NewLogs constructs a new Logs inspection widget.
 func NewLogs() *Logs {
 	l := &Logs{
-		Block:    *ui.NewBlock(),
-		Entries:  make([]LogEntry, 0, maxLogEntries),
-		Offset:   0,
-		AutoTail: true,
-		ShowTime: true,
-		Wrap:     config.GetSwitchVal("logWrap"),
+		Block:         *ui.NewBlock(),
+		Entries:       make([]LogEntry, 0, maxLogEntries),
+		Offset:        0,
+		AutoTail:      true,
+		ShowTime:      true,
+		FilterExclude: false,
+		Wrap:          config.GetSwitchVal("logWrap"),
 	}
-	l.Title = "LOGS [Auto-Tail | t: time | w: wrap | /: filter | s: save | D: target | ▲▼: scroll]"
+	l.Title = "LOGS [Auto-Tail | t: time | w: wrap | /: filter | x: incl/excl | s: save | D: target | ▲▼: scroll]"
 	l.BorderStyle = theme.Style("border.fg")
 	l.TitleStyle = theme.Style("label.fg")
 	l.SetRect(0, 0, colWidth[0], 6)
@@ -131,6 +133,30 @@ func (w *Logs) SetFilter(f string) {
 	defer w.mu.Unlock()
 	w.Filter = strings.TrimSpace(f)
 	w.Offset = 0
+}
+
+// ToggleFilterMode toggles between inclusive and exclusive log filtering.
+func (w *Logs) ToggleFilterMode() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.FilterExclude = !w.FilterExclude
+	w.Offset = 0
+	return w.FilterExclude
+}
+
+// SetFilterExclude sets whether the log filter is in exclude mode.
+func (w *Logs) SetFilterExclude(exclude bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.FilterExclude = exclude
+	w.Offset = 0
+}
+
+// IsFilterExclude returns whether the filter is in exclude mode.
+func (w *Logs) IsFilterExclude() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.FilterExclude
 }
 
 // Up scrolls logs up by 1 line (pauses auto-tail).
@@ -256,8 +282,14 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 		if w.ShowTime && !entry.Timestamp.IsZero() {
 			line = fmt.Sprintf("%s %s", entry.Timestamp.Format("2006-01-02 15:04:05"), entry.Message)
 		}
-		if filterLower != "" && !strings.Contains(strings.ToLower(line), filterLower) {
-			continue
+		if filterLower != "" {
+			matches := strings.Contains(strings.ToLower(line), filterLower)
+			if w.FilterExclude {
+				matches = !matches
+			}
+			if !matches {
+				continue
+			}
 		}
 		if w.Wrap {
 			chunks := splitLogLine(line, lineWidth)
@@ -282,7 +314,13 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 	// Update Title
 	filterInfo := ""
 	if w.Filter != "" {
-		filterInfo = fmt.Sprintf(" [/filter: %s]", w.Filter)
+		modeStr := "include"
+		if w.FilterExclude {
+			modeStr = "exclude"
+		}
+		filterInfo = fmt.Sprintf(" [/filter: %s (%s)]", w.Filter, modeStr)
+	} else if w.FilterExclude {
+		filterInfo = " [filter: (exclude)]"
 	}
 
 	cTag := ""
@@ -312,13 +350,13 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 	if statusActive {
 		w.Title = fmt.Sprintf("LOGS%s%s [%s]", cTag, filterInfo, w.StatusMsg)
 	} else if w.AutoTail {
-		w.Title = fmt.Sprintf("LOGS%s%s [🔴 Auto-Tail (%d/%d) | t: time | %s | /: filter | s: save | D: target | ▲▼: scroll]", cTag, filterInfo, len(w.Entries), maxLogEntries, wrapTag)
+		w.Title = fmt.Sprintf("LOGS%s%s [🔴 Auto-Tail (%d/%d) | t: time | %s | /: filter | x: incl/excl | s: save | D: target | ▲▼: scroll]", cTag, filterInfo, len(w.Entries), maxLogEntries, wrapTag)
 	} else {
 		endLine := w.Offset + visibleH
 		if endLine > len(renderedLines) {
 			endLine = len(renderedLines)
 		}
-		w.Title = fmt.Sprintf("LOGS%s%s [⏸ PAUSED %d-%d/%d | G: resume tail | t: time | %s | s: save | D: target]", cTag, filterInfo, w.Offset+1, endLine, len(renderedLines), wrapTag)
+		w.Title = fmt.Sprintf("LOGS%s%s [⏸ PAUSED %d-%d/%d | G: resume tail | t: time | %s | /: filter | x: incl/excl | s: save | D: target]", cTag, filterInfo, w.Offset+1, endLine, len(renderedLines), wrapTag)
 	}
 
 	w.Block.Draw(buf)
@@ -326,7 +364,11 @@ func (w *Logs) Draw(buf *ui.Buffer) {
 	if len(renderedLines) == 0 {
 		msg := "(no logs available)"
 		if w.Filter != "" {
-			msg = "(no logs matching filter)"
+			if w.FilterExclude {
+				msg = fmt.Sprintf("(no logs left after excluding %q)", w.Filter)
+			} else {
+				msg = fmt.Sprintf("(no logs matching filter %q)", w.Filter)
+			}
 		}
 		buf.SetString(msg, theme.Style("grid.header.fg"), image.Pt(w.Inner.Min.X+2, w.Inner.Min.Y+1))
 		return

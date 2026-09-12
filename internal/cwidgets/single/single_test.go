@@ -419,6 +419,50 @@ func TestEnvSecretMasking(t *testing.T) {
 	}
 }
 
+func TestEnvAlphaSorting(t *testing.T) {
+	env := NewEnv()
+	// Deliberately unordered, mixed case keys with sensitive keys and multi-equal values
+	raw := "ZEBRA=last;ALPHA=first;beta=second;MIDDLE=third;CHARLIE=fourth;API_KEY=secret_token;URL=https://host:8080/path?k1=v1&k2=v2"
+	env.Set(raw)
+
+	if len(env.Rows) != 7 {
+		t.Fatalf("expected 7 rows, got %d", len(env.Rows))
+	}
+
+	expectedKeys := []string{"ALPHA", "API_KEY", "beta", "CHARLIE", "MIDDLE", "URL", "ZEBRA"}
+	for i, expected := range expectedKeys {
+		if env.Rows[i][0] != expected {
+			t.Errorf("row %d: expected key %q, got %q", i, expected, env.Rows[i][0])
+		}
+	}
+
+	// Verify sensitive API_KEY is masked in sorted rows
+	if env.Rows[1][0] != "API_KEY" || env.Rows[1][1] != "•••••••••••• [masked]" {
+		t.Fatalf("expected API_KEY to be masked in sorted rows, got %s=%s", env.Rows[1][0], env.Rows[1][1])
+	}
+	// Verify multi-equal value is preserved
+	if env.Rows[5][0] != "URL" || env.Rows[5][1] != "https://host:8080/path?k1=v1&k2=v2" {
+		t.Fatalf("expected multi-equal value preserved for URL, got %s=%s", env.Rows[5][0], env.Rows[5][1])
+	}
+
+	// Verify unmasking keeps sorted order
+	env.ToggleMask()
+	for i, expected := range expectedKeys {
+		if env.Rows[i][0] != expected {
+			t.Errorf("after ToggleMask row %d: expected key %q, got %q", i, expected, env.Rows[i][0])
+		}
+	}
+	if env.Rows[1][1] != "secret_token" {
+		t.Fatalf("expected API_KEY to be unmasked after ToggleMask, got %s", env.Rows[1][1])
+	}
+
+	// Verify empty raw string edge case
+	env.Set("")
+	if len(env.Rows) != 0 {
+		t.Fatalf("expected 0 rows for empty env string, got %d", len(env.Rows))
+	}
+}
+
 func TestExplorerWidget(t *testing.T) {
 	exp := NewExplorer()
 	buf := ui.NewBuffer(image.Rect(0, 0, 100, 20))

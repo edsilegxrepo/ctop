@@ -36,7 +36,8 @@ The `ctop` security model is governed by two mandatory pillars:
 | **URL Query Parameter Leaks** | Tokens leaking into proxy access logs, browser history, or referrers. | **Strict Zero-Leak Model**: Complete rejection of `?token=` / `?auth=`. Dedicated `Authorization: Bearer` and `HttpOnly; SameSite=Strict; Secure` session cookies. |
 | **Reverse Proxy Loopback Spoofing** | Remote requests proxied via local NGINX (`127.0.0.1`) bypassing auth. | **Strict `isDirectLocalAccess` Guard**: Remote classification if any `X-Forwarded-*` / `X-Real-IP` headers are present, even if `RemoteAddr` is `127.0.0.1`. |
 | **Timing Side-Channel Attacks** | Byte-by-byte secret character matching via execution time variances. | **Constant-Time Verification**: Enforce `crypto/subtle.ConstantTimeCompare` across all secret validations. |
-| **Session Memory Exhaustion (DoS)** | Unbounded active session growth consuming daemon RAM. | **Bounded In-Memory Session Store**: Strict capacity limit (max 100 concurrent sessions), LRU eviction, and 24h absolute / 2h idle TTL. |
+| **Session Memory Exhaustion (DoS)** | Unbounded active session growth consuming daemon RAM. | **Bounded In-Memory Session Store**: Strict capacity limit (max 100 concurrent sessions), LRU eviction, 24h absolute TTL, and 30m default configurable idle timeout. |
+| **Unattended Workstation Hijacking** | Abandoned browser sessions exposed to unauthorized local operators or shoulder-surfers. | **Sliding-Window Idle Session Timeout**: Automatic 30m session expiration (configurable via `--session-timeout`), real-time SSE stream termination, and client-side modal lock. |
 | **Login Brute-Force Flooding** | Attacker flooding `/api/v1/auth/login` to exhaust CPU/socket buffers. | **In-Memory Rate Limiting**: Sliding-window rate limiter enforcing max 5 failed login attempts per IP per minute (`429 Too Many Requests`). |
 
 ---
@@ -237,10 +238,55 @@ To prevent unbounded memory growth and session fixation attacks, sessions are ma
 | **Max Capacity** | 100 concurrent active sessions | Prevents memory exhaustion attacks via session flooding. |
 | **Eviction Policy** | Least Recently Used (LRU) | Oldest inactive sessions are purged when capacity is reached. |
 | **Absolute TTL** | 24 Hours (`Max-Age=86400`) | Enforces periodic re-authentication for long-lived browsers. |
-| **Idle Timeout** | 2 Hours | Inactivates abandoned sessions automatically. |
+| **Idle Timeout** | 30 Minutes (configurable via `--session-timeout`) | Sliding-window TTL; automatically expires abandoned sessions on inactivity. |
 | **Process Lifecycle** | Ephemeral (Zero disk persistence) | All sessions are immediately invalidated on daemon restart. |
 
-### 3.3. In-Memory Login Rate Limiting & Brute-Force Guard
+### 3.3. Configurable Idle Session Timeout & Unattended Session Guard
+
+#### 1. Security Threat & Rationale
+Under **OWASP ASVS** (Session Management) and **NIST SP 800-63B** guidelines, unattended workstations and abandoned dashboard tabs represent a major attack surface for physical shoulder-surfing, credential hijacking, and unauthorized telemetry inspection.
+Because `ctop` streams real-time container metrics and process lists, leaving an authenticated session open indefinitely exposes continuous host telemetry. A sliding-window idle timeout ensures sessions and streaming connections are automatically revoked when human interaction ceases.
+
+#### 2. Runtime Configuration (`--session-timeout`)
+The idle timeout duration is configurable at startup via the `--session-timeout` CLI flag (in seconds):
+- **Default Duration**: `1800` seconds (**30 minutes**).
+- **Custom TTL**: `--session-timeout <seconds>` (e.g. `900` for 15 minutes).
+- **Disabling Timeout**: Passing `--session-timeout 0` (or negative) disables the idle timeout check completely. This is explicitly supported for dedicated NOC monitoring displays, wall boards, or kiosks where continuous display without re-authentication is required.
+
+```bash
+# Standard 30-minute idle timeout (default)
+ctop --headless --web :9090 --web-auth-token
+
+# Stricter 15-minute idle timeout (900 seconds)
+ctop --headless --web :9090 --web-auth-token --session-timeout 900
+
+# Continuous NOC wall-display / kiosk mode (idle timeout disabled)
+ctop --headless --web :9090 --web-auth-token --session-timeout 0
+```
+
+#### 3. Sliding-Window Activity Refresh Architecture
+`ctop` pairs sliding-window idle tracking with a hard absolute session lifetime:
+- **`LastSeen` Timestamp**: The thread-safe in-memory `SessionStore` tracks a `lastSeen time.Time` attribute on each active session entry.
+- **Activity Refresh**: Every authenticated HTTP request processed through `corsMiddleware` verifies `s.sessions.IsSessionValid(sessionID)`. On success, the session's `LastSeen` timestamp is updated to `time.Now()`, sliding the inactivity window forward.
+- **Server-Side Eviction**: When `time.Since(lastSeen) > idleTTL` (with `idleTTL > 0`), `IsSessionValid` immediately deletes the session entry and returns `false`. Subsequent requests receive `401 Unauthorized`.
+- **Absolute 24-Hour TTL**: Even under constant operator activity, sessions expire after 24 hours (`Max-Age=86400`), enforcing re-authentication.
+
+#### 4. Real-Time Active SSE Stream Revocation
+Traditional session implementations only evaluate expiration on incoming HTTP requests, allowing established streaming connections to remain open indefinitely. `ctop` implements active server-sent event revocation:
+- The `/api/v1/stream` SSE telemetry loop transmits periodic keepalive comments (`:keepalive\n\n`) every 15 seconds.
+- On every keepalive tick, the handler queries `s.sessions.IsSessionValid(sessionID)`.
+- If the session has expired due to idle timeout, the stream handler terminates the loop immediately, closing the response socket and severing container telemetry.
+
+#### 5. Client-Side Inactivity Tracking & Auto-Lock Modal
+The web dashboard frontend coordinates with the backend idle policy:
+- The dashboard queries `/api/v1/auth/status` at boot, receiving `{"authenticated": true, "session_timeout": 1800}`.
+- If `session_timeout > 0`, client-side event listeners track operator activity (`mousemove`, `keydown`, `click`, `scroll`, `touchstart`).
+- A 10-second ticker calculates elapsed inactivity. Once idle time reaches `session_timeout`:
+  1. The client issues a proactive `POST /api/v1/auth/logout` to evict the session and clear the `ctop_session` cookie.
+  2. The SSE stream is closed.
+  3. The dashboard displays the "Session timed out due to inactivity" unlock modal, blocking further UI interaction until the operator re-enters the authentication token.
+
+### 3.4. In-Memory Login Rate Limiting & Brute-Force Guard
 
 To protect the `POST /api/v1/auth/login` endpoint against automated credential guessing and CPU/socket exhaustion:
 - **Rate Limit Window**: Sliding window tracking failed login attempts per client IP.
@@ -248,15 +294,15 @@ To protect the `POST /api/v1/auth/login` endpoint against automated credential g
 - **Violation Policy**: Responds with `429 Too Many Requests` and a `Retry-After: 60` HTTP header.
 - **Success Reset**: Successful authentication clears the failure counter for the client IP.
 
-### 3.4. Authentication Endpoints
+### 3.5. Authentication Endpoints
 
 | Endpoint | Method | Payload | Purpose |
 | :--- | :--- | :--- | :--- |
 | `/api/v1/auth/login` | `POST` | `{"token": "..."}` | Validates token (rate-limited, constant-time), creates session, and issues `ctop_session` cookie. |
 | `/api/v1/auth/logout` | `POST` | Empty | Destroys active session from in-memory store and expires `ctop_session` cookie. |
-| `/api/v1/auth/status` | `GET` | None | Returns current authentication state (`{"authenticated": true/false}`). |
+| `/api/v1/auth/status` | `GET` | None | Returns current authentication state and idle timeout (`{"authenticated": true/false, "session_timeout": 1800}`). |
 
-### 3.5. Security Response Specifications
+### 3.6. Security Response Specifications
 
 #### 1. Unauthorized Response (`401 Unauthorized`)
 ```json
