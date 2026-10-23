@@ -1,0 +1,18 @@
+{
+  "name": "ctop",
+  "version": "0.9.6",
+  "release": "1",
+  "channel": "xg",
+  "entrypoint": ".",
+  "version_pkg": "main.version",
+  "build_pkg": "main.build",
+  "summary": "Top-like container metrics and performance monitor",
+  "description": "Concise, real-time top-like performance metrics monitor for containerized workloads.",
+  "maintainer": "Mis Center <support@criticalsys.net>",
+  "license": "MIT",
+  "url": "https://criticalsys.net",
+  "section": "utils",
+  "priority": "optional",
+  "install_path": "/usr/bin",
+  "cgo": false
+}

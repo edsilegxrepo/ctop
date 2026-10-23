@@ -7,35 +7,35 @@ require (
 	github.com/gizak/termui/v3 v3.1.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/jgautheron/codename-generator v0.0.0-20150829203204-16d037c7cc3c
-	github.com/mattn/go-runewidth v0.0.30
+	github.com/mattn/go-runewidth v0.0.31
 	github.com/moby/term v0.5.2
 	github.com/nsf/termbox-go v1.1.2
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/opencontainers/cgroups v0.1.0
 	github.com/opencontainers/runc v1.5.2
-	golang.org/x/net v0.59.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/net v0.61.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
 	cyphar.com/go-pathrs v0.2.6 // indirect
-	github.com/Azure/go-ansiterm v0.0.0-20260917205352-e937bb47801a // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/Azure/go-ansiterm v0.0.0-20261013165250-51075c6ea6bc // indirect
+	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/aperturerobotics/protobuf-go-lite v0.19.0 // indirect
-	github.com/checkpoint-restore/go-criu/v8 v8.4.0 // indirect
+	github.com/checkpoint-restore/go-criu/v8 v8.5.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/containerd/console v1.0.5 // indirect
 	github.com/containerd/log v0.2.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.7.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/godbus/dbus/v5 v5.2.2 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/godbus/dbus/v5 v5.2.4 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/moby/go-archive v0.3.3 // indirect
-	github.com/moby/moby/api v1.56.0 // indirect
-	github.com/moby/moby/client v0.6.0 // indirect
+	github.com/moby/moby/api v1.56.1 // indirect
+	github.com/moby/moby/client v0.6.2 // indirect
 	github.com/moby/patternmatcher v0.6.1 // indirect
 	github.com/moby/sys/capability v0.4.0 // indirect
 	github.com/moby/sys/mountinfo v0.7.2 // indirect

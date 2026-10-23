@@ -60,6 +60,7 @@ func ResolveDockerEndpoint() string {
 	dirName := hex.EncodeToString(hash[:])
 
 	metaPath := filepath.Clean(filepath.Join(home, ".docker", "contexts", "meta", dirName, "meta.json"))
+	// #nosec G304,G703 -- metaPath is safely constructed with sha256 hex digest under user's home directory
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return resolveDefaultSocket()

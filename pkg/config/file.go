@@ -127,6 +127,7 @@ func getConfigPath() (path string, err error) {
 	// Respect existing legacy ~/.ctop file if present
 	if homeDir != "" {
 		legacyPath := filepath.Clean(filepath.Join(homeDir, ".ctop"))
+		// #nosec G703 -- legacyPath is cleaned path within user's home directory
 		if _, statErr := os.Stat(legacyPath); statErr == nil {
 			return legacyPath, nil
 		}
