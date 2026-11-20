@@ -13,7 +13,7 @@ require (
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/opencontainers/cgroups v0.1.0
-	github.com/opencontainers/runc v1.5.2
+	github.com/opencontainers/runc v1.5.3
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
 )
@@ -37,7 +37,7 @@ require (
 	github.com/moby/moby/api v1.56.1 // indirect
 	github.com/moby/moby/client v0.6.2 // indirect
 	github.com/moby/patternmatcher v0.6.1 // indirect
-	github.com/moby/sys/capability v0.4.0 // indirect
+	github.com/moby/sys/capability v0.5.0 // indirect
 	github.com/moby/sys/mountinfo v0.7.2 // indirect
 	github.com/moby/sys/sequential v0.7.0 // indirect
 	github.com/moby/sys/user v0.4.1 // indirect
