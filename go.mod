@@ -12,7 +12,7 @@ require (
 	github.com/nsf/termbox-go v1.1.2
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
-	github.com/opencontainers/cgroups v0.1.0
+	github.com/opencontainers/cgroups v0.1.1
 	github.com/opencontainers/runc v1.5.2
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
